@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#1D0200"          # Dark Red (Buttons/Interactables)
+backgroundColor = "#A9EED1"       # Mint Green (Main Background)
+secondaryBackgroundColor = "#ffffff" # White (Sidebar/Inputs for contrast)
+textColor = "#1D0200"             # Black (Text)
+font = "sans serif"
