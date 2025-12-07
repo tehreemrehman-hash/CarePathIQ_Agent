@@ -135,8 +135,7 @@ def run_gemini_agent(agent_role, prompt, context=None):
     if not gemini_api_key:
         st.error("Authentication required.")
         return None
-    full_prompt = f"SYSTEM ROLE: You are the {agent_role} module of CarePathIQ. {context if context else ''}
-USER PROMPT: {prompt}"
+    full_prompt = f"SYSTEM ROLE: You are the {agent_role} module of CarePathIQ. {context if context else ''}\nUSER PROMPT: {prompt}"
     try:
         model = genai.GenerativeModel(model_choice)
         with st.chat_message("assistant"):
