@@ -76,17 +76,23 @@ st.set_page_config(
 st.markdown("""
 <style>
     /* 1. DEFAULT BUTTONS (Secondary) -> Dark Brown (#5D4037) */
-    div.stButton > button, div[data-testid="stButton"] > button {
+    div.stButton > button, 
+    div[data-testid="stButton"] > button,
+    div.stButton > button[kind="secondary"] {
         background-color: #5D4037 !important; 
         color: white !important;
         border: none !important;
         border-radius: 5px !important;
     }
-    div.stButton > button:hover, div[data-testid="stButton"] > button:hover {
+    div.stButton > button:hover, 
+    div[data-testid="stButton"] > button:hover,
+    div.stButton > button[kind="secondary"]:hover {
         background-color: #3E2723 !important; /* Darker brown on hover */
         color: white !important;
     }
-    div.stButton > button:active, div[data-testid="stButton"] > button:active {
+    div.stButton > button:active, 
+    div[data-testid="stButton"] > button:active,
+    div.stButton > button[kind="secondary"]:active {
         background-color: #3E2723 !important;
         color: white !important;
     }
