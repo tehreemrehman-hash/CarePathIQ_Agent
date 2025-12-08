@@ -193,7 +193,8 @@ def get_gemini_response(prompt, json_mode=False):
                 text = match.group()
             return json.loads(text)
         return text
-    except:
+    except Exception as e:
+        st.error(f"AI Error: {e}")
         return None
 
 def search_pubmed(query):
@@ -277,12 +278,12 @@ if "Phase 1" in phase:
             with st.spinner(f"AI Agent auto-populating suggestions..."):
                 prompt = f"""
                 Act as a Chief Medical Officer. User is building a pathway for: '{cond_input}'.
-                Return JSON with realistic clinical suggestions:
-                - inclusion: (String, list of inclusion criteria)
-                - exclusion: (String, list of exclusion criteria)
-                - setting: (String)
-                - problem: (String)
-                - objectives: (List of 3 strings, SMART goals)
+                Return a valid JSON object with these exact keys:
+                - "inclusion": string
+                - "exclusion": string
+                - "setting": string
+                - "problem": string
+                - "objectives": list of strings
                 """
                 data = get_gemini_response(prompt, json_mode=True)
                 if data:
@@ -292,8 +293,18 @@ if "Phase 1" in phase:
                     st.session_state.data['phase1']['exclusion'] = f"e.g. {data.get('exclusion', '')}"
                     st.session_state.data['phase1']['setting'] = f"e.g. {data.get('setting', '')}"
                     st.session_state.data['phase1']['problem'] = f"e.g. {data.get('problem', '')}"
-                    st.session_state.data['phase1']['objectives'] = f"e.g. Suggested Objectives:\n" + "\n".join([f"- {g}" for g in data.get('objectives', [])])
+                    
+                    # Handle objectives safely
+                    objs = data.get('objectives', [])
+                    if isinstance(objs, list):
+                        obj_text = "\n".join([f"- {g}" for g in objs])
+                    else:
+                        obj_text = str(objs)
+                        
+                    st.session_state.data['phase1']['objectives'] = f"e.g. Suggested Objectives:\n{obj_text}"
                     st.rerun()
+                else:
+                    st.warning("AI Agent could not generate suggestions. Please try again or enter manually.")
 
         # 3. TARGET POPULATION
         st.subheader("Target Population")
