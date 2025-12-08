@@ -369,7 +369,7 @@ if "Phase 1" in phase:
                     else:
                         obj_text = str(objs)
                         
-                    st.session_state.data['phase1']['objectives'] = f"Suggested Objectives:\n{obj_text}"
+                    st.session_state.data['phase1']['objectives'] = obj_text
                     st.rerun()
                 else:
                     st.warning("AI Agent could not generate suggestions. Please try again or enter manually.")
@@ -399,8 +399,8 @@ if "Phase 1" in phase:
             if not cond_input:
                 st.warning("Please enter a Clinical Condition first.")
             else:
-                with st.spinner("AI Agent generating Charter..."):
-                    prompt = f"Create a formal Project Charter (HTML). Condition: {cond_input}. Inclusion: {inc}. Exclusion: {exc}. Problem: {prob}. Objectives: {obj}. Return HTML."
+                with st.spinner("AI Agent Generating Project Charter..."):
+                    prompt = f"Create a formal Project Charter (HTML). Condition: {cond_input}. Inclusion: {inc}. Exclusion: {exc}. Setting: {setting}. Problem: {prob}. Objectives: {obj}. Return HTML."
                     charter_content = get_gemini_response(prompt)
                     
                     # Wrap for PDF-like view
