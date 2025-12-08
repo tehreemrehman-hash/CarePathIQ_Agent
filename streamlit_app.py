@@ -49,7 +49,6 @@ HEURISTIC_DEFS = {
 # ==========================================
 st.set_page_config(
     page_title="CarePathIQ AI Agent",
-    page_icon="🏥",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -78,13 +77,13 @@ st.markdown("""
     div[role="radiogroup"] label > div:first-child {
         border-color: #5D4037 !important;
     }
-    /* Checked background */
-    div[role="radiogroup"] label > div:first-child[data-checked="true"] {
+    /* Checked background - Target the inner circle */
+    div[role="radiogroup"] label > div:first-child > div {
         background-color: #5D4037 !important;
-        border-color: #5D4037 !important;
     }
-    /* Checked inner dot */
-    div[role="radiogroup"] label > div:first-child[data-checked="true"] > div {
+    /* Checked border */
+    div[role="radiogroup"] label[data-checked="true"] > div:first-child {
+        border-color: #5D4037 !important;
         background-color: #5D4037 !important;
     }
 
@@ -104,7 +103,6 @@ st.markdown("""
 
 # --- SIDEBAR: CONFIG ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=50)
     st.title("AI Agent")
     st.divider()
     
@@ -114,7 +112,7 @@ with st.sidebar:
     
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
-        st.success(f"✅ Connected: {model_choice}")
+        st.success(f"Connected: {model_choice}")
         
     st.divider()
     
@@ -146,10 +144,14 @@ if "data" not in st.session_state:
 
 if "suggestions" not in st.session_state:
     st.session_state.suggestions = {}
+
+if "current_phase_label" not in st.session_state:
+    st.session_state.current_phase_label = "Phase 1: Scoping & Charter"
     
 # Flags to control "Auto-Run" logic once per phase update
 if "auto_run" not in st.session_state:
     st.session_state.auto_run = {
+        "p2_pico": False,
         "p2_grade": False,
         "p3_logic": False,
         "p4_heuristics": False,
@@ -159,7 +161,7 @@ if "auto_run" not in st.session_state:
 # ==========================================
 # 3. HELPER FUNCTIONS
 # ==========================================
-def create_pdf_view_link(html_content, label="📄 Open Charter in New Window"):
+def create_pdf_view_link(html_content, label="Open Charter in New Window"):
     """Generates a link to open HTML in new tab, simulating PDF."""
     b64 = base64.b64encode(html_content.encode()).decode()
     return f'<a href="data:text/html;base64,{b64}" target="_blank" style="text-decoration:none; color:white; background-color:#5D4037; padding:10px 20px; border-radius:5px; font-weight:bold; display:inline-block;">{label}</a>'
@@ -170,7 +172,7 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
     if "text" in mime_type or "csv" in mime_type:
         if isinstance(content, str):
             final_content = content + "\n\n" + COPYRIGHT_MD
-    st.download_button(f"📥 {label}", final_content, filename, mime_type)
+    st.download_button(f"{label}", final_content, filename, mime_type)
 
 def get_gemini_response(prompt, json_mode=False):
     """Robust AI caller with JSON cleaner."""
@@ -242,7 +244,7 @@ if not gemini_api_key:
         border-radius: 5px; 
         color: white;
         margin-bottom: 20px;">
-        <strong>👋 Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent.
+        <strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent.
     </div>
     """, unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
@@ -250,13 +252,13 @@ if not gemini_api_key:
 
 phase = st.radio("Workflow Phase", 
                  ["Phase 1: Scoping & Charter", 
-                  "Phase 2: Evidence & Mesh", 
-                  "Phase 3: Logic Construction", 
-                  "Phase 4: Visualization & Testing", 
+                  "Phase 2: Rapid Evidence Appraisal", 
+                  "Phase 3: Decision Science", 
+                  "Phase 4: Heuristic Evaluation", 
                   "Phase 5: Operationalize"], 
-                 horizontal=True)
+                 horizontal=True,
+                 key="current_phase_label")
 
-st.session_state.current_phase_label = phase
 st.divider()
 
 # ------------------------------------------
@@ -265,15 +267,14 @@ st.divider()
 if "Phase 1" in phase:
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("Project Parameters")
-        
-        # 1. CLINICAL CONDITION INPUT
-        cond_input = st.text_input("Clinical Condition", value=st.session_state.data['phase1']['condition'], placeholder="e.g. Sepsis")
+        # 1. CLINICAL CONDITION
+        st.subheader("Clinical Condition")
+        cond_input = st.text_input("Clinical Condition", value=st.session_state.data['phase1']['condition'], placeholder="e.g. Sepsis", label_visibility="collapsed")
         
         # 2. AUTO-POPULATE LOGIC
         if cond_input and cond_input != st.session_state.suggestions.get('condition_ref'):
             st.session_state.data['phase1']['condition'] = cond_input
-            with st.spinner(f"🤖 AI Agent auto-populating suggestions..."):
+            with st.spinner(f"AI Agent auto-populating suggestions..."):
                 prompt = f"""
                 Act as a Chief Medical Officer. User is building a pathway for: '{cond_input}'.
                 Return JSON with realistic clinical suggestions:
@@ -294,18 +295,24 @@ if "Phase 1" in phase:
                     st.session_state.data['phase1']['objectives'] = f"e.g. Suggested Objectives:\n" + "\n".join([f"- {g}" for g in data.get('objectives', [])])
                     st.rerun()
 
-        st.markdown("#### Target Population")
+        # 3. TARGET POPULATION
+        st.subheader("Target Population")
         inc = st.text_area("Inclusion Criteria", value=st.session_state.data['phase1'].get('inclusion', ''), height=100)
         exc = st.text_area("Exclusion Criteria", value=st.session_state.data['phase1'].get('exclusion', ''), height=100)
         
-        setting = st.text_input("Care Setting", value=st.session_state.data['phase1']['setting'])
-        prob = st.text_area("Clinical Gap / Problem", value=st.session_state.data['phase1']['problem'])
+        # 4. CARE SETTING
+        st.subheader("Care Setting")
+        setting = st.text_input("Care Setting", value=st.session_state.data['phase1']['setting'], label_visibility="collapsed")
+        
+        # 5. CLINICAL GAP
+        st.subheader("Clinical Gap / Problem")
+        prob = st.text_area("Clinical Gap / Problem", value=st.session_state.data['phase1']['problem'], label_visibility="collapsed")
         
         st.session_state.data['phase1'].update({"inclusion": inc, "exclusion": exc, "setting": setting, "problem": prob})
 
     with col2:
         st.subheader("Objectives")
-        obj = st.text_area("Define Project Objectives", value=st.session_state.data['phase1']['objectives'], height=200)
+        obj = st.text_area("Define Project Objectives", value=st.session_state.data['phase1']['objectives'], height=200, label_visibility="collapsed")
         st.session_state.data['phase1']['objectives'] = obj
         st.divider()
         
@@ -344,20 +351,50 @@ if "Phase 1" in phase:
 # PHASE 2: EVIDENCE
 # ------------------------------------------
 elif "Phase 2" in phase:
-    st.subheader("Dynamic Evidence Synthesis")
-    col1, col2 = st.columns([1, 2])
+    st.subheader("Rapid Evidence Appraisal")
+    
+    # AUTO-RUN: PICO & MESH GENERATION
     p1_cond = st.session_state.data['phase1']['condition']
+    if p1_cond and not st.session_state.auto_run.get("p2_pico", False):
+        with st.spinner("AI Agent drafting PICO framework & Search Query..."):
+            # 1. Generate PICO
+            prompt_pico = f"""
+            Act as a Medical Librarian. Define PICO for: '{p1_cond}'.
+            Context: {st.session_state.data['phase1'].get('problem', '')}
+            Return JSON: {{ "P": "...", "I": "...", "C": "...", "O": "..." }}
+            """
+            pico_data = get_gemini_response(prompt_pico, json_mode=True)
+            if pico_data:
+                st.session_state.data['phase2']['pico_p'] = pico_data.get("P", "")
+                st.session_state.data['phase2']['pico_i'] = pico_data.get("I", "")
+                st.session_state.data['phase2']['pico_c'] = pico_data.get("C", "")
+                st.session_state.data['phase2']['pico_o'] = pico_data.get("O", "")
+            
+            # 2. Generate MeSH Query
+            p = st.session_state.data['phase2']['pico_p']
+            i = st.session_state.data['phase2']['pico_i']
+            o = st.session_state.data['phase2']['pico_o']
+            
+            prompt_mesh = f"Create a PubMed search query using MeSH terms.\nCondition: {p1_cond}, P: {p}, I: {i}, O: {o}.\nOutput ONLY the raw query string."
+            query = get_gemini_response(prompt_mesh)
+            st.session_state.data['phase2']['mesh_query'] = query
+            
+            st.session_state.auto_run["p2_pico"] = True
+            st.rerun()
+
+    col1, col2 = st.columns([1, 2])
     
     with col1:
         st.markdown("#### PICO Framework")
-        p = st.text_input("P (Population)", value=f"{st.session_state.data['phase1'].get('inclusion', '')}")
-        i = st.text_input("I (Intervention)", value="Standardized Pathway")
-        c = st.text_input("C (Comparison)", value="Current Variation")
-        o = st.text_input("O (Outcome)", value="Reduced Mortality / LOS")
+        # Use session state values as defaults (populated by AI)
+        p = st.text_input("P (Population)", value=st.session_state.data['phase2']['pico_p'])
+        i = st.text_input("I (Intervention)", value=st.session_state.data['phase2']['pico_i'])
+        c = st.text_input("C (Comparison)", value=st.session_state.data['phase2']['pico_c'])
+        o = st.text_input("O (Outcome)", value=st.session_state.data['phase2']['pico_o'])
         st.session_state.data['phase2'].update({"pico_p": p, "pico_i": i, "pico_c": c, "pico_o": o})
 
         st.divider()
-        if st.button("Generate MeSH Query", type="primary"):
+        if st.button("Regenerate MeSH Query", type="primary"):
             if not p1_cond:
                  st.error("Please define a condition in Phase 1.")
             else:
@@ -400,7 +437,7 @@ elif "Phase 2" in phase:
             # KEEP/MODIFY CONTROL
             st.markdown("""
             <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 10px;">
-                ✅ <strong>AI Agent Output:</strong> GRADE scores auto-populated. <br>
+                <strong>AI Agent Output:</strong> GRADE scores auto-populated. <br>
                 <strong>Keep/Modify</strong> below, or click 'Clear Grades' for manual entry.
             </div>
             """, unsafe_allow_html=True)
@@ -427,7 +464,7 @@ elif "Phase 2" in phase:
                 "url": st.column_config.LinkColumn("URL", disabled=True),
                 "citation": st.column_config.TextColumn("Citation", disabled=True),
                 "grade": st.column_config.SelectboxColumn("Strength of Evidence", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], help=grade_help, required=True, width="medium")
-            }, hide_index=True)
+            }, column_order=["title", "id", "url", "citation", "grade"], hide_index=True)
             
             st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
             
@@ -439,14 +476,14 @@ elif "Phase 2" in phase:
 # PHASE 3: LOGIC
 # ------------------------------------------
 elif "Phase 3" in phase:
-    st.subheader("Pathway Logic")
+    st.subheader("Decision Science")
     col1, col2 = st.columns([1, 2])
     
     with col1:
         # DARK BROWN INSTRUCTIONS
         st.markdown("""
         <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 20px;">
-            ℹ️ <strong>Instructions:</strong> Define the clinical steps of your pathway below.
+            <strong>Instructions:</strong> Define the clinical steps of your pathway below.
         </div>
         """, unsafe_allow_html=True)
         
@@ -476,7 +513,7 @@ elif "Phase 3" in phase:
         if st.session_state.auto_run["p3_logic"]:
              st.markdown("""
             <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 10px;">
-                ✅ <strong>AI Agent Output:</strong> Logic draft generated. <br>
+                <strong>AI Agent Output:</strong> Logic draft generated. <br>
                 <strong>Keep/Modify</strong> rows below, or click 'Clear Logic' to start fresh.
             </div>
             """, unsafe_allow_html=True)
@@ -503,7 +540,7 @@ elif "Phase 3" in phase:
 # PHASE 4: VISUALIZATION
 # ------------------------------------------
 elif "Phase 4" in phase:
-    st.subheader("Visual Flowchart")
+    st.subheader("Heuristic Evaluation")
     col1, col2 = st.columns([2, 1])
     
     with col1:
@@ -524,19 +561,23 @@ elif "Phase 4" in phase:
                 with c_dl1:
                      try:
                          png_data = graph.pipe(format='png')
-                         st.download_button("🖼️ High-Res PNG", png_data, "pathway.png", "image/png", type="primary")
+                         st.download_button("High-Res PNG", png_data, "pathway.png", "image/png", type="primary")
                      except: 
-                         st.download_button("📜 Download DOT (Fallback)", graph.source, "pathway.dot", "text/plain")
+                         st.download_button("Download DOT (Fallback)", graph.source, "pathway.dot", "text/plain")
                 with c_dl2:
                      try:
                          svg_data = graph.pipe(format='svg')
-                         st.download_button("✏️ Visio-Ready SVG", svg_data, "pathway.svg", "image/svg+xml")
+                         st.download_button("Visio-Ready SVG", svg_data, "pathway.svg", "image/svg+xml")
                      except: pass
             except Exception as e:
                 st.error(f"Graph Error: {e}")
 
     with col2:
         st.markdown("#### Heuristic Evaluation")
+        
+        nodes = st.session_state.data['phase3']['nodes']
+        if not nodes:
+            st.info("Please define the pathway logic in Phase 3 (Decision Science) to enable Heuristic Evaluation.")
         
         # AUTO-RUN: HEURISTICS
         nodes_json = json.dumps(nodes)
@@ -558,7 +599,7 @@ elif "Phase 4" in phase:
         if risks:
             st.markdown("""
             <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 10px;">
-                ✅ <strong>AI Agent Output:</strong> Analysis complete.
+                <strong>AI Agent Output:</strong> Analysis complete.
             </div>
             """, unsafe_allow_html=True)
             
@@ -609,7 +650,7 @@ elif "Phase 5" in phase:
     c1, c2, c3 = st.columns(3)
     
     with c1:
-        st.markdown("#### 🌐 1. Beta Testing")
+        st.subheader("Beta Testing")
         beta_email_input = st.text_input("Enter email to receive beta feedback:")
         
         # CORRECTED BUTTON TEXT
@@ -621,19 +662,19 @@ elif "Phase 5" in phase:
                  st.rerun()
         
         if st.session_state.data['phase5']['beta_content']:
-             st.success(f"✅ AI Agent Guide Generated.")
+             st.success(f"AI Agent Guide Generated.")
              export_widget(st.session_state.data['phase5']['beta_content'], "beta_guide.html", "text/html", label="Download Guide")
 
     with c2:
-        st.markdown("#### 📊 2. Frontline Education")
+        st.subheader("Frontline Education")
         if st.session_state.data['phase5']['slides']:
-             st.success(f"✅ AI Agent Slides Generated.")
+             st.success(f"AI Agent Slides Generated.")
              export_widget(st.session_state.data['phase5']['slides'], "slides.md", label="Download Slides")
 
     with c3:
-        st.markdown("#### 🏥 3. EHR Integration")
+        st.subheader("EHR Integration")
         if st.session_state.data['phase5']['epic_csv']:
-            st.success(f"✅ AI Agent Specs Generated.")
+            st.success(f"AI Agent Specs Generated.")
             export_widget(st.session_state.data['phase5']['epic_csv'], "ops_specs.csv", "text/csv", label="Download CSV")
             
     if st.button("Regenerate All Phase 5 Outputs", type="primary"):
