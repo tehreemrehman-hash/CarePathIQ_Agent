@@ -194,10 +194,10 @@ with st.sidebar:
             st.session_state.current_phase_label = PHASES[curr_idx-1]
             st.rerun()
             
-    # --- MINT GREEN STATUS BOX ---
+    # --- CURRENT PHASE STATUS BOX (Dark Brown) ---
     st.markdown(f"""
     <div style="
-        background-color: #00897B; 
+        background-color: #5D4037; 
         color: white; 
         padding: 10px; 
         border-radius: 5px; 
@@ -1025,64 +1025,75 @@ elif "Phase 4" in phase:
 elif "Phase 5" in phase:
     st.subheader("Operational Toolkit")
     
-    # AUTO-RUN ALL PHASE 5 CONTENT IF MISSING
-    if not st.session_state.auto_run["p5_all"]:
-        with st.spinner("AI Agent generating Guide, Slides, and EHR Specs (One-Time Setup)..."):
-            cond = st.session_state.data['phase1']['condition']
-            prob = st.session_state.data['phase1']['problem']
-            goals = st.session_state.data['phase1']['objectives']
-            # Default placeholder logic since email is no longer global
-            nodes_json = json.dumps(st.session_state.data['phase3']['nodes'])
-            
-            if not st.session_state.data['phase5']['beta_content']:
-                p_guide = f"Create a 'Beta Testing Interactive Guide' (HTML) for {cond}. Context: {prob}. Leave feedback link placeholder."
-                st.session_state.data['phase5']['beta_content'] = get_gemini_response(p_guide)
-            
-            if not st.session_state.data['phase5']['slides']:
-                p_slides = f"Create 5 educational slides (Markdown) for {cond}. Gap: {prob}. Goals: {goals}."
-                st.session_state.data['phase5']['slides'] = get_gemini_response(p_slides)
-            
-            if not st.session_state.data['phase5']['epic_csv']:
-                p_specs = f"Map nodes {nodes_json} to Epic/OPS tools. Return CSV string."
-                st.session_state.data['phase5']['epic_csv'] = get_gemini_response(p_specs)
-            
-            st.session_state.auto_run["p5_all"] = True
-            st.rerun()
-
     c1, c2, c3 = st.columns(3)
     
     with c1:
-        st.subheader("Beta Testing")
-        beta_email_input = st.text_input("Enter email to receive beta testing feedback submitted through the interactive guide when you share it")
+        st.markdown("#### Beta Testing")
+        beta_email_input = st.text_input("Feedback Email", placeholder="email@example.com")
         
-        # CORRECTED BUTTON TEXT
-        if st.button("Generate Interactive Guide"):
-             with st.spinner("Updating guide..."):
+        if st.button("Generate Interactive Guide", key="btn_guide"):
+             with st.spinner("Generating Guide..."):
                  cond = st.session_state.data['phase1']['condition']
                  prob = st.session_state.data['phase1']['problem']
+                 # Re-generate content
                  st.session_state.data['phase5']['beta_content'] = get_gemini_response(f"Create Beta Guide (HTML) for {cond}. Context: {prob}. Create mailto link for {beta_email_input}.")
-                 st.rerun()
         
         if st.session_state.data['phase5']['beta_content']:
-             st.success(f"AI Agent Guide Generated.")
              export_widget(st.session_state.data['phase5']['beta_content'], "beta_guide.html", "text/html", label="Download Guide")
 
     with c2:
-        st.subheader("Frontline Education")
+        st.markdown("#### Frontline Education")
+        
+        if st.button("Generate Educational Slides", key="btn_slides"):
+            with st.spinner("Generating Slides..."):
+                cond = st.session_state.data['phase1']['condition']
+                prob = st.session_state.data['phase1']['problem']
+                goals = st.session_state.data['phase1']['objectives']
+                st.session_state.data['phase5']['slides'] = get_gemini_response(f"Create 5 educational slides (Markdown) for {cond}. Gap: {prob}. Goals: {goals}.")
+
         if st.session_state.data['phase5']['slides']:
-             st.success(f"AI Agent Slides Generated.")
              export_widget(st.session_state.data['phase5']['slides'], "slides.md", label="Download Slides")
 
     with c3:
-        st.subheader("EHR Integration")
+        st.markdown("#### EHR Integration")
+        
+        if st.button("Generate EHR Specs", key="btn_specs"):
+            with st.spinner("Generating Specs..."):
+                nodes_json = json.dumps(st.session_state.data['phase3']['nodes'])
+                st.session_state.data['phase5']['epic_csv'] = get_gemini_response(f"Map nodes {nodes_json} to Epic/OPS tools. Return CSV string.")
+
         if st.session_state.data['phase5']['epic_csv']:
-            st.success(f"AI Agent Specs Generated.")
             export_widget(st.session_state.data['phase5']['epic_csv'], "ops_specs.csv", "text/csv", label="Download CSV")
             
-    if st.button("Regenerate All Phase 5 Outputs", type="primary"):
-        st.session_state.auto_run["p5_all"] = False
-        st.session_state.data['phase5'] = {"beta_email": "", "beta_content": "", "slides": "", "epic_csv": ""}
-        st.rerun()
+    st.divider()
+    
+    # EXECUTIVE SUMMARY
+    if st.button("Generate Executive Summary", type="primary", use_container_width=True):
+        with st.spinner("Compiling Executive Summary..."):
+            # Gather Context
+            p1 = st.session_state.data['phase1']
+            p2_count = len(st.session_state.data['phase2']['evidence'])
+            p3_nodes = len(st.session_state.data['phase3']['nodes'])
+            
+            prompt = f"""
+            Create a C-Suite Executive Summary for the Clinical Pathway: {p1['condition']}.
+            
+            Sections:
+            1. Problem Statement: {p1['problem']}
+            2. Objectives: {p1['objectives']}
+            3. Evidence Base: {p2_count} citations reviewed.
+            4. Pathway Logic: {p3_nodes} steps defined.
+            5. Implementation Plan: Beta testing and EHR integration ready.
+            
+            Format as a professional briefing document.
+            """
+            summary = get_gemini_response(prompt)
+            st.session_state.data['phase5']['exec_summary'] = summary
+            
+    if st.session_state.data['phase5'].get('exec_summary'):
+        st.markdown("### Executive Summary")
+        st.markdown(st.session_state.data['phase5']['exec_summary'])
+        export_widget(st.session_state.data['phase5']['exec_summary'], "executive_summary.md", label="Download Summary")
 
 # ==========================================
 # FOOTER
