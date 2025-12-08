@@ -734,7 +734,7 @@ elif "Phase 3" in phase:
         nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
         
         if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
-             with st.spinner("AI Agent drafting logic flow based on Phase 2 evidence..."):
+             with st.spinner("AI Agent drafting decision tree..."):
                  ev_context = "\n".join([f"- ID {e['id']}: {e['title']}" for e in evidence_list[:5]])
                  prompt = f"""
                  Create a clinical logic flow for {cond}.
