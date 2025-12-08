@@ -179,6 +179,8 @@ st.markdown("""
 
 # --- SIDEBAR: CONFIG ---
 with st.sidebar:
+    if os.path.exists("CarePathIQ_Logo.png"):
+        st.image("CarePathIQ_Logo.png", use_container_width=True)
     st.title("AI Agent")
     st.divider()
     
