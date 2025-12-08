@@ -177,6 +177,13 @@ st.markdown("""
     /* Headers */
     h1, h2, h3 { color: #00695C; }
 
+    /* Tooltip Background - Force White */
+    div[data-testid="stTooltipContent"] {
+        background-color: white !important;
+        color: #333 !important;
+        border: 1px solid #ddd !important;
+    }
+
     /* Hide the anchor link icons on hover for headers */
     [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
     .st-emotion-cache-1629p8f a, h1 a, h2 a, h3 a { display: none !important; pointer-events: none; color: transparent !important; }
@@ -186,7 +193,7 @@ st.markdown("""
 # --- SIDEBAR: CONFIG ---
 with st.sidebar:
     if os.path.exists("CarePathIQ_Logo.png"):
-        st.image("CarePathIQ_Logo.png", use_container_width=True)
+        st.image("CarePathIQ_Logo.png", width=150)
     st.title("AI Agent")
     st.divider()
     
@@ -313,14 +320,14 @@ def create_word_docx(content_text):
     except NameError:
         return None # Library not loaded
 
-    # Add Logo if exists
-    if os.path.exists("CarePathIQ_Logo.png"):
-        try:
-            doc.add_picture("CarePathIQ_Logo.png", width=DocxInches(2.0))
-            last_paragraph = doc.paragraphs[-1] 
-            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        except Exception:
-            pass
+    # Logo removed per user request
+    # if os.path.exists("CarePathIQ_Logo.png"):
+    #     try:
+    #         doc.add_picture("CarePathIQ_Logo.png", width=DocxInches(2.0))
+    #         last_paragraph = doc.paragraphs[-1] 
+    #         last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    #     except Exception:
+    #         pass
 
     doc.add_heading('Clinical Pathway: Beta Testing Guide', 0)
     
@@ -369,12 +376,12 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
         p.font.color.rgb = GREY
         p.alignment = PP_ALIGN.CENTER
 
-        # Add Logo (Top Right)
-        if os.path.exists("CarePathIQ_Logo.png"):
-            try:
-                slide.shapes.add_picture("CarePathIQ_Logo.png", Inches(8.5), Inches(0.2), width=Inches(1.2))
-            except Exception:
-                pass
+        # Logo removed per user request
+        # if os.path.exists("CarePathIQ_Logo.png"):
+        #     try:
+        #         slide.shapes.add_picture("CarePathIQ_Logo.png", Inches(8.5), Inches(0.2), width=Inches(1.2))
+        #     except Exception:
+        #         pass
 
     # 1. Title Slide
     slide = prs.slides.add_slide(prs.slide_layouts[0]) # Title Slide Layout
@@ -420,7 +427,10 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
             if len(slide.placeholders) > 1:
                 body_shape = slide.placeholders[1]
                 tf = body_shape.text_frame
-                tf.text = slide_info.get('content', '')
+                # Ensure content is a string and not None
+                content_text = slide_info.get('content', '')
+                if content_text is None: content_text = ""
+                tf.text = str(content_text)
                 
                 # Style paragraphs
                 for p in tf.paragraphs:
@@ -686,42 +696,44 @@ if "Phase 1" in phase:
             on_change=sync_p1_widgets
         )
         
+        # CARE SETTING (Moved Up)
+        setting_input = st.text_input(
+            "Care Setting", 
+            placeholder="e.g. Emergency Department",
+            key="p1_setting", 
+            on_change=sync_p1_widgets
+        )
+        
         # TARGET POPULATION
         st.subheader("2. Target Population")
         
-        # Stepwise Button 1: Criteria
-        if st.button("Suggest Criteria", help="Generate Inclusion/Exclusion based on Condition"):
-            if cond_input:
-                with st.spinner("Drafting criteria..."):
-                    prompt = f"Act as a CMO. For clinical condition '{cond_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return a JSON object with keys: 'inclusion', 'exclusion'."
-                    data = get_gemini_response(prompt, json_mode=True)
-                    if data:
-                        inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
-                        exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
-                        
-                        # Helper to format list items (strings or dicts)
-                        def fmt_item(x):
-                            if isinstance(x, dict):
-                                # Extract values if it's a dict like {'criterion': '...', 'details': '...'}
-                                return ": ".join([str(v) for v in x.values() if v])
-                            return str(x)
+        # AUTO-GENERATE CRITERIA (Replaces Button)
+        # Trigger only if both inputs are present and we haven't run for this combo yet
+        curr_key = f"{cond_input}|{setting_input}"
+        last_key = st.session_state.get('last_criteria_key', '')
+        
+        if cond_input and setting_input and curr_key != last_key:
+             with st.spinner("Auto-generating inclusion/exclusion criteria..."):
+                prompt = f"Act as a CMO. For clinical condition '{cond_input}' in setting '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return a JSON object with keys: 'inclusion', 'exclusion'."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
+                    exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
+                    
+                    def fmt_item(x):
+                        if isinstance(x, dict): return ": ".join([str(v) for v in x.values() if v])
+                        return str(x)
 
-                        # Ensure strings (handle lists if AI returns them)
-                        inc_text = "\n".join([f"- {fmt_item(x)}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
-                        exc_text = "\n".join([f"- {fmt_item(x)}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
-                        
-                        st.session_state.data['phase1']['inclusion'] = inc_text
-                        st.session_state.data['phase1']['exclusion'] = exc_text
-                        # Sync to widgets
-                        st.session_state['p1_inc'] = inc_text
-                        st.session_state['p1_exc'] = exc_text
-                        st.toast("Criteria generated successfully!")
-                        time.sleep(0.5) # Give toast a moment
-                        st.rerun()
-                    else:
-                        st.error("AI Error: No response. Please check your API Key.")
-            else:
-                st.warning("Please enter a condition first.")
+                    inc_text = "\n".join([f"- {fmt_item(x)}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
+                    exc_text = "\n".join([f"- {fmt_item(x)}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
+                    
+                    st.session_state.data['phase1']['inclusion'] = inc_text
+                    st.session_state.data['phase1']['exclusion'] = exc_text
+                    st.session_state['p1_inc'] = inc_text
+                    st.session_state['p1_exc'] = exc_text
+                    
+                    st.session_state['last_criteria_key'] = curr_key
+                    st.rerun()
 
         st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
         st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
@@ -730,64 +742,53 @@ if "Phase 1" in phase:
         # CONTEXT
         st.subheader("3. Context")
         
-        # Stepwise Button 2: Context
-        if st.button("Suggest Context", help="Generate Setting/Problem based on Criteria"):
-            # Use current widget values if available, else data store
-            curr_cond = st.session_state.get('p1_cond_input', '') or st.session_state.data['phase1'].get('condition', '')
-            curr_inc = st.session_state.get('p1_inc', '') or st.session_state.data['phase1'].get('inclusion', '')
-            
-            if curr_cond:
-                with st.spinner("Drafting context..."):
-                    prompt = f"Act as a CMO. For condition '{curr_cond}' with inclusion '{curr_inc}', suggest a 'setting' and a 'problem' statement (clinical gap). Return JSON with keys: 'setting', 'problem'."
-                    data = get_gemini_response(prompt, json_mode=True)
-                    if data:
-                        setting_raw = data.get('setting') or data.get('Setting') or ''
-                        problem_raw = data.get('problem') or data.get('Problem') or ''
-                        
-                        # Ensure strings
-                        setting_text = str(setting_raw)
-                        problem_text = str(problem_raw)
-                        
-                        st.session_state.data['phase1']['setting'] = setting_text
-                        st.session_state.data['phase1']['problem'] = problem_text
-                        # Sync to widgets
-                        st.session_state['p1_setting'] = setting_text
-                        st.session_state['p1_prob'] = problem_text
-                        st.toast("Context generated successfully!")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.error("AI Error: No response. Please check your API Key.")
-            else:
-                st.warning("Please enter a condition first.")
+        # AUTO-GENERATE PROBLEM (Replaces Button)
+        # Trigger if Inclusion/Exclusion are present and we haven't run for this combo
+        curr_inc = st.session_state.get('p1_inc', '')
+        curr_exc = st.session_state.get('p1_exc', '')
+        curr_cond = st.session_state.get('p1_cond_input', '')
+        curr_setting = st.session_state.get('p1_setting', '')
+        
+        curr_prob_key = f"{curr_inc}|{curr_exc}|{curr_cond}"
+        last_prob_key = st.session_state.get('last_prob_key', '')
+        
+        if curr_inc and curr_exc and curr_cond and curr_prob_key != last_prob_key:
+             with st.spinner("Auto-generating problem statement..."):
+                prompt = f"Act as a CMO. For condition '{curr_cond}' in setting '{curr_setting}' with inclusion '{curr_inc}', suggest a 'problem' statement (clinical gap). Return JSON with key: 'problem'."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    problem_raw = data.get('problem') or data.get('Problem') or ''
+                    problem_text = str(problem_raw)
+                    
+                    st.session_state.data['phase1']['problem'] = problem_text
+                    st.session_state['p1_prob'] = problem_text
+                    st.session_state['last_prob_key'] = curr_prob_key
+                    st.rerun()
 
-        st.text_input("Care Setting", key="p1_setting", on_change=sync_p1_widgets)
         st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets)
         
         # OBJECTIVES
         st.subheader("4. SMART Objectives")
         
-        # Stepwise Button 3: Objectives
-        if st.button("Suggest Objectives", help="Generate SMART Goals based on Problem"):
-            curr_cond = st.session_state.get('p1_cond_input', '')
-            curr_prob = st.session_state.get('p1_prob', '')
-            
-            if curr_cond:
-                with st.spinner("Drafting objectives..."):
-                    prompt = f"Act as a CMO. For condition '{curr_cond}' and problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON with key 'objectives' (list of strings)."
-                    data = get_gemini_response(prompt, json_mode=True)
-                    if data:
-                        objs = data.get('objectives', [])
-                        # Ensure string format
-                        obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
-                        st.session_state.data['phase1']['objectives'] = obj_text
-                        # Sync to widgets
-                        st.session_state['p1_obj'] = obj_text
-                        st.rerun()
-                    else:
-                        st.error("AI Error: No response. Please check your API Key.")
-            else:
-                st.warning("Please enter a condition first.")
+        # AUTO-GENERATE OBJECTIVES (Replaces Button)
+        # Trigger if Problem is present and we haven't run for this combo
+        curr_prob = st.session_state.get('p1_prob', '')
+        
+        curr_obj_key = f"{curr_prob}|{curr_cond}"
+        last_obj_key = st.session_state.get('last_obj_key', '')
+        
+        if curr_prob and curr_cond and curr_obj_key != last_obj_key:
+             with st.spinner("Auto-generating SMART objectives..."):
+                prompt = f"Act as a CMO. For condition '{curr_cond}' in the '{curr_setting}' setting, addressing problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON with key 'objectives' (list of strings)."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    objs = data.get('objectives', [])
+                    obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
+                    
+                    st.session_state.data['phase1']['objectives'] = obj_text
+                    st.session_state['p1_obj'] = obj_text
+                    st.session_state['last_obj_key'] = curr_obj_key
+                    st.rerun()
 
         st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets)
 
@@ -833,9 +834,31 @@ if "Phase 1" in phase:
                 - **Date Created:** {today_str}
                 
                 **Output Format:** HTML Body Only.
-                **Style Guide:** - Use a clean, corporate layout.
-                - Use an HTML Table for "Project Information" (Name, Sponsor, Date Created: {today_str}).
-                - Use <h2> headers for sections: "Executive Summary", "Business Case", "Scope Definition", "Success Metrics".
+                **Structure:** 
+                Use the following best-practice Clinical Pathway Project Charter template as your guide. 
+                Organize the content into a clean, professional HTML layout (using tables for the header, financials, and schedule):
+
+                1. **Project Header**: Project Name, Project Manager, Project Sponsor.
+                2. **Financials & Dates**: Estimated Costs, Expected Savings, Start Date, Completion Date.
+                3. **Project Overview**: 
+                   - Problem or Issue
+                   - Purpose of Project
+                   - Business Case
+                   - Goals / Metrics
+                   - Expected Deliverables
+                4. **Project Scope**: Within Scope vs Outside Scope.
+                5. **Tentative Schedule**: A table with columns [Key Milestone | Start | Finish] including these standard phases:
+                     - Form Project Team and Conduct Preliminary Review
+                     - Finalize Project Plan and Project Charter
+                     - Conduct Definition Phase
+                     - Conduct Measurement Phase
+                     - Conduct Analysis Phase
+                     - Conduct Improvement Phase
+                     - Conduct Control Phase
+                     - Close Out Project and Write Summary Report
+                
+                **Style Guide:**
+                - Use <h2> headers for sections.
                 - Ensure the tone is professional, concise, and persuasive.
                 - DO NOT use markdown code blocks (```). Just return the HTML.
                 """
@@ -846,12 +869,12 @@ if "Phase 1" in phase:
                 st.write("Formatting document...")
                 charter_content = charter_content.replace('```html', '').replace('```', '').strip()
                 
-                # Prepare Logo Base64
+                # Logo removed per user request
                 logo_html = ""
-                if os.path.exists("CarePathIQ_Logo.png"):
-                    with open("CarePathIQ_Logo.png", "rb") as img_file:
-                        b64_logo = base64.b64encode(img_file.read()).decode()
-                        logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="width:150px; display:block; margin-bottom:20px;">'
+                # if os.path.exists("CarePathIQ_Logo.png"):
+                #     with open("CarePathIQ_Logo.png", "rb") as img_file:
+                #         b64_logo = base64.b64encode(img_file.read()).decode()
+                #         logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="width:150px; display:block; margin-bottom:20px;">'
 
                 # Professional HTML Wrapper with BLACK FONT enforcement
                 word_html = f"""
@@ -1003,7 +1026,6 @@ elif "Phase 2" in phase:
 
     with col1:
         st.markdown("#### PICO Framework")
-        st.caption("Review and refine the PICO elements generated by the AI.")
         
         st.text_input("P (Population)", key="p2_p", on_change=sync_p2_widgets)
         st.text_input("I (Intervention)", key="p2_i", on_change=sync_p2_widgets)
@@ -1022,6 +1044,9 @@ elif "Phase 2" in phase:
         
         # Search Query Text Area
         st.text_area("PubMed MeSH Query", height=150, key="p2_query_box", on_change=sync_p2_widgets)
+        
+        # Define search_q from widget state to fix NameError
+        search_q = st.session_state.p2_query_box
 
         # Action Buttons Row
         c_act1, c_act2 = st.columns([1, 1])
@@ -1457,14 +1482,12 @@ elif "Phase 4" in phase:
                  Analyze this clinical pathway logic: {nodes_json}
                  
                  Evaluate it against **Jakob Nielsen's 10 Usability Heuristics** (nngroup.com).
-                 For each heuristic, provide a specific critique or suggestion for the pathway design.
+                 For each heuristic, provide:
+                 1. A specific critique or suggestion.
+                 2. A boolean flag 'actionable' indicating if this suggestion requires a direct change to the node structure (e.g. changing labels, adding nodes, reordering).
                  
-                 Focus on:
-                 - **Match between system and real world**: Do the terms (e.g., '{nodes[0].get('label')}') match clinical mental models?
-                 - **Error Prevention**: Are there 'Decision' nodes lacking clear 'No' paths?
-                 - **Recognition rather than recall**: Is critical info (dosage, criteria) visible in 'Note' nodes?
-                 
-                 Return a JSON object: {{ "H1": "insight...", "H2": "insight...", ... "H10": "insight..." }}
+                 Return a JSON object where keys are H1-H10 and values are objects: 
+                 {{ "H1": {{ "insight": "...", "actionable": true }}, ... }}
                  """
                  
                  risks = get_gemini_response(prompt, json_mode=True)
@@ -1484,48 +1507,56 @@ elif "Phase 4" in phase:
             
             for k, v in risks.items():
                 def_text = HEURISTIC_DEFS.get(k, "Nielsen's Usability Heuristic")
-                # Ensure v is a string before slicing
-                v_str = str(v)
-                with st.expander(f"{k}: {v_str[:50]}...", expanded=False):
+                
+                # Handle both old (string) and new (dict) formats for backward compatibility
+                if isinstance(v, dict):
+                    insight = v.get('insight', 'No insight provided.')
+                    is_actionable = v.get('actionable', False)
+                else:
+                    insight = str(v)
+                    is_actionable = True # Default to showing button if format is old
+                
+                with st.expander(f"{k}: {insight[:50]}...", expanded=False):
                     st.markdown(f"**Principle:** *{def_text}*")
                     st.divider()
                     # Custom styling: White background, Dark Brown font
                     st.markdown(f"""
                     <div style="background-color: white; color: #5D4037; padding: 10px; border-radius: 5px; border: 1px solid #5D4037;">
-                        {v_str}
+                        {insight}
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # APPLY RECOMMENDATION BUTTON
-                    if st.button(f"Apply Recommendations ({k})", key=f"btn_fix_{k}"):
-                        with st.spinner("AI Agent applying recommendations..."):
-                            # Initialize history if needed
-                            if 'node_history' not in st.session_state:
-                                st.session_state.node_history = []
-                            
-                            # Save current state to history
-                            st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                            
-                            # AI Call to modify nodes
-                            curr_nodes = st.session_state.data['phase3']['nodes']
-                            prompt_fix = f"""
-                            Act as a Clinical Decision Scientist.
-                            Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
-                            
-                            Usability Critique to Address: "{v_str}"
-                            
-                            Task: Update the pathway JSON to fulfill the critique recommendations.
-                            - Maintain the existing structure and keys.
-                            - Only make necessary changes.
-                            - Return ONLY the valid JSON list of nodes.
-                            """
-                            new_nodes = get_gemini_response(prompt_fix, json_mode=True)
-                            
-                            if new_nodes and isinstance(new_nodes, list):
-                                st.session_state.data['phase3']['nodes'] = new_nodes
-                                st.success("Pathway updated!")
-                                time.sleep(1)
-                                st.rerun()
+                    # APPLY RECOMMENDATION BUTTON (Only if actionable)
+                    if is_actionable:
+                        if st.button(f"Apply Recommendations ({k})", key=f"btn_fix_{k}"):
+                            with st.spinner("AI Agent applying recommendations..."):
+                                # Initialize history if needed
+                                if 'node_history' not in st.session_state:
+                                    st.session_state.node_history = []
+                                
+                                # Save current state to history
+                                st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                                
+                                # AI Call to modify nodes
+                                curr_nodes = st.session_state.data['phase3']['nodes']
+                                prompt_fix = f"""
+                                Act as a Clinical Decision Scientist.
+                                Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
+                                
+                                Usability Critique to Address: "{insight}"
+                                
+                                Task: Update the pathway JSON to fulfill the critique recommendations.
+                                - Maintain the existing structure and keys.
+                                - Only make necessary changes.
+                                - Return ONLY the valid JSON list of nodes.
+                                """
+                                new_nodes = get_gemini_response(prompt_fix, json_mode=True)
+                                
+                                if new_nodes and isinstance(new_nodes, list):
+                                    st.session_state.data['phase3']['nodes'] = new_nodes
+                                    st.success("Pathway updated!")
+                                    time.sleep(1)
+                                    st.rerun()
                             else:
                                 st.error("Failed to apply changes. Please try again.")
 
@@ -1539,19 +1570,13 @@ elif "Phase 4" in phase:
             
             # MANUAL REFINEMENT
             st.markdown("#### Custom Refinement")
-            custom_edit = st.text_area("Describe any other changes you want to make:", placeholder="e.g., 'Add a step to check blood pressure after triage'")
+            custom_edit = st.text_area("Describe any other changes you want to make:", 
+                                     placeholder="e.g., 'Add a step to check blood pressure after triage'",
+                                     key="p4_custom_edit")
             
-            if st.button("Apply Custom Change", type="primary", use_container_width=True):
+            if st.button("Preview Changes", type="primary", use_container_width=True):
                 if custom_edit:
-                    with st.spinner("AI Agent applying custom changes..."):
-                        # Initialize history if needed
-                        if 'node_history' not in st.session_state:
-                            st.session_state.node_history = []
-                        
-                        # Save current state
-                        st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                        
-                        # AI Call
+                    with st.spinner("AI Agent analyzing request..."):
                         curr_nodes = st.session_state.data['phase3']['nodes']
                         prompt_custom = f"""
                         Act as a Clinical Decision Scientist.
@@ -1559,19 +1584,52 @@ elif "Phase 4" in phase:
                         
                         User Request: "{custom_edit}"
                         
-                        Task: Update the pathway JSON to fulfill the user request.
-                        - Maintain the existing structure and keys.
-                        - Return ONLY the valid JSON list of nodes.
-                        """
-                        new_nodes = get_gemini_response(prompt_custom, json_mode=True)
+                        Task: 
+                        1. Analyze the request and describe the specific changes needed (e.g. "Adding a Process node 'Check BP' after node 2").
+                        2. Generate the updated pathway JSON.
                         
-                        if new_nodes and isinstance(new_nodes, list):
-                            st.session_state.data['phase3']['nodes'] = new_nodes
-                            st.success("Custom changes applied!")
-                            time.sleep(1)
+                        Return a JSON object with keys:
+                        - "description": string (The explanation of changes)
+                        - "nodes": list (The new full list of nodes)
+                        """
+                        result = get_gemini_response(prompt_custom, json_mode=True)
+                        
+                        if result and isinstance(result, dict) and 'nodes' in result:
+                            st.session_state['p4_pending_custom'] = result
                             st.rerun()
-                        else:
-                            st.error("Failed to apply changes.")
+
+            # Display Pending Changes
+            if 'p4_pending_custom' in st.session_state:
+                pending = st.session_state['p4_pending_custom']
+                
+                st.markdown(f"""
+                <div style="background-color: #E3F2FD; padding: 10px; border-radius: 5px; border: 1px solid #2196F3; margin-bottom: 10px;">
+                    <strong>Proposed Updates:</strong><br>
+                    {pending.get('description', 'Updates generated.')}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                c_yes, c_no = st.columns(2)
+                with c_yes:
+                    if st.button("Apply Changes", type="primary", use_container_width=True, key="btn_apply_custom"):
+                         # Initialize history if needed
+                        if 'node_history' not in st.session_state:
+                            st.session_state.node_history = []
+                        
+                        # Save current state
+                        st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                        
+                        # Apply
+                        st.session_state.data['phase3']['nodes'] = pending['nodes']
+                        del st.session_state['p4_pending_custom']
+                        st.success("Custom changes applied!")
+                        time.sleep(1)
+                        st.rerun()
+                
+                with c_no:
+                    if st.button("Cancel", use_container_width=True, key="btn_cancel_custom"):
+                        del st.session_state['p4_pending_custom']
+                        st.rerun()
             
             if st.button("Refresh Analysis (After Edits)", type="secondary", use_container_width=True):
                  st.session_state.auto_run["p4_heuristics"] = False
