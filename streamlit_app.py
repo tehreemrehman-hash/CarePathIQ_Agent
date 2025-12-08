@@ -1093,81 +1093,136 @@ elif "Phase 4" in phase:
 # PHASE 5: OPERATIONALIZE
 # ------------------------------------------
 elif "Phase 5" in phase:
-    st.subheader("Operational Toolkit")
+    st.markdown("### Operational Toolkit & Deployment")
     
+    # --- 1. TARGET AUDIENCE SELECTOR ---
+    st.subheader("Target Audience")
+    
+    # Initialize session state for audience if missing
+    if 'target_audience' not in st.session_state:
+        st.session_state.target_audience = "Multidisciplinary Team"
+
+    col_aud_input, col_aud_btns = st.columns([2, 1])
+    
+    with col_aud_input:
+        audience_input = st.text_input("Define Primary Audience for Education:", 
+                                       value=st.session_state.target_audience)
+        st.session_state.target_audience = audience_input
+
+    with col_aud_btns:
+        st.write("Quick Select:")
+        b1, b2, b3 = st.columns(3)
+        if b1.button("Physicians"): 
+            st.session_state.target_audience = "Physicians"
+            st.rerun()
+        if b2.button("Nurses"): 
+            st.session_state.target_audience = "Nurses"
+            st.rerun()
+        if b3.button("IT Analysts"): 
+            st.session_state.target_audience = "IT Analysts"
+            st.rerun()
+
+    st.divider()
+
+    # --- 2. GENERATION LOGIC ---
+    
+    # Store binary data in session state to prevent reload loss
+    if "p5_files" not in st.session_state:
+        st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None}
+
+    # AUTO-RUN: If files are missing, generate them
+    if not st.session_state.auto_run["p5_all"]:
+        with st.spinner("AI Agent generating Operational Assets..."):
+            cond = st.session_state.data['phase1']['condition']
+            prob = st.session_state.data['phase1']['problem']
+            goals = st.session_state.data['phase1']['objectives']
+            audience = st.session_state.target_audience
+            nodes_json = json.dumps(st.session_state.data['phase3']['nodes'])
+
+            # A. WORD DOC (BETA GUIDE)
+            prompt_guide = f"""
+            Act as a Clinical Operations Manager. Create a Beta Testing Guide for the '{cond}' pathway.
+            Target User: {audience}.
+            Format: Markdown (to be converted to Word).
+            
+            Include:
+            1. Title: Beta Testing Instructions.
+            2. Section: Pre-Test Checklist.
+            3. Section: "Questions for the End User" (Usability, Clarity, Workflow Fit).
+            4. Section: Feedback Submission Instructions.
+            """
+            guide_text = get_gemini_response(prompt_guide)
+            if guide_text:
+                st.session_state.p5_files["docx"] = create_word_docx(guide_text)
+
+            # B. POWERPOINT (SLIDE DECK)
+            prompt_slides = f"""
+            Act as a Healthcare Executive. Create content for a PowerPoint slide deck for the '{cond}' pathway.
+            Target Audience: {audience}.
+            
+            Return a JSON Object with this structure:
+            {{
+                "title": "Main Presentation Title",
+                "audience": "{audience}",
+                "slides": [
+                    {{"title": "Scope", "content": "..."}},
+                    {{"title": "Objectives", "content": "..."}},
+                    {{"title": "Format", "content": "..."}},
+                    {{"title": "Content Overview", "content": "..."}},
+                    {{"title": "Anticipated Impact", "content": "Focus on: \n1. Value of Advancing Care Standardization.\n2. Improving Health Equity."}}
+                ]
+            }}
+            """
+            slides_json = get_gemini_response(prompt_slides, json_mode=True)
+            if isinstance(slides_json, dict):
+                st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
+
+            # C. CSV (EPIC SPECS)
+            prompt_specs = f"Map these pathway nodes to Epic EHR build specifications (Order Sets, BPAs, Flowsheets). Return CSV string.\nNodes: {nodes_json}"
+            csv_data = get_gemini_response(prompt_specs)
+            if csv_data:
+                st.session_state.p5_files["csv"] = csv_data
+
+            st.session_state.auto_run["p5_all"] = True
+            st.rerun()
+
+    # --- 3. DISPLAY DOWNLOADS ---
     c1, c2, c3 = st.columns(3)
-    
+
     with c1:
-        st.markdown("#### Beta Testing")
-        
-        if st.button("Generate Beta Guide", key="btn_guide"):
-             with st.spinner("Generating Guide..."):
-                 cond = st.session_state.data['phase1']['condition']
-                 prob = st.session_state.data['phase1']['problem']
-                 # Request Markdown for easier Docx conversion
-                 st.session_state.data['phase5']['beta_content'] = get_gemini_response(f"Create a Beta Testing Guide for {cond}. Context: {prob}. Use Markdown headers (##, ###) and bullet points.")
-        
-        if st.session_state.data['phase5']['beta_content']:
-             # Try generating DOCX
-             docx_file = create_word_docx(st.session_state.data['phase5']['beta_content'])
-             if docx_file:
-                 st.download_button(
-                     label="Download Guide (.docx)",
-                     data=docx_file,
-                     file_name="Beta_Testing_Guide.docx",
-                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                 )
-             else:
-                 # Fallback to HTML/Text if lib missing
-                 export_widget(st.session_state.data['phase5']['beta_content'], "beta_guide.md", "text/markdown", label="Download Guide (MD)")
+        st.subheader("Beta Testing Guide")
+        st.info("Format: Word Document (.docx)")
+        if st.session_state.p5_files["docx"]:
+            st.download_button(
+                label="Download Guide (.docx)",
+                data=st.session_state.p5_files["docx"],
+                file_name="Beta_Testing_Guide.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                type="primary"
+            )
 
     with c2:
-        st.markdown("#### Frontline Education")
-        
-        if st.button("Generate Educational Slides", key="btn_slides"):
-            with st.spinner("Generating Slides..."):
-                cond = st.session_state.data['phase1']['condition']
-                prob = st.session_state.data['phase1']['problem']
-                goals = st.session_state.data['phase1']['objectives']
-                
-                # Request JSON for PPTX generation
-                prompt_slides = f"""
-                Create 5 educational slides for {cond}. 
-                Gap: {prob}. Goals: {goals}.
-                Return a JSON object: {{ "title": "Main Title", "audience": "Clinicians", "slides": [ {{ "title": "Slide 1", "content": "Bullets..." }} ] }}
-                """
-                slides_json = get_gemini_response(prompt_slides, json_mode=True)
-                st.session_state.data['phase5']['slides'] = slides_json
-
-        if st.session_state.data['phase5']['slides']:
-             # Try generating PPTX
-             if isinstance(st.session_state.data['phase5']['slides'], dict):
-                 pptx_file = create_ppt_presentation(st.session_state.data['phase5']['slides'])
-                 if pptx_file:
-                     st.download_button(
-                         label="Download Slides (.pptx)",
-                         data=pptx_file,
-                         file_name="Education_Deck.pptx",
-                         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                     )
-                 else:
-                     st.warning("PPTX Library missing. Viewing raw content.")
-                     st.json(st.session_state.data['phase5']['slides'])
-             else:
-                 st.write(st.session_state.data['phase5']['slides'])
+        st.subheader("Education Deck")
+        st.info(f"Audience: {st.session_state.target_audience}\nFormat: PowerPoint (.pptx)")
+        if st.session_state.p5_files["pptx"]:
+            st.download_button(
+                label="Download Slides (.pptx)",
+                data=st.session_state.p5_files["pptx"],
+                file_name=f"Launch_Deck_{st.session_state.target_audience}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                type="primary"
+            )
 
     with c3:
-        st.markdown("#### EHR Integration")
-        
-        if st.button("Generate EHR Specs", key="btn_specs"):
-            with st.spinner("Generating Specs..."):
-                nodes_json = json.dumps(st.session_state.data['phase3']['nodes'])
-                st.session_state.data['phase5']['epic_csv'] = get_gemini_response(f"Map nodes {nodes_json} to Epic/OPS tools. Return CSV string.")
+        st.subheader("EHR Build Specs")
+        st.info("Format: CSV (Excel)")
+        if st.session_state.p5_files["csv"]:
+            export_widget(st.session_state.p5_files["csv"], "epic_build_specs.csv", "text/csv", label="Download CSV")
 
-        if st.session_state.data['phase5']['epic_csv']:
-            export_widget(st.session_state.data['phase5']['epic_csv'], "ops_specs.csv", "text/csv", label="Download CSV")
-            
     st.divider()
+    if st.button("Regenerate All Assets (Refresh Audience)", type="primary"):
+        st.session_state.auto_run["p5_all"] = False
+        st.rerun()
     
     # EXECUTIVE SUMMARY
     if st.button("Generate Executive Summary", use_container_width=True):
