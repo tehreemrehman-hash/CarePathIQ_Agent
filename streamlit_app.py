@@ -22,6 +22,8 @@ os.environ["PATH"] += os.pathsep + '/usr/bin'
 # --- NEW IMPORTS FOR PHASE 5 ---
 try:
     from docx import Document
+    from docx.shared import Inches as DocxInches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from pptx import Presentation
     from pptx.util import Inches, Pt
     from pptx.dml.color import RGBColor
@@ -307,6 +309,15 @@ def create_word_docx(content_text):
     except NameError:
         return None # Library not loaded
 
+    # Add Logo if exists
+    if os.path.exists("CarePathIQ_Logo.png"):
+        try:
+            doc.add_picture("CarePathIQ_Logo.png", width=DocxInches(2.0))
+            last_paragraph = doc.paragraphs[-1] 
+            last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        except Exception:
+            pass
+
     doc.add_heading('Clinical Pathway: Beta Testing Guide', 0)
     
     # Simple markdown-to-docx parser
@@ -338,8 +349,8 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
     except NameError:
         return None
     
-    # Helper: Add Footer
-    def add_footer(slide):
+    # Helper: Add Footer & Logo
+    def add_branding(slide):
         # Footer Text Box at bottom center
         left = Inches(0.5)
         top = Inches(7.1)
@@ -353,6 +364,13 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
         p.font.size = Pt(10)
         p.font.color.rgb = GREY
         p.alignment = PP_ALIGN.CENTER
+
+        # Add Logo (Top Right)
+        if os.path.exists("CarePathIQ_Logo.png"):
+            try:
+                slide.shapes.add_picture("CarePathIQ_Logo.png", Inches(8.5), Inches(0.2), width=Inches(1.2))
+            except Exception:
+                pass
 
     # 1. Title Slide
     slide = prs.slides.add_slide(prs.slide_layouts[0]) # Title Slide Layout
@@ -371,7 +389,7 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
         subtitle.text_frame.paragraphs[0].font.color.rgb = TEAL
         subtitle.text_frame.paragraphs[0].font.size = Pt(24)
     
-    add_footer(slide)
+    add_branding(slide)
 
     # 2. Content Slides
     for slide_info in slides_data.get('slides', []):
@@ -416,7 +434,7 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
                 except Exception as e:
                     print(f"Image Error: {e}")
         
-        add_footer(slide)
+        add_branding(slide)
 
     buffer = BytesIO()
     prs.save(buffer)
@@ -765,6 +783,13 @@ if "Phase 1" in phase:
                 st.write("Formatting document...")
                 charter_content = charter_content.replace('```html', '').replace('```', '').strip()
                 
+                # Prepare Logo Base64
+                logo_html = ""
+                if os.path.exists("CarePathIQ_Logo.png"):
+                    with open("CarePathIQ_Logo.png", "rb") as img_file:
+                        b64_logo = base64.b64encode(img_file.read()).decode()
+                        logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="width:150px; display:block; margin-bottom:20px;">'
+
                 # Professional HTML Wrapper with BLACK FONT enforcement
                 word_html = f"""
                 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'>
@@ -785,6 +810,7 @@ if "Phase 1" in phase:
                     </style>
                 </head>
                 <body>
+                    {logo_html}
                     <h1>Project Charter: {d['condition']} Pathway</h1>
                     <p><strong>Date Generated:</strong> {today_str}</p>
                     {charter_content}
