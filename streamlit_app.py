@@ -1279,9 +1279,9 @@ elif "Phase 2" in phase:
         if 'rationale' not in df.columns: df['rationale'] = ""
         if 'grade' not in df.columns: df['grade'] = "Un-graded"
         
-        # Create "Supporting Evidence" column for display
-        if 'id' in df.columns:
-            df['Supporting Evidence'] = df['id'].apply(lambda x: f"PMID: {x}")
+        # Remove "Supporting Evidence" column from Phase 2 display
+        if 'Supporting Evidence' in df.columns:
+            df = df.drop(columns=['Supporting Evidence'])
 
         grade_help = """
         High (A): High confidence in effect estimate.
@@ -1293,7 +1293,6 @@ elif "Phase 2" in phase:
         edited_df = st.data_editor(df, column_config={
             "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
             "id": None,
-            "Supporting Evidence": st.column_config.TextColumn("Supporting Evidence", disabled=True),
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn(
                 "GRADE", 
@@ -1308,7 +1307,7 @@ elif "Phase 2" in phase:
                 width="large"
             ),
             "citation": st.column_config.TextColumn("Citation", disabled=True),
-        }, column_order=["title", "Supporting Evidence", "url", "grade", "rationale"], hide_index=True, key="ev_editor")
+        }, column_order=["title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
         
         # Save manual edits back to state
         st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
@@ -1895,7 +1894,7 @@ elif "Phase 5" in phase:
                 <html>
                 <head>
                     <meta charset="UTF-8">
-                    <title>CarePathIQ Beta Feedback</title>
+                    <title>CarePathIQ Beta Testing Feedback</title>
                     <style>
                         body {{ font-family: 'Arial', sans-serif; background-color: #f4f4f9; color: #333; padding: 20px; }}
                         .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
@@ -1907,37 +1906,54 @@ elif "Phase 5" in phase:
                     </style>
                     <script>
                         function getFeedbackBody() {{
-                            var body = "BETA FEEDBACK RESULTS:\\n\\n";
+                            var body = "BETA TESTING FEEDBACK RESULTS:\\n\\n";
                             var textareas = document.getElementsByTagName('textarea');
                             var labels = document.getElementsByTagName('label');
                             
-                            // Skip the first label which is "Send Results To"
-                            for (var i = 1; i < textareas.length + 1; i++) {{
-                                if (labels[i] && textareas[i-1]) {{
-                                    body += labels[i].innerText + "\\n" + textareas[i-1].value + "\\n\\n";
+                            for (var i = 0; i < textareas.length; i++) {{
+                                if (labels[i]) {{
+                                    body += labels[i].innerText + "\\n" + textareas[i].value + "\\n\\n";
                                 }}
                             }}
                             return body;
-                        }}
-
-                        function sendEmail() {{
-                            var recipient = document.getElementById('recipient').value;
-                            if (!recipient) {{ alert('Please enter a recipient email.'); return; }}
-                            
-                            var body = getFeedbackBody();
-                            var subject = "CarePathIQ Feedback: {cond}";
-                            
-                            // Use window.open for better compatibility
-                            window.open('mailto:' + recipient + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body));
                         }}
                         
                         function copyToClipboard() {{
                             var body = getFeedbackBody();
                             navigator.clipboard.writeText(body).then(function() {{
-                                alert('Feedback copied to clipboard! You can now paste it into your email.');
+                                alert('Feedback copied to clipboard!');
                             }}, function(err) {{
                                 alert('Could not copy text. Please manually copy the answers.');
                             }});
+                        }}
+
+                        function downloadWord() {{
+                            var header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+                                         "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+                                         "xmlns='http://www.w3.org/TR/REC-html40'>" +
+                                         "<head><meta charset='utf-8'><title>Feedback</title></head><body>";
+                            var footer = "</body></html>";
+                            var body = "<h1>Beta Testing Feedback: {cond}</h1>";
+                            body += "<p><strong>Audience:</strong> {audience}</p><hr>";
+                            
+                            var textareas = document.getElementsByTagName('textarea');
+                            var labels = document.getElementsByTagName('label');
+                            
+                            for (var i = 0; i < textareas.length; i++) {{
+                                if (labels[i]) {{
+                                    body += "<h3>" + labels[i].innerText + "</h3>";
+                                    body += "<p>" + (textareas[i].value || "(No answer)") + "</p>";
+                                }}
+                            }}
+                            
+                            var sourceHTML = header + body + footer;
+                            var source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+                            var fileDownload = document.createElement("a");
+                            document.body.appendChild(fileDownload);
+                            fileDownload.href = source;
+                            fileDownload.download = 'feedback_responses.doc';
+                            fileDownload.click();
+                            document.body.removeChild(fileDownload);
                         }}
                     </script>
                 </head>
@@ -1945,7 +1961,7 @@ elif "Phase 5" in phase:
                     <div class="container">
                         <div class="header">
                             <div class="logo">CarePathIQ</div>
-                            <p>Clinical Pathway Beta Feedback Form</p>
+                            <p>Clinical Pathway Beta Testing Feedback Form</p>
                         </div>
                         
                         <p><strong>Pathway:</strong> {cond}</p>
@@ -1953,17 +1969,11 @@ elif "Phase 5" in phase:
                         <hr>
                         
                         <form onsubmit="event.preventDefault();">
-                            <div style="margin-bottom: 20px; background-color: #eef; padding: 10px; border-radius: 5px;">
-                                <label style="font-weight:bold;">Send Results To (Email):</label>
-                                <input type="email" id="recipient" placeholder="manager@hospital.org" style="width:100%; padding:8px; margin-top:5px;" required>
-                                <small style="display:block; margin-top:5px; color:#666;">Note: Clicking Submit will open your default email client (e.g. Outlook) with a draft.</small>
-                            </div>
-                            
                             {q_html}
                             
-                            <div style="display: flex; gap: 10px;">
-                                <button type="button" onclick="sendEmail()" class="btn">Submit (Open Email Client)</button>
-                                <button type="button" onclick="copyToClipboard()" class="btn" style="background-color: #795548;">Copy to Clipboard</button>
+                            <div style="display: flex; gap: 10px; flex-direction: column;">
+                                <button type="button" onclick="copyToClipboard()" class="btn" style="background-color: #795548;">Copy Responses to Clipboard</button>
+                                <button type="button" onclick="downloadWord()" class="btn">Download Responses (Word Doc)</button>
                             </div>
                         </form>
                         
@@ -1992,7 +2002,7 @@ elif "Phase 5" in phase:
                     {{"title": "Clinical Gap", "content": "Describe the gap: {prob}"}},
                     {{"title": "Scope", "content": "..."}},
                     {{"title": "Objectives", "content": "Goals: {goals}"}},
-                    {{"title": "Format", "content": "This slide displays the visual flowchart segment (Image inserted automatically)."}},
+                    {{"title": "Pathway", "content": "This slide displays the visual flowchart segment (Image inserted automatically)."}},
                     {{"title": "Content Overview", "content": "..."}},
                     {{"title": "Anticipated Impact", "content": "Focus on: \n1. Value of Advancing Care Standardization.\n2. Improving Health Equity."}}
                 ]
@@ -2022,13 +2032,12 @@ elif "Phase 5" in phase:
             )
 
     with c2:
-        st.subheader("Interactive Feedback Form")
-        st.info("Format: HTML (Google Form Alternative)")
+        st.subheader("Clinical Pathway Beta Testing Feedback Form")
         if st.session_state.p5_files.get("html"):
             st.download_button(
                 label="Download Form (.html)",
                 data=st.session_state.p5_files["html"],
-                file_name="Beta_Feedback_Form.html",
+                file_name="Beta_Testing_Feedback_Form.html",
                 mime="text/html",
                 type="primary"
             )
