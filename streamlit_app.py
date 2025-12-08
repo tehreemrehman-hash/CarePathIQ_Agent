@@ -613,7 +613,7 @@ if not gemini_api_key:
         color: white;
         margin-bottom: 20px;">
         <strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. 
-        <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; text-decoration: underline;">Get a free API key here</a>.
+        Get a free API key <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; text-decoration: underline;">here</a>.
     </div>
     """, unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
