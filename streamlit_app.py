@@ -89,21 +89,32 @@ st.markdown("""
         color: white !important;
     }
 
-    /* 1c. PRIMARY BUTTONS (Navigation) -> Mmit Green (#2E7D32) */
+    /* 1c. PRIMARY BUTTONS (Navigation) -> Dark Brown (#5D4037) */
     /* This targets buttons with type="primary" */
     div.stButton > button[kind="primary"] {
-        background-color: #2E7D32 !important;
-        border-color: #2E7D32 !important;
+        background-color: #5D4037 !important;
+        border-color: #5D4037 !important;
     }
     div.stButton > button[kind="primary"]:hover {
-        background-color: #1B5E20 !important;
-        border-color: #1B5E20 !important;
+        background-color: #3E2723 !important;
+        border-color: #3E2723 !important;
     }
     div.stButton > button[kind="primary"]:active {
-        background-color: #1B5E20 !important;
-        border-color: #1B5E20 !important;
+        background-color: #3E2723 !important;
+        border-color: #3E2723 !important;
     }
 
+    /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
+    a[kind="primary"] {
+        background-color: #5D4037 !important;
+        border-color: #5D4037 !important;
+        color: white !important;
+    }
+    a[kind="primary"]:hover {
+        background-color: #3E2723 !important;
+        border-color: #3E2723 !important;
+    }
+    
     /* 2. RADIO BUTTONS (The Little Circles) */
     /* Unchecked: White background, Brown border */
     div[role="radiogroup"] label > div:first-child {
@@ -177,9 +188,9 @@ with st.sidebar:
     except ValueError:
         curr_idx = 0
         
-    # Previous Button (Green)
+    # Previous Button (Dark Brown)
     if curr_idx > 0:
-        if st.button(f"⬆️ Previous: {PHASES[curr_idx-1].split(':')[0]}", type="primary", use_container_width=True):
+        if st.button(f"Previous: {PHASES[curr_idx-1].split(':')[0]}", type="primary", use_container_width=True):
             st.session_state.current_phase_label = PHASES[curr_idx-1]
             st.rerun()
             
@@ -200,9 +211,9 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    # Next Button (Green)
+    # Next Button (Dark Brown)
     if curr_idx < len(PHASES) - 1:
-        if st.button(f"⬇️ Next: {PHASES[curr_idx+1].split(':')[0]}", type="primary", use_container_width=True):
+        if st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]}", type="primary", use_container_width=True):
             st.session_state.current_phase_label = PHASES[curr_idx+1]
             st.rerun()
 
@@ -334,7 +345,8 @@ def search_pubmed(query):
     """Real PubMed API Search."""
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
-        search_params = {'db': 'pubmed', 'term': query, 'retmode': 'json', 'retmax': 5}
+        # Increased retmax to 20 to get more results
+        search_params = {'db': 'pubmed', 'term': query, 'retmode': 'json', 'retmax': 20}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response:
             id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
@@ -556,7 +568,8 @@ elif "Phase 2" in phase:
             1. Use correct MeSH terminology (e.g., "Term"[Mesh]).
             2. Use boolean operators (AND, OR, NOT) effectively.
             3. Include relevant keywords for broader coverage where MeSH might be too narrow.
-            4. Output ONLY the raw query string, ready to be pasted into PubMed. No explanations.
+            4. IMPORTANT: Do not make the query too restrictive. Use OR to combine synonyms and MeSH terms for the same concept.
+            5. Output ONLY the raw query string, ready to be pasted into PubMed. No explanations.
             """
             query = get_gemini_response(prompt_mesh)
             st.session_state.data['phase2']['mesh_query'] = query
@@ -603,7 +616,8 @@ elif "Phase 2" in phase:
                     1. Use correct MeSH terminology (e.g., "Term"[Mesh]).
                     2. Use boolean operators (AND, OR, NOT) effectively.
                     3. Include relevant keywords for broader coverage where MeSH might be too narrow.
-                    4. Output ONLY the raw query string, ready to be pasted into PubMed. No explanations.
+                    4. IMPORTANT: Do not make the query too restrictive. Use OR to combine synonyms and MeSH terms for the same concept.
+                    5. Output ONLY the raw query string, ready to be pasted into PubMed. No explanations.
                     """
                     query = get_gemini_response(prompt)
                     st.session_state.data['phase2']['mesh_query'] = query
