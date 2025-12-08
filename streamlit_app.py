@@ -75,17 +75,17 @@ st.set_page_config(
 st.markdown("""
 <style>
     /* 1. DEFAULT BUTTONS (Secondary) -> Dark Green (#2E7D32) */
-    div.stButton > button {
+    div.stButton > button, div[data-testid="stButton"] > button {
         background-color: #2E7D32 !important; 
         color: white !important;
         border: none !important;
         border-radius: 5px !important;
     }
-    div.stButton > button:hover {
+    div.stButton > button:hover, div[data-testid="stButton"] > button:hover {
         background-color: #1B5E20 !important; /* Darker green on hover */
         color: white !important;
     }
-    div.stButton > button:active {
+    div.stButton > button:active, div[data-testid="stButton"] > button:active {
         background-color: #1B5E20 !important;
         color: white !important;
     }
@@ -603,6 +603,8 @@ if "Phase 1" in phase:
                         st.session_state['p1_inc'] = data.get('inclusion', '')
                         st.session_state['p1_exc'] = data.get('exclusion', '')
                         st.rerun()
+                    else:
+                        st.error("AI Error: No response. Please check your API Key.")
             else:
                 st.warning("Please enter a condition first.")
 
@@ -630,6 +632,8 @@ if "Phase 1" in phase:
                         st.session_state['p1_setting'] = data.get('setting', '')
                         st.session_state['p1_prob'] = data.get('problem', '')
                         st.rerun()
+                    else:
+                        st.error("AI Error: No response. Please check your API Key.")
             else:
                 st.warning("Please enter a condition first.")
 
@@ -655,6 +659,8 @@ if "Phase 1" in phase:
                         # Sync to widgets
                         st.session_state['p1_obj'] = obj_text
                         st.rerun()
+                    else:
+                        st.error("AI Error: No response. Please check your API Key.")
             else:
                 st.warning("Please enter a condition first.")
 
