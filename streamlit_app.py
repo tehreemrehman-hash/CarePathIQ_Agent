@@ -461,7 +461,30 @@ elif "Phase 2" in phase:
             i = st.session_state.data['phase2']['pico_i']
             o = st.session_state.data['phase2']['pico_o']
             
-            prompt_mesh = f"Create a PubMed search query using MeSH terms.\nCondition: {p1_cond}, P: {p}, I: {i}, O: {o}.\nOutput ONLY the raw query string."
+            # Retrieve Phase 1 context for better specificity
+            inc = st.session_state.data['phase1'].get('inclusion', '')
+            exc = st.session_state.data['phase1'].get('exclusion', '')
+            setting = st.session_state.data['phase1'].get('setting', '')
+            problem = st.session_state.data['phase1'].get('problem', '')
+
+            prompt_mesh = f"""
+            Act as an expert Medical Librarian. Construct a highly specific and sophisticated PubMed search query using MeSH terms and keywords.
+            Base the query on the following clinical context:
+            - Condition: {p1_cond}
+            - Population/Inclusion: {inc}
+            - Exclusion: {exc}
+            - Setting: {setting}
+            - Clinical Problem: {problem}
+            - PICO P: {p}
+            - PICO I: {i}
+            - PICO O: {o}
+
+            Requirements:
+            1. Use correct MeSH terminology (e.g., "Term"[Mesh]).
+            2. Use boolean operators (AND, OR, NOT) effectively.
+            3. Include relevant keywords for broader coverage where MeSH might be too narrow.
+            4. Output ONLY the raw query string, ready to be pasted into PubMed. No explanations.
+            """
             query = get_gemini_response(prompt_mesh)
             st.session_state.data['phase2']['mesh_query'] = query
             
@@ -484,8 +507,31 @@ elif "Phase 2" in phase:
             if not p1_cond:
                  st.error("Please define a condition in Phase 1.")
             else:
-                with st.spinner("AI Agent building query..."):
-                    prompt = f"Create a PubMed search query using MeSH terms.\nCondition: {p1_cond}, P: {p}, I: {i}, O: {o}.\nOutput ONLY the raw query string."
+                with st.spinner("AI Agent building sophisticated query..."):
+                    # Retrieve Phase 1 context
+                    inc = st.session_state.data['phase1'].get('inclusion', '')
+                    exc = st.session_state.data['phase1'].get('exclusion', '')
+                    setting = st.session_state.data['phase1'].get('setting', '')
+                    problem = st.session_state.data['phase1'].get('problem', '')
+                    
+                    prompt = f"""
+                    Act as an expert Medical Librarian. Construct a highly specific and sophisticated PubMed search query using MeSH terms and keywords.
+                    Base the query on the following clinical context:
+                    - Condition: {p1_cond}
+                    - Population/Inclusion: {inc}
+                    - Exclusion: {exc}
+                    - Setting: {setting}
+                    - Clinical Problem: {problem}
+                    - PICO P: {p}
+                    - PICO I: {i}
+                    - PICO O: {o}
+
+                    Requirements:
+                    1. Use correct MeSH terminology (e.g., "Term"[Mesh]).
+                    2. Use boolean operators (AND, OR, NOT) effectively.
+                    3. Include relevant keywords for broader coverage where MeSH might be too narrow.
+                    4. Output ONLY the raw query string, ready to be pasted into PubMed. No explanations.
+                    """
                     query = get_gemini_response(prompt)
                     st.session_state.data['phase2']['mesh_query'] = query
                     st.rerun()
