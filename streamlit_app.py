@@ -409,8 +409,8 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
     buffer.seek(0)
     return buffer
 
-def get_gemini_response(prompt, json_mode=False):
-    """Robust AI caller with JSON cleaner and multi-model fallback."""
+def get_gemini_response(prompt, json_mode=False, stream_container=None):
+    """Robust AI caller with JSON cleaner, multi-model fallback, and streaming."""
     if not gemini_api_key: return None
     
     # Define fallback hierarchy
@@ -437,7 +437,10 @@ def get_gemini_response(prompt, json_mode=False):
             # Relaxed safety for medical terms
             safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
             time.sleep(1) # Prevent 429 errors
-            response = model.generate_content(prompt, safety_settings=safety)
+            
+            # Enable streaming if container provided
+            is_stream = stream_container is not None
+            response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
             
             if response:
                 if model_name != model_choice:
@@ -456,7 +459,8 @@ def get_gemini_response(prompt, json_mode=False):
                     try:
                         model = genai.GenerativeModel(m.name)
                         safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
-                        response = model.generate_content(prompt, safety_settings=safety)
+                        is_stream = stream_container is not None
+                        response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
                         if response:
                             st.toast(f"Found working model: {m.name}", icon="✅")
                             break
@@ -473,7 +477,16 @@ def get_gemini_response(prompt, json_mode=False):
         return None
 
     try:
-        text = response.text
+        if stream_container:
+            text = ""
+            for chunk in response:
+                if chunk.text:
+                    text += chunk.text
+                    stream_container.markdown(text + "▌")
+            stream_container.markdown(text) # Final render without cursor
+        else:
+            text = response.text
+            
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
             # Robust JSON extraction via regex
@@ -669,7 +682,8 @@ if "Phase 1" in phase:
         if not d['condition'] or not d['problem']:
             st.error("Please fill in at least the 'Condition' and 'Problem Statement' to generate a charter.")
         else:
-            with st.spinner("AI Agent writing formal Project Charter..."):
+            with st.status("AI Agent drafting Project Charter...", expanded=True) as status:
+                st.write("Initializing PMP Agent...")
                 
                 # Professional Prompt
                 prompt = f"""
@@ -692,7 +706,10 @@ if "Phase 1" in phase:
                 - DO NOT use markdown code blocks (```). Just return the HTML.
                 """
                 
+                st.write("Generating content sections...")
                 charter_content = get_gemini_response(prompt)
+                
+                st.write("Formatting document...")
                 charter_content = charter_content.replace('```html', '').replace('```', '').strip()
                 
                 # Get Today's Date
@@ -727,6 +744,7 @@ if "Phase 1" in phase:
                 </body>
                 </html>
                 """
+                status.update(label="Charter Generated Successfully!", state="complete", expanded=False)
                 
                 st.session_state['charter_doc'] = word_html
     
@@ -878,7 +896,8 @@ elif "Phase 2" in phase:
         evidence_list = st.session_state.data['phase2']['evidence']
         
         if evidence_list and not st.session_state.auto_run["p2_grade"]:
-             with st.spinner("AI Agent Identifying Evidence and Evaluating Strength..."):
+             with st.status("AI Agent Evaluating Evidence...", expanded=True) as status:
+                 st.write("Preparing citations for analysis...")
                  titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
                  
                  # ENHANCED PROMPT BASED ON PRASAD 2024
@@ -903,8 +922,10 @@ elif "Phase 2" in phase:
                  }}
                  """
                  
+                 st.write("Connecting to Gemini AI...")
                  grade_data = get_gemini_response(prompt, json_mode=True)
                  
+                 st.write("Processing results...")
                  if isinstance(grade_data, dict):
                      for e in st.session_state.data['phase2']['evidence']:
                          if e['id'] in grade_data:
@@ -917,6 +938,7 @@ elif "Phase 2" in phase:
                                  e['rationale'] = "AI generated score."
                      
                      st.session_state.auto_run["p2_grade"] = True
+                     status.update(label="Evaluation Complete!", state="complete", expanded=False)
                      st.rerun()
 
         # --- E. EVIDENCE TABLE ---
@@ -1324,7 +1346,8 @@ elif "Phase 5" in phase:
 
     # A. ASSETS GENERATION (Dependent on Audience)
     if not st.session_state.auto_run.get("p5_assets", False):
-        with st.spinner(f"AI Agent generating Education Materials for {st.session_state.target_audience}..."):
+        with st.status(f"Generating Assets for {st.session_state.target_audience}...", expanded=True) as status:
+            st.write("Initializing asset generation...")
             cond = st.session_state.data['phase1']['condition']
             prob = st.session_state.data['phase1']['problem']
             goals = st.session_state.data['phase1']['objectives']
@@ -1332,6 +1355,7 @@ elif "Phase 5" in phase:
             nodes = st.session_state.data['phase3']['nodes']
             
             # --- GENERATE FLOWCHART IMAGE FOR PPT ---
+            st.write("🎨 Rendering Flowchart...")
             flowchart_stream = None
             if nodes:
                 try:
@@ -1367,6 +1391,7 @@ elif "Phase 5" in phase:
                     print(f"Flowchart generation failed for PPT: {e}")
 
             # --- WORD DOC (BETA GUIDE) ---
+            st.write("📝 Drafting Beta Guide (Word)...")
             prompt_guide = f"""
             Act as a Clinical Operations Manager. Create a Beta Testing Guide for the '{cond}' pathway.
             Target User: {audience}.
@@ -1383,6 +1408,7 @@ elif "Phase 5" in phase:
                 st.session_state.p5_files["docx"] = create_word_docx(guide_text)
 
             # --- HTML FORM (INTERACTIVE FEEDBACK) ---
+            st.write("📋 Designing Feedback Form (HTML)...")
             prompt_form = f"""
             Act as a UX Researcher. Create 5 specific feedback questions for beta testers of the '{cond}' pathway.
             Target Audience: {audience}.
@@ -1460,6 +1486,7 @@ elif "Phase 5" in phase:
                 st.session_state.p5_files["html"] = html_content
 
             # --- POWERPOINT (SLIDE DECK) ---
+            st.write("📊 Compiling Slide Deck (PowerPoint)...")
             prompt_slides = f"""
             Act as a Healthcare Executive. Create content for a PowerPoint slide deck for the '{cond}' pathway.
             Target Audience: {audience}.
@@ -1484,6 +1511,7 @@ elif "Phase 5" in phase:
                 st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json, flowchart_stream)
 
             st.session_state.auto_run["p5_assets"] = True
+            status.update(label="All Assets Generated!", state="complete", expanded=False)
             st.rerun()
 
     # --- 3. DISPLAY DOWNLOADS ---
