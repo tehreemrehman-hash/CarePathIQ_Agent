@@ -219,7 +219,7 @@ with st.sidebar:
         "Phase 1: Scoping & Charter", 
         "Phase 2: Rapid Evidence Appraisal", 
         "Phase 3: Decision Science", 
-        "Phase 4: User Design Interface", 
+        "Phase 4: User Interface Design", 
         "Phase 5: Operationalize"
     ]
     
@@ -524,13 +524,10 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             st.info("Please wait a minute before trying again, or use a different API key.")
         elif "404" in error_msg:
             st.error("**Model Not Found**: The selected AI model is not available in your region or API version.")
-        else:
-            st.error(f"AI Error: All models failed. Last error: {error_msg}")
-        return None
-        if "API_KEY_INVALID" in error_msg or "400" in error_msg:
+        elif "API_KEY_INVALID" in error_msg or "400" in error_msg:
             st.error("API Key Error: The provided Google Gemini API Key is invalid. Please check for typos or extra spaces, or generate a new key at Google AI Studio.")
         else:
-            st.error(f"AI Error: All models failed. Last error: {last_error}")
+            st.error(f"AI Error: All models failed. Last error: {error_msg}")
         return None
 
     try:
@@ -646,7 +643,7 @@ phase = st.radio("Workflow Phase",
                  ["Phase 1: Scoping & Charter", 
                   "Phase 2: Rapid Evidence Appraisal", 
                   "Phase 3: Decision Science", 
-                  "Phase 4: Heuristic Evaluation", 
+                  "Phase 4: User Interface Design", 
                   "Phase 5: Operationalize"], 
                  horizontal=True,
                  key="current_phase_label",
@@ -1592,32 +1589,28 @@ elif "Phase 5" in phase:
     if 'target_audience' not in st.session_state:
         st.session_state.target_audience = "Multidisciplinary Team"
 
-    col_aud_input, col_aud_btns = st.columns([2, 1])
-    
-    with col_aud_input:
-        # If user changes this, we only invalidate the ASSETS (Docs/Slides), not the EHR
-        new_audience = st.text_input("Define Primary Audience for Education:", 
-                                       value=st.session_state.target_audience)
-        if new_audience != st.session_state.target_audience:
-            st.session_state.target_audience = new_audience
-            st.session_state.auto_run["p5_assets"] = False # Invalidate assets
-            st.rerun()
+    # If user changes this, we only invalidate the ASSETS (Docs/Slides), not the EHR
+    new_audience = st.text_input("Define Primary Audience for Beta Testing and Education:", 
+                                   value=st.session_state.target_audience)
+    if new_audience != st.session_state.target_audience:
+        st.session_state.target_audience = new_audience
+        st.session_state.auto_run["p5_assets"] = False # Invalidate assets
+        st.rerun()
 
-    with col_aud_btns:
-        st.write("Quick Select:")
-        b1, b2, b3 = st.columns(3)
-        if b1.button("Physicians"): 
-            st.session_state.target_audience = "Physicians"
-            st.session_state.auto_run["p5_assets"] = False
-            st.rerun()
-        if b2.button("Nurses"): 
-            st.session_state.target_audience = "Nurses"
-            st.session_state.auto_run["p5_assets"] = False
-            st.rerun()
-        if b3.button("IT Analysts"): 
-            st.session_state.target_audience = "IT Analysts"
-            st.session_state.auto_run["p5_assets"] = False
-            st.rerun()
+    st.write("Quick Select:")
+    b1, b2, b3 = st.columns([1, 1, 1])
+    if b1.button("Physicians", use_container_width=True): 
+        st.session_state.target_audience = "Physicians"
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+    if b2.button("Nurses", use_container_width=True): 
+        st.session_state.target_audience = "Nurses"
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+    if b3.button("IT Analysts", use_container_width=True): 
+        st.session_state.target_audience = "IT Analysts"
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
 
     st.divider()
 
@@ -1636,7 +1629,7 @@ elif "Phase 5" in phase:
             nodes = st.session_state.data['phase3']['nodes']
             
             # --- GENERATE FLOWCHART IMAGE FOR PPT ---
-            st.write("🎨 Rendering Flowchart...")
+            st.write("Rendering Flowchart...")
             flowchart_stream = None
             if nodes:
                 try:
@@ -1672,7 +1665,7 @@ elif "Phase 5" in phase:
                     print(f"Flowchart generation failed for PPT: {e}")
 
             # --- WORD DOC (BETA GUIDE) ---
-            st.write("📝 Drafting Beta Guide (Word)...")
+            st.write("Drafting Beta Testing Guide (Word)...")
             prompt_guide = f"""
             Act as a Clinical Operations Manager. Create a Beta Testing Guide for the '{cond}' pathway.
             Target User: {audience}.
@@ -1689,7 +1682,7 @@ elif "Phase 5" in phase:
                 st.session_state.p5_files["docx"] = create_word_docx(guide_text)
 
             # --- HTML FORM (INTERACTIVE FEEDBACK) ---
-            st.write("📋 Designing Feedback Form (HTML)...")
+            st.write("Designing Feedback Form (HTML)...")
             prompt_form = f"""
             Act as a UX Researcher. Create 5 specific feedback questions for beta testers of the '{cond}' pathway.
             Target Audience: {audience}.
@@ -1767,7 +1760,7 @@ elif "Phase 5" in phase:
                 st.session_state.p5_files["html"] = html_content
 
             # --- POWERPOINT (SLIDE DECK) ---
-            st.write("📊 Compiling Slide Deck (PowerPoint)...")
+            st.write("Compiling Slide Deck (PowerPoint)...")
             prompt_slides = f"""
             Act as a Healthcare Executive. Create content for a PowerPoint slide deck for the '{cond}' pathway.
             Target Audience: {audience}.
