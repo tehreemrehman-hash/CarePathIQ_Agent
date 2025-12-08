@@ -192,8 +192,6 @@ st.markdown("""
 
 # --- SIDEBAR: CONFIG ---
 with st.sidebar:
-    if os.path.exists("CarePathIQ_Logo.png"):
-        st.image("CarePathIQ_Logo.png", width=150)
     st.title("AI Agent")
     st.divider()
     
@@ -691,7 +689,7 @@ if "Phase 1" in phase:
         st.subheader("1. Clinical Focus")
         cond_input = st.text_input(
             "Clinical Condition", 
-            placeholder="e.g. Sepsis in the ED", 
+            placeholder="e.g. Sepsis", 
             key="p1_cond_input",
             on_change=sync_p1_widgets
         )
@@ -740,7 +738,7 @@ if "Phase 1" in phase:
         
     with col2:
         # CONTEXT
-        st.subheader("3. Context")
+        st.subheader("3. Clinical Gap / Problem Statement")
         
         # AUTO-GENERATE PROBLEM (Replaces Button)
         # Trigger if Inclusion/Exclusion are present and we haven't run for this combo
@@ -765,10 +763,10 @@ if "Phase 1" in phase:
                     st.session_state['last_prob_key'] = curr_prob_key
                     st.rerun()
 
-        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets)
+        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
         
         # OBJECTIVES
-        st.subheader("4. SMART Objectives")
+        st.subheader("4. Goals")
         
         # AUTO-GENERATE OBJECTIVES (Replaces Button)
         # Trigger if Problem is present and we haven't run for this combo
@@ -790,7 +788,7 @@ if "Phase 1" in phase:
                     st.session_state['last_obj_key'] = curr_obj_key
                     st.rerun()
 
-        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets)
+        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
 
     st.divider()
 
