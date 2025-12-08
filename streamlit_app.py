@@ -927,10 +927,10 @@ elif "Phase 3" in phase:
         st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
 
 # ------------------------------------------
-# PHASE 4: USER INTERFACE DESIGN
+# PHASE 4: USER DESIGN INTERFACE
 # ------------------------------------------
 elif "Phase 4" in phase:
-    st.markdown("### User Interface Design & Heuristics")
+    st.markdown("### User Design Interface")
     
     col1, col2 = st.columns([2, 1])
     
