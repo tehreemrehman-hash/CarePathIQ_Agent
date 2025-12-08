@@ -596,8 +596,8 @@ def search_pubmed(query):
     """Real PubMed API Search."""
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
-        # Increased retmax to 20 to get more results
-        search_params = {'db': 'pubmed', 'term': query, 'retmode': 'json', 'retmax': 20}
+        # Increased retmax to 30 to get more results, sorted by relevance
+        search_params = {'db': 'pubmed', 'term': query, 'retmode': 'json', 'retmax': 30, 'sort': 'relevance'}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response:
             id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
@@ -1000,14 +1000,12 @@ elif "Phase 2" in phase:
             prompt_mesh = f"""
             Construct a PubMed search query for: {p1_cond}.
             
-            The query MUST start with the exact phrase: "clinical pathway or evidence based guideline for"
-            
-            Followed by the KEY TERMS extracted from the PICO elements:
+            Create a search string that combines the following PICO elements using AND:
             - Population: {p}
             - Intervention: {i}
             - Outcome: {o}
             
-            Example: "clinical pathway or evidence based guideline for Sepsis Antibiotics Mortality"
+            Example: (Sepsis) AND (Antibiotics) AND (Mortality)
             
             OUTPUT FORMAT:
             - Return ONLY the raw query string.
