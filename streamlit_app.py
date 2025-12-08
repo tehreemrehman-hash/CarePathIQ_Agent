@@ -578,7 +578,7 @@ def search_pubmed(query):
 # 4. MAIN UI
 # ==========================================
 st.title("CarePathIQ AI Agent")
-st.markdown(f"### Intelligent Clinical Pathway Development and Implementation")
+st.markdown(f"### Intelligently Build and Deploy Clinical Pathways")
 
 if not gemini_api_key:
     # DARK BROWN SOLID WELCOME BOX
