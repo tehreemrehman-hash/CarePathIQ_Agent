@@ -178,7 +178,8 @@ st.markdown("""
     h1, h2, h3 { color: #00695C; }
 
     /* Hide the anchor link icons on hover for headers */
-    [data-testid="stHeaderAction"] { display: none !important; }
+    [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+    .st-emotion-cache-1629p8f a, h1 a, h2 a, h3 a { display: none !important; pointer-events: none; color: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -701,9 +702,16 @@ if "Phase 1" in phase:
                         inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
                         exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
                         
+                        # Helper to format list items (strings or dicts)
+                        def fmt_item(x):
+                            if isinstance(x, dict):
+                                # Extract values if it's a dict like {'criterion': '...', 'details': '...'}
+                                return ": ".join([str(v) for v in x.values() if v])
+                            return str(x)
+
                         # Ensure strings (handle lists if AI returns them)
-                        inc_text = "\n".join([f"- {x}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
-                        exc_text = "\n".join([f"- {x}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
+                        inc_text = "\n".join([f"- {fmt_item(x)}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
+                        exc_text = "\n".join([f"- {fmt_item(x)}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
                         
                         st.session_state.data['phase1']['inclusion'] = inc_text
                         st.session_state.data['phase1']['exclusion'] = exc_text
