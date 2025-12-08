@@ -73,6 +73,22 @@ st.markdown("""
         color: white !important;
     }
 
+    /* 1b. DOWNLOAD BUTTONS -> Dark Brown (#5D4037) */
+    div.stDownloadButton > button {
+        background-color: #5D4037 !important; 
+        color: white !important;
+        border: none !important;
+        border-radius: 5px !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #3E2723 !important;
+        color: white !important;
+    }
+    div.stDownloadButton > button:active {
+        background-color: #3E2723 !important;
+        color: white !important;
+    }
+
     /* 2. RADIO BUTTONS (The Little Circles) */
     /* Unchecked: White background, Brown border */
     div[role="radiogroup"] label > div:first-child {
@@ -400,8 +416,11 @@ if "Phase 1" in phase:
                 st.warning("Please enter a Clinical Condition first.")
             else:
                 with st.spinner("AI Agent Generating Project Charter..."):
-                    prompt = f"Create a formal Project Charter (HTML). Condition: {cond_input}. Inclusion: {inc}. Exclusion: {exc}. Setting: {setting}. Problem: {prob}. Objectives: {obj}. Return HTML."
+                    prompt = f"Create a formal Project Charter (HTML). Condition: {cond_input}. Inclusion: {inc}. Exclusion: {exc}. Setting: {setting}. Problem: {prob}. Objectives: {obj}. Return HTML body content only. Do not include ```html or ``` markers."
                     charter_content = get_gemini_response(prompt)
+                    
+                    # Clean up any potential markdown markers if the model ignores instructions
+                    charter_content = charter_content.replace('```html', '').replace('```', '').strip()
                     
                     # Wrap for Word Doc
                     word_html = f"""
@@ -412,6 +431,10 @@ if "Phase 1" in phase:
                             body {{ font-family: 'Times New Roman', serif; }}
                             h1 {{ color: #00695C; text-align: center; }}
                             h2 {{ color: #2E7D32; border-bottom: 2px solid #2E7D32; }}
+                            table {{ border-collapse: collapse; width: 100%; }}
+                            td, th {{ border: 1px solid #ddd; padding: 8px; }}
+                            /* Remove any unwanted grid lines from main layout if present */
+                            .no-border {{ border: none !important; }}
                         </style>
                     </head>
                     <body>
