@@ -289,6 +289,7 @@ if "current_phase_label" not in st.session_state:
 if "auto_run" not in st.session_state:
     st.session_state.auto_run = {
         "p2_pico": False,
+        "p2_query": False,
         "p2_grade": False,
         "p3_logic": False,
         "p4_heuristics": False,
@@ -675,6 +676,10 @@ if "Phase 1" in phase:
         st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
         st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
+        
+        # Invalidate Phase 2 so it regenerates based on new Phase 1 data
+        st.session_state.auto_run["p2_pico"] = False
+        st.session_state.auto_run["p2_query"] = False
 
     # Initialize keys if missing
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
@@ -808,6 +813,14 @@ if "Phase 1" in phase:
         # Retrieve fresh values
         d = st.session_state.data['phase1']
         
+        # Prepare prompt values (handle empty strings to prevent hallucination)
+        p_cond = d['condition'] if d['condition'] else "Not specified"
+        p_prob = d['problem'] if d['problem'] else "Not specified"
+        p_set = d['setting'] if d['setting'] else "Not specified"
+        p_inc = d['inclusion'] if d['inclusion'] and d['inclusion'].strip() else "None"
+        p_exc = d['exclusion'] if d['exclusion'] and d['exclusion'].strip() else "None"
+        p_obj = d['objectives'] if d['objectives'] and d['objectives'].strip() else "None"
+        
         if not d['condition'] or not d['problem']:
             st.error("Please fill in at least the 'Condition' and 'Problem Statement' to generate a charter.")
         else:
@@ -822,13 +835,13 @@ if "Phase 1" in phase:
                 Act as a certified Project Management Professional (PMP) in Healthcare. 
                 Create a formal **Project Charter** for a Clinical Pathway initiative.
                 
-                **Use strictly this data (do not hallucinate criteria I deleted):**
-                - **Initiative:** {d['condition']}
-                - **Clinical Gap:** {d['problem']}
-                - **Care Setting:** {d['setting']}
-                - **In Scope (Inclusion):** {d['inclusion']}
-                - **Out of Scope (Exclusion):** {d['exclusion']}
-                - **Objectives:** {d['objectives']}
+                **Use strictly this data (do not hallucinate criteria I deleted). If a field is 'None', state 'None' or leave blank in the charter:**
+                - **Initiative:** {p_cond}
+                - **Clinical Gap:** {p_prob}
+                - **Care Setting:** {p_set}
+                - **In Scope (Inclusion):** {p_inc}
+                - **Out of Scope (Exclusion):** {p_exc}
+                - **Objectives:** {p_obj}
                 - **Date Created:** {today_str}
                 
                 **Output Format:** HTML Body Only.
@@ -925,7 +938,7 @@ if "Phase 1" in phase:
 # ------------------------------------------
 elif "Phase 2" in phase:
     
-    # --- A. AUTO-RUN: PICO & MESH GENERATION ---
+    # --- A. AUTO-RUN: PICO & SEARCH GENERATION ---
     # 1. SYNC PHASE 1 DATA (Fix for manual edits not propagating)
     # We check if the widget keys exist in session_state (meaning user visited Phase 1)
     # and update the data dictionary before proceeding.
@@ -939,10 +952,15 @@ elif "Phase 2" in phase:
     p1_cond = st.session_state.data['phase1']['condition']
     
     # Only run if condition exists and we haven't run PICO yet
+    # --- A. AUTO-RUN: PICO & SEARCH STRATEGY ---
+    # Trigger only if we have a condition and haven't run yet
+    p1_cond = st.session_state.data['phase1'].get('condition', '')
+    
+    # 1. PICO GENERATION (From Phase 1)
     if p1_cond and not st.session_state.auto_run.get("p2_pico", False):
-        with st.spinner("AI Agent drafting PICO framework & MeSH Query..."):
+        with st.spinner("AI Agent drafting PICO framework..."):
             
-            # 1. Generate PICO
+            # Generate PICO
             problem_context = st.session_state.data['phase1'].get('problem', '')
             setting_context = st.session_state.data['phase1'].get('setting', '')
             prompt_pico = f"""
@@ -960,8 +978,17 @@ elif "Phase 2" in phase:
                 st.session_state.data['phase2']['pico_c'] = str(pico_data.get("C", "") or "")
                 st.session_state.data['phase2']['pico_o'] = str(pico_data.get("O", "") or "")
             
-            # 2. Generate MeSH Query (Chained immediately after PICO)
-            # Retrieve PICO we just generated or existing ones
+            st.session_state.auto_run["p2_pico"] = True
+            # Force query update since PICO changed
+            st.session_state.auto_run["p2_query"] = False
+
+    # 2. QUERY GENERATION (From PICO)
+    # Run if query is stale (p2_query=False) AND we have PICO data
+    has_pico = any(st.session_state.data['phase2'].get(k) for k in ['pico_p', 'pico_i', 'pico_c', 'pico_o'])
+    
+    if has_pico and not st.session_state.auto_run.get("p2_query", False):
+        with st.spinner("AI Agent drafting Search Query..."):
+            # Retrieve PICO
             p = st.session_state.data['phase2']['pico_p']
             i = st.session_state.data['phase2']['pico_i']
             o = st.session_state.data['phase2']['pico_o']
@@ -971,28 +998,20 @@ elif "Phase 2" in phase:
             setting = st.session_state.data['phase1'].get('setting', '')
 
             prompt_mesh = f"""
-            Act as an expert Medical Librarian. Construct a sophisticated PubMed search query for: {p1_cond}.
+            Construct a PubMed search query for: {p1_cond}.
             
-            Use these elements:
-            - Population: {p} (Inclusion: {inc})
+            The query MUST start with the exact phrase: "clinical pathway or evidence based guideline for"
+            
+            Followed by the KEY TERMS extracted from the PICO elements:
+            - Population: {p}
             - Intervention: {i}
             - Outcome: {o}
-            - Setting: {setting}
-
-            ADVANCED SEARCH LOGIC:
-            1. **Concept Grouping**: Group synonyms for each element (P, I, O) using OR within parentheses.
-               - Example: (Heart Failure[Mesh] OR "cardiac failure"[tiab] OR "heart decompensation"[tiab])
-            2. **Boolean Operators**: Combine the P, I, and O groups using AND.
-               - Structure: (Population Terms) AND (Intervention Terms) AND (Outcome Terms)
-            3. **Field Tags**: Use `[Mesh]` for controlled vocabulary and `[tiab]` for title/abstract keywords.
-            4. **Refinement**: 
-               - Use truncation (`*`) for root words (e.g., `random*`).
-               - Exclude animal studies NOT involving humans: `NOT (Animals[Mesh] NOT Humans[Mesh])`.
+            
+            Example: "clinical pathway or evidence based guideline for Sepsis Antibiotics Mortality"
             
             OUTPUT FORMAT:
             - Return ONLY the raw query string.
             - Do NOT use markdown blocks.
-            - Do NOT include explanations.
             """
             raw_query = get_gemini_response(prompt_mesh)
             
@@ -1001,7 +1020,7 @@ elif "Phase 2" in phase:
                 clean_query = raw_query.replace('```', '').replace('\n', ' ').strip()
                 st.session_state.data['phase2']['mesh_query'] = clean_query
             
-            st.session_state.auto_run["p2_pico"] = True
+            st.session_state.auto_run["p2_query"] = True
             st.rerun()
 
     # --- B. UI: PICO INPUTS ---
@@ -1033,7 +1052,7 @@ elif "Phase 2" in phase:
         st.divider()
         
         if st.button("Regenerate Query from PICO", type="secondary", use_container_width=True):
-            st.session_state.auto_run["p2_pico"] = False # Force re-run logic
+            st.session_state.auto_run["p2_query"] = False # Force re-run QUERY logic only
             st.rerun()
 
     # --- C. UI: SEARCH & GRADE ---
@@ -1041,7 +1060,7 @@ elif "Phase 2" in phase:
         st.markdown("#### Literature Search Strategy")
         
         # Search Query Text Area
-        st.text_area("PubMed MeSH Query", height=150, key="p2_query_box", on_change=sync_p2_widgets)
+        st.text_area("PubMed Search Query", height=150, key="p2_query_box", on_change=sync_p2_widgets)
         
         # Define search_q from widget state to fix NameError
         search_q = st.session_state.p2_query_box
