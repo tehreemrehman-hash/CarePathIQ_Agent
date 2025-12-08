@@ -781,27 +781,36 @@ elif "Phase 3" in phase:
         nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
         
         if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
-             with st.spinner("AI Agent drafting decision tree..."):
-                 ev_context = "\n".join([f"- ID {e['id']}: {e['title']}" for e in evidence_list[:5]])
+             with st.spinner("AI Agent drafting decision model (AHRQ/Philips Framework)..."):
+                 
+                 # Prepare Evidence Context
+                 ev_context = "\n".join([f"- {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})" for e in evidence_list[:5]])
+                 
+                 # ENHANCED PROMPT BASED ON AHRQ METHODOLOGY (NBK127482)
                  prompt = f"""
-                 Act as an Expert Clinical Guideline Developer adhering to IOM Standards (NBK127478).
-                 Create a sophisticated clinical decision tree for: {cond}.
+                 Act as a Decision Scientist building a Clinical Pathway Model for: {cond}.
+                 Adhere to the 'Best Practices for Decision Modeling' (Philips et al., AHRQ).
                  
                  Context:
-                 - Evidence: {ev_context}
-                 - Goal: Create a trustworthy, evidence-based pathway.
-
-                 Instructions:
-                 1. Structure the flow as a logical sequence of nodes.
-                 2. Use "Decision" nodes for critical branching points (e.g., "High Risk?").
-                 3. Use "Process" nodes for actionable steps (e.g., "Order CT Scan").
-                 4. CRITICAL: Use "Note" nodes liberally to provide specific details, dosage, exclusion criteria, or to describe alternative subpathways that branch off from a Decision.
-                 5. Keep "label" content for Decision/Process nodes MINIMAL (3-5 words) but effective. Put all elaboration in "Note" nodes.
+                 - Evidence Available: {ev_context}
                  
-                 Return a JSON List of objects: [{{"type": "Start", "label": "Triage", "evidence": "ID..."}}]
-                 Valid Types: Start, Decision, Process, Note, End.
+                 INSTRUCTIONS:
+                 1. **Define the Pathway Type**: Is this Prevention, Screening, Diagnostic, or Treatment? Structure accordingly.
+                 2. **Natural History**: Ensure the flow reflects the biological progression or clinical workflow logic.
+                 3. **Node Types**:
+                    - 'Start': Entry point (Patient presentation).
+                    - 'Decision': A branching point (Test Result / Risk Stratification).
+                    - 'Process': An intervention or action (Administer Meds / Surgery).
+                    - 'Note': Crucial for **Assumptions** or **Uncertainty** (e.g., "If high bleeding risk, consider X").
+                    - 'End': Clinical Outcome (Discharge / Admit / Palliative).
+                 
+                 4. **Handling Uncertainty**: If evidence is Low GRADE, use a 'Note' node to highlight the assumption being made.
+                 
+                 Return a JSON List of objects: [{{"type": "Start", "label": "Acute Onset", "evidence": "ID..."}}]
                  """
+                 
                  nodes = get_gemini_response(prompt, json_mode=True)
+                 
                  if isinstance(nodes, list):
                      st.session_state.data['phase3']['nodes'] = nodes
                      st.session_state.auto_run["p3_logic"] = True
