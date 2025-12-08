@@ -192,8 +192,9 @@ with st.sidebar:
 
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Use Google AI Studio Key")
     
-    # Default to gemini-2.5-flash as requested, but include fallbacks
-    model_choice = st.selectbox("AI Agent Model", ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"], index=0)
+    # Default to Auto for best performance
+    model_options = ["Auto", "gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
+    model_choice = st.selectbox("AI Agent Model", model_options, index=0)
     
     if gemini_api_key:
         gemini_api_key = gemini_api_key.strip() # Remove any leading/trailing whitespace
@@ -422,36 +423,48 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
     
     # Define fallback hierarchy
-    # We include 'gemini-pro' and other variants because API model names can vary by region/version
-    candidates = [
-        model_choice,
-        "gemini-2.5-flash",
-        "gemini-1.5-pro", 
-        "gemini-1.5-flash", 
-        "gemini-1.0-pro", 
-        "gemini-pro", 
-        "gemini-1.0-pro-latest",
-        "gemini-1.0-pro-001"
-    ]
+    # If Auto is selected, prioritize Flash models for speed
+    if model_choice == "Auto":
+        candidates = [
+            "gemini-1.5-flash", 
+            "gemini-2.5-flash",
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-pro", 
+            "gemini-1.0-pro"
+        ]
+    else:
+        # User selected specific model, try that first, then fallbacks
+        candidates = [
+            model_choice,
+            "gemini-1.5-flash",
+            "gemini-1.5-pro", 
+            "gemini-1.0-pro"
+        ]
+    
     # Deduplicate preserving order
     candidates = list(dict.fromkeys(candidates))
     
     response = None
     last_error = None
 
-    for model_name in candidates:
+    for i, model_name in enumerate(candidates):
         try:
             model = genai.GenerativeModel(model_name)
             # Relaxed safety for medical terms
             safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
-            time.sleep(1) # Prevent 429 errors
+            
+            # Only sleep on retries to keep first attempt fast
+            if i > 0: time.sleep(1) 
             
             # Enable streaming if container provided
             is_stream = stream_container is not None
             response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
             
             if response:
-                if model_name != model_choice:
+                if model_choice == "Auto" and i > 0:
+                    # Optional: Log which model was actually used in Auto mode if not the first
+                    pass 
+                elif model_choice != "Auto" and model_name != model_choice:
                     st.toast(f"Switched to {model_name} (auto-fallback)", icon="🔄")
                 break # Success
         except Exception as e:
@@ -459,22 +472,28 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             continue # Try next model
 
     if not response:
-        # Final Hail Mary: Try to dynamically find ANY available Gemini model
+        # Final Hail Mary: Fast Dynamic Discovery
+        # Instead of trying to generate with every model, just find the first valid 'gemini' model and try it once.
         try:
             st.toast("Attempting dynamic model discovery...", icon="🔎")
+            found_model = None
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name:
-                    try:
-                        model = genai.GenerativeModel(m.name)
-                        safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
-                        is_stream = stream_container is not None
-                        response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
-                        if response:
-                            st.toast(f"Found working model: {m.name}", icon="✅")
-                            break
-                    except: continue
+                    found_model = m.name
+                    break # Just take the first one found
+            
+            if found_model:
+                try:
+                    model = genai.GenerativeModel(found_model)
+                    safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
+                    is_stream = stream_container is not None
+                    response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
+                    if response:
+                        st.toast(f"Recovered with: {found_model}", icon="✅")
+                except Exception as e:
+                    last_error = f"{last_error} | Dynamic attempt failed: {e}"
         except Exception as e:
-            last_error = f"{last_error} | Dynamic discovery failed: {e}"
+            last_error = f"{last_error} | Discovery failed: {e}"
 
     if not response:
         error_msg = str(last_error)
