@@ -11,6 +11,14 @@ import time
 import base64
 from io import BytesIO
 
+# --- NEW IMPORTS FOR PHASE 5 ---
+try:
+    from docx import Document
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+except ImportError:
+    st.error("⚠️ Missing Libraries: Please run `pip install python-docx python-pptx` to use the new Phase 5 features.")
+
 # ==========================================
 # 1. CONSTANTS & COPYRIGHT SETUP
 # ==========================================
@@ -1029,14 +1037,12 @@ elif "Phase 5" in phase:
     
     with c1:
         st.markdown("#### Beta Testing")
-        beta_email_input = st.text_input("Feedback Email", placeholder="email@example.com")
         
-        if st.button("Generate Interactive Guide", key="btn_guide"):
+        if st.button("Generate Beta Guide", key="btn_guide"):
              with st.spinner("Generating Guide..."):
                  cond = st.session_state.data['phase1']['condition']
                  prob = st.session_state.data['phase1']['problem']
-                 # Re-generate content
-                 st.session_state.data['phase5']['beta_content'] = get_gemini_response(f"Create Beta Guide (HTML) for {cond}. Context: {prob}. Create mailto link for {beta_email_input}.")
+                 st.session_state.data['phase5']['beta_content'] = get_gemini_response(f"Create Beta Guide (HTML) for {cond}. Context: {prob}.")
         
         if st.session_state.data['phase5']['beta_content']:
              export_widget(st.session_state.data['phase5']['beta_content'], "beta_guide.html", "text/html", label="Download Guide")
@@ -1068,7 +1074,7 @@ elif "Phase 5" in phase:
     st.divider()
     
     # EXECUTIVE SUMMARY
-    if st.button("Generate Executive Summary", type="primary", use_container_width=True):
+    if st.button("Generate Executive Summary", use_container_width=True):
         with st.spinner("Compiling Executive Summary..."):
             # Gather Context
             p1 = st.session_state.data['phase1']
