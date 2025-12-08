@@ -1039,14 +1039,21 @@ elif "Phase 2" in phase:
             setting = st.session_state.data['phase1'].get('setting', '')
 
             prompt_mesh = f"""
-            Construct a PubMed search query for: {p1_cond}.
+            Construct a simple PubMed search query for: {p1_cond}.
             
-            Create a search string that combines the following PICO elements using AND:
+            Create a search string that combines the following PICO elements using AND.
+            
             - Population: {p}
             - Intervention: {i}
             - Outcome: {o}
             
-            Example: (Sepsis) AND (Antibiotics) AND (Mortality)
+            STRICT RULES:
+            1. Use ONLY the keywords provided.
+            2. Do NOT use MeSH tags (e.g. [Mesh]).
+            3. Do NOT use field tags (e.g. [tiab]).
+            4. Do NOT use complex boolean logic or parentheses grouping beyond simple (A) AND (B).
+            
+            Example Output: (Sepsis) AND (Antibiotics) AND (Mortality)
             
             OUTPUT FORMAT:
             - Return ONLY the raw query string.
