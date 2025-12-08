@@ -190,7 +190,10 @@ with st.sidebar:
     except FileNotFoundError:
         pass
 
-    gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Use Google AI Studio Key")
+    st.markdown("### 🔑 Access Required")
+    st.info("To use this AI Agent, you need a Google Gemini API Key. \n\n[👉 Get a free API Key here](https://aistudio.google.com/app/apikey)")
+
+    gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Paste your key from Google AI Studio")
     
     # Default to Auto for best performance
     # User specified models: gemini 2.5 flash, gemini 2.5 flash lite, gemini-2.5-flash-tts, gemini-robotics-er-1.5-preview
