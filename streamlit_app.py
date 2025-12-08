@@ -17,7 +17,7 @@ COPYRIGHT_HTML = """
 <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.85em; color: #666;">
     <p>
         <a href="https://www.carepathiq.org" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">CarePathIQ</a> 
-        © 2025 by 
+        © 2024 by 
         <a href="https://www.tehreemrehman.com" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">Tehreem Rehman</a> 
         is licensed under 
         <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" style="text-decoration:none; color:#4a4a4a;">CC BY-SA 4.0</a>
@@ -27,7 +27,7 @@ COPYRIGHT_HTML = """
 
 COPYRIGHT_MD = """
 ---
-**© 2025 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
 """
 
 # Nielsen's Definitions for Tooltips
@@ -332,7 +332,7 @@ if "Phase 1" in phase:
                         <div class="page">
                             {charter_content}
                             <div style="margin-top: 50px; font-size: 0.8em; color: gray; text-align: center; border-top: 1px solid #ddd; padding-top: 10px;">
-                                CarePathIQ © 2025 by Tehreem Rehman. Licensed under CC BY-SA 4.0.
+                                CarePathIQ © 2024 by Tehreem Rehman. Licensed under CC BY-SA 4.0.
                             </div>
                         </div>
                     </body>
