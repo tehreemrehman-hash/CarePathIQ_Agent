@@ -74,19 +74,19 @@ st.set_page_config(
 # --- CUSTOM CSS: GLOBAL DARK BROWN THEME ---
 st.markdown("""
 <style>
-    /* 1. ALL BUTTONS -> Dark Brown (#5D4037) */
+    /* 1. DEFAULT BUTTONS (Secondary) -> Dark Green (#2E7D32) */
     div.stButton > button {
-        background-color: #5D4037 !important; 
+        background-color: #2E7D32 !important; 
         color: white !important;
         border: none !important;
         border-radius: 5px !important;
     }
     div.stButton > button:hover {
-        background-color: #3E2723 !important; /* Darker brown on hover */
+        background-color: #1B5E20 !important; /* Darker green on hover */
         color: white !important;
     }
     div.stButton > button:active {
-        background-color: #3E2723 !important;
+        background-color: #1B5E20 !important;
         color: white !important;
     }
 
@@ -106,30 +106,30 @@ st.markdown("""
         color: white !important;
     }
 
-    /* 1c. PRIMARY BUTTONS (Navigation) -> Mint Green (#00897B) */
+    /* 1c. PRIMARY BUTTONS (Charter, Nav) -> Dark Brown (#5D4037) */
     /* This targets buttons with type="primary" */
     div.stButton > button[kind="primary"] {
-        background-color: #00897B !important;
-        border-color: #00897B !important;
-    }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #00695C !important;
-        border-color: #00695C !important;
-    }
-    div.stButton > button[kind="primary"]:active {
-        background-color: #00695C !important;
-        border-color: #00695C !important;
-    }
-
-    /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
-    a[kind="primary"] {
         background-color: #5D4037 !important;
         border-color: #5D4037 !important;
-        color: white !important;
     }
-    a[kind="primary"]:hover {
+    div.stButton > button[kind="primary"]:hover {
         background-color: #3E2723 !important;
         border-color: #3E2723 !important;
+    }
+    div.stButton > button[kind="primary"]:active {
+        background-color: #3E2723 !important;
+        border-color: #3E2723 !important;
+    }
+
+    /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Green (#2E7D32) */
+    a[kind="secondary"] {
+        background-color: #2E7D32 !important;
+        border-color: #2E7D32 !important;
+        color: white !important;
+    }
+    a[kind="secondary"]:hover {
+        background-color: #1B5E20 !important;
+        border-color: #1B5E20 !important;
     }
     
     /* 2. RADIO BUTTONS (The Little Circles) */
@@ -592,7 +592,7 @@ if "Phase 1" in phase:
         st.subheader("2. Target Population")
         
         # Stepwise Button 1: Criteria
-        if st.button("✨ Suggest Criteria", help="Generate Inclusion/Exclusion based on Condition"):
+        if st.button("Suggest Criteria", help="Generate Inclusion/Exclusion based on Condition"):
             if cond_input:
                 with st.spinner("Drafting criteria..."):
                     prompt = f"Act as a CMO. For clinical condition '{cond_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
@@ -615,7 +615,7 @@ if "Phase 1" in phase:
         st.subheader("3. Context")
         
         # Stepwise Button 2: Context
-        if st.button("✨ Suggest Context", help="Generate Setting/Problem based on Criteria"):
+        if st.button("Suggest Context", help="Generate Setting/Problem based on Criteria"):
             # Use current widget values if available, else data store
             curr_cond = st.session_state.get('p1_cond_input', '') or st.session_state.data['phase1'].get('condition', '')
             curr_inc = st.session_state.get('p1_inc', '') or st.session_state.data['phase1'].get('inclusion', '')
@@ -641,7 +641,7 @@ if "Phase 1" in phase:
         st.subheader("4. SMART Objectives")
         
         # Stepwise Button 3: Objectives
-        if st.button("✨ Suggest Objectives", help="Generate SMART Goals based on Problem"):
+        if st.button("Suggest Objectives", help="Generate SMART Goals based on Problem"):
             curr_cond = st.session_state.get('p1_cond_input', '')
             curr_prob = st.session_state.get('p1_prob', '')
             
@@ -685,6 +685,9 @@ if "Phase 1" in phase:
             with st.status("AI Agent drafting Project Charter...", expanded=True) as status:
                 st.write("Initializing PMP Agent...")
                 
+                # Get Today's Date for the Prompt
+                today_str = date.today().strftime("%B %d, %Y")
+
                 # Professional Prompt
                 prompt = f"""
                 Act as a certified Project Management Professional (PMP) in Healthcare. 
@@ -697,10 +700,11 @@ if "Phase 1" in phase:
                 - **In Scope (Inclusion):** {d['inclusion']}
                 - **Out of Scope (Exclusion):** {d['exclusion']}
                 - **Objectives:** {d['objectives']}
+                - **Date Created:** {today_str}
                 
                 **Output Format:** HTML Body Only.
                 **Style Guide:** - Use a clean, corporate layout.
-                - Use an HTML Table for "Project Information" (Name, Sponsor, Date).
+                - Use an HTML Table for "Project Information" (Name, Sponsor, Date Created: {today_str}).
                 - Use <h2> headers for sections: "Executive Summary", "Business Case", "Scope Definition", "Success Metrics".
                 - Ensure the tone is professional, concise, and persuasive.
                 - DO NOT use markdown code blocks (```). Just return the HTML.
@@ -711,9 +715,6 @@ if "Phase 1" in phase:
                 
                 st.write("Formatting document...")
                 charter_content = charter_content.replace('```html', '').replace('```', '').strip()
-                
-                # Get Today's Date
-                today_str = date.today().strftime("%B %d, %Y")
                 
                 # Professional HTML Wrapper with BLACK FONT enforcement
                 word_html = f"""
@@ -744,6 +745,7 @@ if "Phase 1" in phase:
                 </body>
                 </html>
                 """
+                status.update(label="Charter Generated Successfully!", state="complete", expanded=False)
                 status.update(label="Charter Generated Successfully!", state="complete", expanded=False)
                 
                 st.session_state['charter_doc'] = word_html
