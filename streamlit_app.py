@@ -1014,9 +1014,9 @@ elif "Phase 3" in phase:
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        # DARK BROWN INSTRUCTIONS
+        # DARK GREEN INSTRUCTIONS
         st.markdown("""
-        <div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;">
+        <div style="background-color: #2E7D32; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;">
             <strong>Decision Design Instructions:</strong><br>
             Define the clinical logic flow. This data powers the visual flowchart in Phase 4.<br><br>
             <strong>Standard Node Types:</strong>
@@ -1035,12 +1035,14 @@ elif "Phase 3" in phase:
         nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
         
         if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
-             with st.spinner("AI Agent drafting logic (Applying Template Taxonomy)..."):
+             with st.status("AI Agent drafting decision tree...", expanded=True) as status:
                  
                  # Prepare Evidence Context
-                 ev_context = "\n".join([f"- {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})" for e in evidence_list[:5]])
+                 st.write("Analyzing Phase 2 Evidence...")
+                 ev_context = "\n".join([f"- ID {e['id']}: {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})" for e in evidence_list])
                  
                  # ENHANCED PROMPT: BROADENED DEFINITIONS
+                 st.write("Structuring Clinical Logic...")
                  prompt = f"""
                  Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
                  
@@ -1055,6 +1057,9 @@ elif "Phase 3" in phase:
                  - When designing a 'Decision', place the 'Yes' action IMMEDIATELY after it.
                  - Place the 'No' action (alternative) 1-2 steps down.
                  
+                 **Evidence Mapping:**
+                 - For each step, if a specific piece of evidence from the list below supports it, include the "evidence_id" (e.g., "12345").
+                 
                  Context Evidence:
                  {ev_context}
                  
@@ -1062,15 +1067,31 @@ elif "Phase 3" in phase:
                  [{{
                      "type": "Start" | "Decision" | "Process" | "Note" | "End", 
                      "label": "Short Text (Max 6 words)", 
-                     "detail": "Longer clinical detail/criteria"
+                     "detail": "Longer clinical detail/criteria",
+                     "evidence_id": "Optional PubMed ID string matching the provided list"
                  }}]
                  """
                  
+                 st.write("Mapping Evidence to Steps...")
                  nodes = get_gemini_response(prompt, json_mode=True)
                  
                  if isinstance(nodes, list):
+                     # Post-process to format evidence string for dropdown
+                     for n in nodes:
+                         eid = n.get('evidence_id')
+                         if eid:
+                             # Find matching evidence object
+                             match = next((e for e in evidence_list if str(e['id']) == str(eid)), None)
+                             if match:
+                                 n['evidence'] = f"ID {match['id']}: {match['title'][:30]}... ({match.get('grade','?')})"
+                             else:
+                                 n['evidence'] = None
+                         else:
+                             n['evidence'] = None
+
                      st.session_state.data['phase3']['nodes'] = nodes
                      st.session_state.auto_run["p3_logic"] = True
+                     status.update(label="Decision Tree Drafted!", state="complete", expanded=False)
                      st.rerun()
 
     with col2:
