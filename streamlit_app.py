@@ -74,19 +74,19 @@ st.set_page_config(
 # --- CUSTOM CSS: GLOBAL DARK BROWN THEME ---
 st.markdown("""
 <style>
-    /* 1. DEFAULT BUTTONS (Secondary) -> Dark Green (#2E7D32) */
+    /* 1. DEFAULT BUTTONS (Secondary) -> Dark Brown (#5D4037) */
     div.stButton > button, div[data-testid="stButton"] > button {
-        background-color: #2E7D32 !important; 
+        background-color: #5D4037 !important; 
         color: white !important;
         border: none !important;
         border-radius: 5px !important;
     }
     div.stButton > button:hover, div[data-testid="stButton"] > button:hover {
-        background-color: #1B5E20 !important; /* Darker green on hover */
+        background-color: #3E2723 !important; /* Darker brown on hover */
         color: white !important;
     }
     div.stButton > button:active, div[data-testid="stButton"] > button:active {
-        background-color: #1B5E20 !important;
+        background-color: #3E2723 !important;
         color: white !important;
     }
 
@@ -121,15 +121,26 @@ st.markdown("""
         border-color: #3E2723 !important;
     }
 
-    /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Green (#2E7D32) */
+    /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
     a[kind="secondary"] {
-        background-color: #2E7D32 !important;
-        border-color: #2E7D32 !important;
+        background-color: #5D4037 !important;
+        border-color: #5D4037 !important;
         color: white !important;
     }
     a[kind="secondary"]:hover {
-        background-color: #1B5E20 !important;
-        border-color: #1B5E20 !important;
+        background-color: #3E2723 !important;
+        border-color: #3E2723 !important;
+    }
+
+    /* 1e. SIDEBAR BUTTONS (Previous/Next) -> Mint Green (#A9EED1) */
+    section[data-testid="stSidebar"] div.stButton > button {
+        background-color: #A9EED1 !important;
+        color: #5D4037 !important; /* Dark Brown text */
+        border: none !important;
+    }
+    section[data-testid="stSidebar"] div.stButton > button:hover {
+        background-color: #8FD9BC !important;
+        color: #3E2723 !important;
     }
     
     /* 2. RADIO BUTTONS (The Little Circles) */
