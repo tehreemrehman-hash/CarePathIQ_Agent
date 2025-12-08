@@ -687,7 +687,7 @@ if "Phase 1" in phase:
     st.divider()
 
     # --- GENERATE CHARTER ---
-    if st.button("Generate Professional Project Charter (.doc)", type="primary", use_container_width=True):
+    if st.button("Generate Project Charter", type="primary", use_container_width=True):
         
         # 1. CRITICAL: SYNC WIDGET VALUES TO DATA STORE
         # This forces the app to look at what you *just typed* (the widget state keys)
