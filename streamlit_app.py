@@ -639,17 +639,31 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     
     # --- 1. INITIALIZE WIDGET STATE ---
-    # We use 'key' parameters to bind widgets to session_state. 
-    # This ensures we capture the exact text currently in the box.
+    # Helper to sync widget state to data store
+    def sync_p1_widgets():
+        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
+        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
+        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
+        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
+        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
+        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
+
+    # Initialize keys if missing
+    if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
+    if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
+    if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
+    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
+    if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
+    if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
     with col1:
         # CLINICAL CONDITION
         st.subheader("1. Clinical Focus")
         cond_input = st.text_input(
             "Clinical Condition", 
-            value=st.session_state.data['phase1'].get('condition', ''), 
             placeholder="e.g. Sepsis in the ED", 
-            key="p1_cond_input"
+            key="p1_cond_input",
+            on_change=sync_p1_widgets
         )
         
         # TARGET POPULATION
@@ -678,8 +692,8 @@ if "Phase 1" in phase:
             else:
                 st.warning("Please enter a condition first.")
 
-        st.text_area("Inclusion Criteria", value=st.session_state.data['phase1'].get('inclusion', ''), height=100, key="p1_inc")
-        st.text_area("Exclusion Criteria", value=st.session_state.data['phase1'].get('exclusion', ''), height=100, key="p1_exc")
+        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
+        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
         
     with col2:
         # CONTEXT
@@ -712,8 +726,8 @@ if "Phase 1" in phase:
             else:
                 st.warning("Please enter a condition first.")
 
-        st.text_input("Care Setting", value=st.session_state.data['phase1'].get('setting', ''), key="p1_setting")
-        st.text_area("Problem Statement / Clinical Gap", value=st.session_state.data['phase1'].get('problem', ''), height=100, key="p1_prob")
+        st.text_input("Care Setting", key="p1_setting", on_change=sync_p1_widgets)
+        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets)
         
         # OBJECTIVES
         st.subheader("4. SMART Objectives")
@@ -739,7 +753,7 @@ if "Phase 1" in phase:
             else:
                 st.warning("Please enter a condition first.")
 
-        st.text_area("Project Goals", value=st.session_state.data['phase1'].get('objectives', ''), height=150, key="p1_obj")
+        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets)
 
     st.divider()
 
