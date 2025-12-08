@@ -541,16 +541,33 @@ elif "Phase 2" in phase:
         current_query = st.session_state.data['phase2'].get('mesh_query', '')
         search_q = st.text_area("Search Query", value=current_query, height=100)
         
-        if st.button("Search PubMed"):
+        col_search, col_open = st.columns([1, 1])
+        with col_search:
+            if st.button("Import to Evidence Table"):
+                if search_q:
+                    with st.spinner("Searching PubMed API..."):
+                        results = search_pubmed(search_q)
+                        if not results:
+                            st.warning("No results found via API. Try refining the query or opening directly in PubMed.")
+                        else:
+                            existing = {e['id'] for e in st.session_state.data['phase2']['evidence']}
+                            count_new = 0
+                            for r in results:
+                                if r['id'] not in existing:
+                                    st.session_state.data['phase2']['evidence'].append(r)
+                                    count_new += 1
+                            
+                            if count_new > 0:
+                                st.success(f"Imported {count_new} new citations.")
+                                # New evidence added? Reset grading flag to trigger auto-analysis
+                                st.session_state.auto_run["p2_grade"] = False 
+                            else:
+                                st.info("No new citations found (duplicates skipped).")
+
+        with col_open:
             if search_q:
-                with st.spinner("Searching..."):
-                    results = search_pubmed(search_q)
-                    existing = {e['id'] for e in st.session_state.data['phase2']['evidence']}
-                    for r in results:
-                        if r['id'] not in existing:
-                            st.session_state.data['phase2']['evidence'].append(r)
-                            # New evidence added? Reset grading flag to trigger auto-analysis
-                            st.session_state.auto_run["p2_grade"] = False 
+                pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(search_q)}"
+                st.link_button("Open in PubMed ↗", pubmed_url) 
         
         # AUTO-RUN: GRADE ANALYSIS (Dynamic)
         evidence_list = st.session_state.data['phase2']['evidence']
