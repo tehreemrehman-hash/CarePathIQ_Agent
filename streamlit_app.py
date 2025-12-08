@@ -1628,7 +1628,7 @@ elif "Phase 4" in phase:
         if risks:
             st.markdown("""
             <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 15px;">
-                <strong>AI Design Critique:</strong> Review these insights to improve your pathway's usability.
+                Review these insights to improve your pathway's usability.
             </div>
             """, unsafe_allow_html=True)
             
@@ -1673,7 +1673,8 @@ elif "Phase 4" in phase:
                                 Usability Critique to Address: "{insight}"
                                 
                                 Task: Update the pathway JSON to fulfill the critique recommendations.
-                                - You MUST modify the nodes (labels, details, order, or add/remove nodes) to address the issue.
+                                - You MUST make VISIBLE changes to the 'label' or 'detail' fields, or add/remove nodes.
+                                - Do not just change internal IDs unless necessary.
                                 - Maintain the existing structure and keys.
                                 - Return ONLY the valid JSON list of nodes.
                                 """
@@ -1682,8 +1683,8 @@ elif "Phase 4" in phase:
                                 if new_nodes and isinstance(new_nodes, list):
                                     if new_nodes != curr_nodes:
                                         st.session_state.data['phase3']['nodes'] = new_nodes
-                                        st.toast("Pathway updated successfully!", icon="✅")
-                                        time.sleep(1)
+                                        st.toast("Pathway updated successfully! Refreshing...", icon="✅")
+                                        time.sleep(1.5) # Give user time to see the toast
                                         st.rerun()
                                     else:
                                         st.warning("AI suggested no changes for this critique.")
