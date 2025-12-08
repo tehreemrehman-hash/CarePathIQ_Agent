@@ -656,14 +656,19 @@ if "Phase 1" in phase:
         if st.button("Suggest Criteria", help="Generate Inclusion/Exclusion based on Condition"):
             if cond_input:
                 with st.spinner("Drafting criteria..."):
-                    prompt = f"Act as a CMO. For clinical condition '{cond_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
+                    prompt = f"Act as a CMO. For clinical condition '{cond_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return a JSON object with keys: 'inclusion', 'exclusion'."
                     data = get_gemini_response(prompt, json_mode=True)
                     if data:
-                        st.session_state.data['phase1']['inclusion'] = data.get('inclusion', '')
-                        st.session_state.data['phase1']['exclusion'] = data.get('exclusion', '')
+                        inc_text = data.get('inclusion') or data.get('Inclusion') or ''
+                        exc_text = data.get('exclusion') or data.get('Exclusion') or ''
+                        
+                        st.session_state.data['phase1']['inclusion'] = inc_text
+                        st.session_state.data['phase1']['exclusion'] = exc_text
                         # Sync to widgets
-                        st.session_state['p1_inc'] = data.get('inclusion', '')
-                        st.session_state['p1_exc'] = data.get('exclusion', '')
+                        st.session_state['p1_inc'] = inc_text
+                        st.session_state['p1_exc'] = exc_text
+                        st.toast("Criteria generated successfully!")
+                        time.sleep(0.5) # Give toast a moment
                         st.rerun()
                     else:
                         st.error("AI Error: No response. Please check your API Key.")
@@ -685,14 +690,19 @@ if "Phase 1" in phase:
             
             if curr_cond:
                 with st.spinner("Drafting context..."):
-                    prompt = f"Act as a CMO. For condition '{curr_cond}' with inclusion '{curr_inc}', suggest a 'setting' and a 'problem' statement (clinical gap). Return JSON."
+                    prompt = f"Act as a CMO. For condition '{curr_cond}' with inclusion '{curr_inc}', suggest a 'setting' and a 'problem' statement (clinical gap). Return JSON with keys: 'setting', 'problem'."
                     data = get_gemini_response(prompt, json_mode=True)
                     if data:
-                        st.session_state.data['phase1']['setting'] = data.get('setting', '')
-                        st.session_state.data['phase1']['problem'] = data.get('problem', '')
+                        setting_text = data.get('setting') or data.get('Setting') or ''
+                        problem_text = data.get('problem') or data.get('Problem') or ''
+                        
+                        st.session_state.data['phase1']['setting'] = setting_text
+                        st.session_state.data['phase1']['problem'] = problem_text
                         # Sync to widgets
-                        st.session_state['p1_setting'] = data.get('setting', '')
-                        st.session_state['p1_prob'] = data.get('problem', '')
+                        st.session_state['p1_setting'] = setting_text
+                        st.session_state['p1_prob'] = problem_text
+                        st.toast("Context generated successfully!")
+                        time.sleep(0.5)
                         st.rerun()
                     else:
                         st.error("AI Error: No response. Please check your API Key.")
