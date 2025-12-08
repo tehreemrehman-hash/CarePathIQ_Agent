@@ -662,16 +662,49 @@ elif "Phase 2" in phase:
                 pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(search_q)}"
                 st.link_button("Open in PubMed ↗", pubmed_url) 
         
-        # AUTO-RUN: GRADE ANALYSIS (Dynamic)
+        # AUTO-RUN: GRADE ANALYSIS (Dynamic with Prasad 2024 Schema)
         evidence_list = st.session_state.data['phase2']['evidence']
+        
         if evidence_list and not st.session_state.auto_run["p2_grade"]:
-             with st.spinner("AI Agent automatically analyzing GRADE scores..."):
+             with st.spinner("AI Agent analyzing Evidence Certainty (Prasad 2024 Framework)..."):
                  titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
-                 prompt = f"Analyze citations. Assign GRADE score (High, Moderate, Low, Very Low).\nCitations: {json.dumps(titles)}\nReturn JSON object {{ID: Score}}."
-                 grade_map = get_gemini_response(prompt, json_mode=True)
-                 if isinstance(grade_map, dict):
+                 
+                 # ENHANCED PROMPT BASED ON PRASAD 2024
+                 prompt = f"""
+                 Act as a Clinical Methodologist applying the GRADE framework (Prasad 2024).
+                 Analyze the following citations.
+                 
+                 For each citation, assign a Grade: High, Moderate, Low, or Very Low.
+                 CRITICAL: You must determine the grade based on these specific factors:
+                 1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
+                 2. Upgrade (if observational) for: Large Effect, Dose-Response, Plausible Bias direction.
+                 
+                 Citations to analyze: {json.dumps(titles)}
+                 
+                 Return a JSON object where keys are the PubMed IDs and values are objects containing 'grade' and 'rationale'.
+                 Example format:
+                 {{
+                    "12345": {{
+                        "grade": "Moderate (B)",
+                        "rationale": "Downgraded for imprecision (small sample); Upgraded for large effect size."
+                    }}
+                 }}
+                 """
+                 
+                 grade_data = get_gemini_response(prompt, json_mode=True)
+                 
+                 if isinstance(grade_data, dict):
                      for e in st.session_state.data['phase2']['evidence']:
-                         if e['id'] in grade_map: e['grade'] = grade_map[e['id']]
+                         if e['id'] in grade_data:
+                             # robust handling if AI returns string vs dict
+                             entry = grade_data[e['id']]
+                             if isinstance(entry, dict):
+                                 e['grade'] = entry.get('grade', 'Un-graded')
+                                 e['rationale'] = entry.get('rationale', 'No rationale provided.')
+                             else:
+                                 e['grade'] = str(entry)
+                                 e['rationale'] = " AI generated simple score."
+                     
                      st.session_state.auto_run["p2_grade"] = True
                      st.rerun()
 
@@ -689,24 +722,38 @@ elif "Phase 2" in phase:
                 st.session_state.auto_run["p2_grade"] = True # Don't re-run immediately
                 st.rerun()
 
+            # Update the Data Editor to show the Rationale
             df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
             
-            # GRADE TOOLTIP
+            # Ensure rationale column exists
+            if 'rationale' not in df.columns:
+                df['rationale'] = ""
+
             grade_help = """
-            High (A): True effect lies close to estimate.
-            Moderate (B): True effect likely close to estimate.
-            Low (C): True effect may be substantially different.
-            Very Low (D): True effect is likely substantially different.
+            High (A): High confidence in effect estimate.
+            Moderate (B): Moderate confidence; true effect likely close.
+            Low (C): Limited confidence; true effect may differ.
+            Very Low (D): Very little confidence.
             """
             
-            # CONFIGURE 4 COLUMNS + GRADE
             edited_df = st.data_editor(df, column_config={
-                "title": st.column_config.TextColumn("Title", width="large", disabled=True),
-                "id": st.column_config.TextColumn("PubMed ID", disabled=True),
-                "url": st.column_config.LinkColumn("URL", disabled=True),
+                "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
+                "id": st.column_config.TextColumn("ID", disabled=True),
+                "url": st.column_config.LinkColumn("Link", disabled=True),
+                "grade": st.column_config.SelectboxColumn(
+                    "GRADE", 
+                    options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
+                    help=grade_help, 
+                    width="small",
+                    required=True
+                ),
+                "rationale": st.column_config.TextColumn(
+                    "GRADE Rationale (Prasad Criteria)",
+                    help="Factors: Risk of Bias, Inconsistency, Indirectness, Imprecision",
+                    width="large"
+                ),
                 "citation": st.column_config.TextColumn("Citation", disabled=True),
-                "grade": st.column_config.SelectboxColumn("Strength of Evidence", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], help=grade_help, required=True, width="medium")
-            }, column_order=["title", "id", "url", "citation", "grade"], hide_index=True)
+            }, column_order=["title", "grade", "rationale", "url"], hide_index=True)
             
             st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
             
