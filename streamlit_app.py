@@ -737,12 +737,22 @@ elif "Phase 3" in phase:
              with st.spinner("AI Agent drafting decision tree..."):
                  ev_context = "\n".join([f"- ID {e['id']}: {e['title']}" for e in evidence_list[:5]])
                  prompt = f"""
-                 Create a clinical logic flow for {cond}.
-                 Available Evidence: {ev_context}
-                 Return a JSON List of objects: [{{"type": "Start", "label": "Triage", "evidence": "ID 12345"}}]
-                 - "type": Start, Decision, Process, End.
-                 - "label": Short step description.
-                 - "evidence": Select ID from Available Evidence if relevant, or "".
+                 Act as an Expert Clinical Guideline Developer adhering to IOM Standards (NBK127478).
+                 Create a sophisticated clinical decision tree for: {cond}.
+                 
+                 Context:
+                 - Evidence: {ev_context}
+                 - Goal: Create a trustworthy, evidence-based pathway.
+
+                 Instructions:
+                 1. Structure the flow as a logical sequence of nodes.
+                 2. Use "Decision" nodes for critical branching points (e.g., "High Risk?").
+                 3. Use "Process" nodes for actionable steps (e.g., "Order CT Scan").
+                 4. CRITICAL: Use "Note" nodes liberally to provide specific details, dosage, exclusion criteria, or to describe alternative subpathways that branch off from a Decision.
+                 5. Keep "label" content for Decision/Process nodes MINIMAL (3-5 words) but effective. Put all elaboration in "Note" nodes.
+                 
+                 Return a JSON List of objects: [{{"type": "Start", "label": "Triage", "evidence": "ID..."}}]
+                 Valid Types: Start, Decision, Process, Note, End.
                  """
                  nodes = get_gemini_response(prompt, json_mode=True)
                  if isinstance(nodes, list):
