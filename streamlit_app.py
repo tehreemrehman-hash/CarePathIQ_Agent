@@ -1039,21 +1039,15 @@ elif "Phase 2" in phase:
             setting = st.session_state.data['phase1'].get('setting', '')
 
             prompt_mesh = f"""
-            Construct a simple PubMed search query for: {p1_cond}.
+            Construct a PubMed search query for: {p1_cond}.
             
-            Create a search string that combines the following PICO elements using AND.
+            The query MUST strictly follow this format:
+            "evidence-based guidelines for managing [Population]"
             
-            - Population: {p}
-            - Intervention: {i}
-            - Outcome: {o}
+            Extract the core [Population] term from the PICO Population: "{p}".
+            Keep it simple and direct.
             
-            STRICT RULES:
-            1. Use ONLY the keywords provided.
-            2. Do NOT use MeSH tags (e.g. [Mesh]).
-            3. Do NOT use field tags (e.g. [tiab]).
-            4. Do NOT use complex boolean logic or parentheses grouping beyond simple (A) AND (B).
-            
-            Example Output: (Sepsis) AND (Antibiotics) AND (Mortality)
+            Example: "evidence-based guidelines for managing Sepsis"
             
             OUTPUT FORMAT:
             - Return ONLY the raw query string.
@@ -1094,12 +1088,6 @@ elif "Phase 2" in phase:
         st.text_input("I (Intervention)", key="p2_i", on_change=sync_p2_widgets)
         st.text_input("C (Comparison)", key="p2_c", on_change=sync_p2_widgets)
         st.text_input("O (Outcome)", key="p2_o", on_change=sync_p2_widgets)
-        
-        st.divider()
-        
-        if st.button("Regenerate Query from PICO", type="secondary", use_container_width=True):
-            st.session_state.auto_run["p2_query"] = False # Force re-run QUERY logic only
-            st.rerun()
 
     # --- C. UI: SEARCH & GRADE ---
     with col2:
