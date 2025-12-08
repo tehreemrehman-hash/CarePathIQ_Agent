@@ -14,6 +14,7 @@ import datetime
 from datetime import date
 import os
 import copy
+import xml.etree.ElementTree as ET
 
 # --- GRAPHVIZ PATH FIX ---
 # Ensure the system path includes the location of the 'dot' executable
@@ -633,38 +634,154 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         return None
 
 def search_pubmed(query):
-    """Real PubMed API Search."""
+    """Real PubMed API Search with Abstracts."""
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
+        # 1. ESearch to get IDs
         # Increased retmax to 30 to get more results, sorted by relevance
         search_params = {'db': 'pubmed', 'term': query, 'retmode': 'json', 'retmax': 30, 'sort': 'relevance'}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response:
-            id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
+            data = json.loads(response.read().decode())
+            id_list = data.get('esearchresult', {}).get('idlist', [])
+        
         if not id_list: return []
         
-        summary_params = {'db': 'pubmed', 'id': ','.join(id_list), 'retmode': 'json'}
-        url = base_url + "esummary.fcgi?" + urllib.parse.urlencode(summary_params)
-        with urllib.request.urlopen(url) as response:
-            result = json.loads(response.read().decode()).get('result', {})
+        # 2. EFetch to get details (XML)
+        ids_str = ','.join(id_list)
+        fetch_params = {'db': 'pubmed', 'id': ids_str, 'retmode': 'xml'}
+        url = base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)
         
+        with urllib.request.urlopen(url) as response:
+            xml_data = response.read().decode()
+            
+        # 3. Parse XML
+        root = ET.fromstring(xml_data)
         citations = []
-        for uid in id_list:
-            if uid in result:
-                item = result[uid]
-                title = item.get('title', 'No Title')
-                author = item.get('authors', [{'name': 'Unknown'}])[0]['name']
-                source = item.get('source', 'Journal')
-                date = item.get('pubdate', 'No Date')[:4]
-                citations.append({
+        pmc_map = {} # Map PMC ID to citation index
+        
+        for article in root.findall('.//PubmedArticle'):
+            try:
+                medline = article.find('MedlineCitation')
+                article_data = medline.find('Article')
+                
+                # ID
+                pmid = medline.find('PMID').text
+                
+                # Check for PMC ID
+                pmc_id = None
+                pubmed_data = article.find('PubmedData')
+                if pubmed_data is not None:
+                    article_id_list = pubmed_data.find('ArticleIdList')
+                    if article_id_list is not None:
+                        for aid in article_id_list.findall('ArticleId'):
+                            if aid.get('IdType') == 'pmc':
+                                pmc_id = aid.text
+                                break
+                
+                # Title
+                title = article_data.find('ArticleTitle').text
+                
+                # Abstract
+                abstract_text = "No abstract available."
+                abstract = article_data.find('Abstract')
+                if abstract is not None:
+                    abstract_texts = [elem.text for elem in abstract.findall('AbstractText') if elem.text]
+                    if abstract_texts:
+                        abstract_text = " ".join(abstract_texts)
+                
+                # Authors
+                author_list = article_data.find('AuthorList')
+                first_author = "Unknown"
+                if author_list is not None and len(author_list) > 0:
+                    last_name = author_list[0].find('LastName')
+                    if last_name is not None:
+                        first_author = last_name.text
+                
+                # Journal/Source
+                journal = article_data.find('Journal')
+                source = "Journal"
+                if journal is not None:
+                    title_elem = journal.find('Title')
+                    if title_elem is not None:
+                        source = title_elem.text
+                
+                # Date
+                pubdate = journal.find('JournalIssue').find('PubDate')
+                year = "No Date"
+                if pubdate is not None:
+                    year_elem = pubdate.find('Year')
+                    if year_elem is not None:
+                        year = year_elem.text
+                    else:
+                        # Try MedlineDate
+                        medline_date = pubdate.find('MedlineDate')
+                        if medline_date is not None:
+                            year = medline_date.text[:4]
+
+                citation_obj = {
                     "title": title,
-                    "id": uid,
-                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{uid}/",
-                    "citation": f"{title} by {author} ({source}, {date})",
+                    "id": pmid,
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    "citation": f"{title} by {first_author} ({source}, {year})",
+                    "abstract": abstract_text,
+                    "full_text": None, # Placeholder
                     "grade": "Un-graded" # Placeholder for AI
-                })
+                }
+                
+                citations.append(citation_obj)
+                if pmc_id:
+                    pmc_map[pmc_id] = len(citations) - 1
+                    
+            except Exception as e:
+                continue
+        
+        # 4. Fetch Full Text from PMC if available
+        if pmc_map:
+            try:
+                # Extract numeric IDs for PMC fetch (remove 'PMC' prefix if present)
+                pmc_ids_clean = [pid.replace('PMC', '') for pid in pmc_map.keys()]
+                pmc_ids_str = ','.join(pmc_ids_clean)
+                
+                pmc_url = base_url + "efetch.fcgi?" + urllib.parse.urlencode({'db': 'pmc', 'id': pmc_ids_str, 'retmode': 'xml'})
+                
+                with urllib.request.urlopen(pmc_url) as response:
+                    pmc_xml = response.read().decode()
+                
+                pmc_root = ET.fromstring(pmc_xml)
+                
+                for article in pmc_root.findall('.//article'):
+                    # Find the PMC ID in this article to match back
+                    current_pmc_id = None
+                    for aid in article.findall('.//article-id'):
+                        if aid.get('pub-id-type') == 'pmc':
+                            current_pmc_id = "PMC" + aid.text # Standardize to PMC prefix
+                            break
+                    
+                    if current_pmc_id and current_pmc_id in pmc_map:
+                        # Extract Body Text
+                        body = article.find('body')
+                        if body is not None:
+                            # Naive text extraction: get all text from body
+                            # itertext() is useful here
+                            full_text = "".join(body.itertext())
+                            # Truncate if excessively long to prevent memory issues (e.g. 50k chars)
+                            if len(full_text) > 50000:
+                                full_text = full_text[:50000] + "... [Truncated]"
+                            
+                            citations[pmc_map[current_pmc_id]]['full_text'] = full_text
+                            
+            except Exception as e:
+                # Fail silently on full text fetch, keep abstracts
+                print(f"PMC Fetch Error: {e}")
+                pass
+                
         return citations
-    except: return []
+                
+        return citations
+    except Exception as e:
+        st.error(f"PubMed Search Error: {e}")
+        return []
 
 # ==========================================
 # 4. MAIN UI
@@ -1049,142 +1166,142 @@ elif "Phase 2" in phase:
     c_act1, c_act2 = st.columns([1, 1])
     
     with c_act1:
-            # GRADE Button
-            grade_help = "The GRADE framework (Grading of Recommendations Assessment, Development and Evaluation) is a transparent approach to grading the quality of evidence (High, Moderate, Low, Very Low) and the strength of recommendations."
-            if st.button("Search & GRADE Evidence", help=grade_help, type="primary", use_container_width=True):
-                if not search_q.strip():
-                    st.error("Query is empty.")
-                else:
-                    with st.spinner("Fetching PubMed results..."):
-                        results = search_pubmed(search_q)
-                        if not results:
-                            st.warning("No results found. Try simplifying the query.")
-                        else:
-                            # Add new results to session state, avoiding duplicates
-                            existing_ids = {e['id'] for e in st.session_state.data['phase2']['evidence']}
-                            new_items = [r for r in results if r['id'] not in existing_ids]
-                            st.session_state.data['phase2']['evidence'].extend(new_items)
-                            
-                            if new_items:
-                                st.toast(f"Added {len(new_items)} new papers.", icon="📚")
-                                # Reset grade flag to trigger analysis on next pass
-                                st.session_state.auto_run["p2_grade"] = False 
-                                st.rerun()
-                            else:
-                                st.info("No new papers found (duplicates skipped).")
-
-        with c_act2:
-            # PubMed Link Button (Safe Logic)
-            if search_q.strip():
-                # Encode the query safely for URL
-                encoded_query = urllib.parse.quote(search_q.strip())
-                pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
-                st.link_button("Open in PubMed ↗", pubmed_url, type="primary", use_container_width=True)
+        # GRADE Button
+        grade_help = "The GRADE framework (Grading of Recommendations Assessment, Development and Evaluation) is a transparent approach to grading the quality of evidence (High, Moderate, Low, Very Low) and the strength of recommendations."
+        if st.button("Search & GRADE Evidence", help=grade_help, type="primary", use_container_width=True):
+            if not search_q.strip():
+                st.error("Query is empty.")
             else:
-                st.button("Open in PubMed ↗", disabled=True, use_container_width=True)
+                with st.spinner("Fetching PubMed results..."):
+                    results = search_pubmed(search_q)
+                    if not results:
+                        st.warning("No results found. Try simplifying the query.")
+                    else:
+                        # Add new results to session state, avoiding duplicates
+                        existing_ids = {e['id'] for e in st.session_state.data['phase2']['evidence']}
+                        new_items = [r for r in results if r['id'] not in existing_ids]
+                        st.session_state.data['phase2']['evidence'].extend(new_items)
+                        
+                        if new_items:
+                            st.toast(f"Added {len(new_items)} new papers.", icon="📚")
+                            # Reset grade flag to trigger analysis on next pass
+                            st.session_state.auto_run["p2_grade"] = False 
+                            st.rerun()
+                        else:
+                            st.info("No new papers found (duplicates skipped).")
 
-        # --- D. AUTO-RUN: GRADE ANALYSIS ---
-        evidence_list = st.session_state.data['phase2']['evidence']
-        
-        if evidence_list and not st.session_state.auto_run["p2_grade"]:
-             with st.status("AI Agent Evaluating Evidence...", expanded=True) as status:
-                 st.write("Preparing citations for analysis...")
-                 titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
-                 
-                 # ENHANCED PROMPT BASED ON GRADE
-                 prompt = f"""
-                 Act as a Clinical Methodologist applying the GRADE framework.
-                 Analyze the following citations.
-                 
-                 For each citation, assign a Grade from these EXACT options: 
-                 - "High (A)"
-                 - "Moderate (B)"
-                 - "Low (C)"
-                 - "Very Low (D)"
-                 
-                 CRITICAL: You must determine the grade based on these specific factors:
-                 1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
-                 2. Upgrade (if observational) for: Large Effect, Dose-Response, Plausible Bias direction.
-                 
-                 Citations to analyze: {json.dumps(titles)}
-                 
-                 Return a JSON object where keys are the PubMed IDs and values are objects containing 'grade' and 'rationale'.
-                 Example format:
-                 {{
-                    "12345": {{
-                        "grade": "Moderate (B)",
-                        "rationale": "Downgraded for imprecision (small sample); Upgraded for large effect size."
-                    }}
-                 }}
-                 """
-                 
-                 st.write("Connecting to Gemini AI...")
-                 grade_data = get_gemini_response(prompt, json_mode=True)
-                 
-                 st.write("Processing results...")
-                 if isinstance(grade_data, dict):
-                     for e in st.session_state.data['phase2']['evidence']:
-                         if e['id'] in grade_data:
-                             entry = grade_data[e['id']]
-                             if isinstance(entry, dict):
-                                 e['grade'] = entry.get('grade', 'Un-graded')
-                                 e['rationale'] = entry.get('rationale', 'No rationale provided.')
-                             else:
-                                 e['grade'] = str(entry)
-                                 e['rationale'] = "AI generated score."
-                     
-                     st.session_state.auto_run["p2_grade"] = True
-                     status.update(label="Evaluation Complete!", state="complete", expanded=False)
-                     st.rerun()
+    with c_act2:
+        # PubMed Link Button (Safe Logic)
+        if search_q.strip():
+            # Encode the query safely for URL
+            encoded_query = urllib.parse.quote(search_q.strip())
+            pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
+            st.link_button("Open in PubMed ↗", pubmed_url, type="primary", use_container_width=True)
+        else:
+            st.button("Open in PubMed ↗", disabled=True, use_container_width=True)
 
-        # --- E. EVIDENCE TABLE ---
-        if evidence_list:
-            st.markdown("### Evidence Table")
+    # --- D. AUTO-RUN: GRADE ANALYSIS ---
+    evidence_list = st.session_state.data['phase2']['evidence']
+    
+    if evidence_list and not st.session_state.auto_run["p2_grade"]:
+        with st.status("AI Agent Evaluating Evidence...", expanded=True) as status:
+            st.write("Preparing citations for analysis...")
+            titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
             
-            # Clear Button
-            if st.button("Clear Evidence List", key="clear_ev"):
-                st.session_state.data['phase2']['evidence'] = []
-                st.session_state.auto_run["p2_grade"] = False
-                st.rerun()
-
-            df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
+            # ENHANCED PROMPT BASED ON GRADE
+            prompt = f"""
+            Act as a Clinical Methodologist applying the GRADE framework.
+            Analyze the following citations.
             
-            # Ensure columns exist
-            if 'rationale' not in df.columns: df['rationale'] = ""
-            if 'grade' not in df.columns: df['grade'] = "Un-graded"
-
-            grade_help = """
-            High (A): High confidence in effect estimate.
-            Moderate (B): Moderate confidence; true effect likely close.
-            Low (C): Limited confidence; true effect may differ.
-            Very Low (D): Very little confidence.
+            For each citation, assign a Grade from these EXACT options: 
+            - "High (A)"
+            - "Moderate (B)"
+            - "Low (C)"
+            - "Very Low (D)"
+            
+            CRITICAL: You must determine the grade based on these specific factors:
+            1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
+            2. Upgrade (if observational) for: Large Effect, Dose-Response, Plausible Bias direction.
+            
+            Citations to analyze: {json.dumps(titles)}
+            
+            Return a JSON object where keys are the PubMed IDs and values are objects containing 'grade' and 'rationale'.
+            Example format:
+            {{
+            "12345": {{
+                "grade": "Moderate (B)",
+                "rationale": "Downgraded for imprecision (small sample); Upgraded for large effect size."
+            }}
+            }}
             """
             
-            edited_df = st.data_editor(df, column_config={
-                "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
-                "id": st.column_config.TextColumn("ID", disabled=True),
-                "url": st.column_config.LinkColumn("Link", disabled=True),
-                "grade": st.column_config.SelectboxColumn(
-                    "GRADE", 
-                    options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
-                    help=grade_help, 
-                    width="small",
-                    required=True
-                ),
-                "rationale": st.column_config.TextColumn(
-                    "GRADE Rationale",
-                    help="Factors: Risk of Bias, Inconsistency, Indirectness, Imprecision",
-                    width="large"
-                ),
-                "citation": st.column_config.TextColumn("Citation", disabled=True),
-            }, column_order=["title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
+            st.write("Connecting to Gemini AI...")
+            grade_data = get_gemini_response(prompt, json_mode=True)
             
-            # Save manual edits back to state
-            st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
-            
-            # CSV Download
-            csv = edited_df.to_csv(index=False)
-            export_widget(csv, "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
+            st.write("Processing results...")
+            if isinstance(grade_data, dict):
+                for e in st.session_state.data['phase2']['evidence']:
+                    if e['id'] in grade_data:
+                        entry = grade_data[e['id']]
+                        if isinstance(entry, dict):
+                            e['grade'] = entry.get('grade', 'Un-graded')
+                            e['rationale'] = entry.get('rationale', 'No rationale provided.')
+                        else:
+                            e['grade'] = str(entry)
+                            e['rationale'] = "AI generated score."
+                
+                st.session_state.auto_run["p2_grade"] = True
+                status.update(label="Evaluation Complete!", state="complete", expanded=False)
+                st.rerun()
+
+    # --- E. EVIDENCE TABLE ---
+    if evidence_list:
+        st.markdown("### Evidence Table")
+        
+        # Clear Button
+        if st.button("Clear Evidence List", key="clear_ev"):
+            st.session_state.data['phase2']['evidence'] = []
+            st.session_state.auto_run["p2_grade"] = False
+            st.rerun()
+
+        df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
+        
+        # Ensure columns exist
+        if 'rationale' not in df.columns: df['rationale'] = ""
+        if 'grade' not in df.columns: df['grade'] = "Un-graded"
+
+        grade_help = """
+        High (A): High confidence in effect estimate.
+        Moderate (B): Moderate confidence; true effect likely close.
+        Low (C): Limited confidence; true effect may differ.
+        Very Low (D): Very little confidence.
+        """
+        
+        edited_df = st.data_editor(df, column_config={
+            "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
+            "id": st.column_config.TextColumn("ID", disabled=True),
+            "url": st.column_config.LinkColumn("Link", disabled=True),
+            "grade": st.column_config.SelectboxColumn(
+                "GRADE", 
+                options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
+                help=grade_help, 
+                width="small",
+                required=True
+            ),
+            "rationale": st.column_config.TextColumn(
+                "GRADE Rationale",
+                help="Factors: Risk of Bias, Inconsistency, Indirectness, Imprecision",
+                width="large"
+            ),
+            "citation": st.column_config.TextColumn("Citation", disabled=True),
+        }, column_order=["title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
+        
+        # Save manual edits back to state
+        st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
+        
+        # CSV Download
+        csv = edited_df.to_csv(index=False)
+        export_widget(csv, "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
 
 # ------------------------------------------
 # PHASE 3: DECISION SCIENCE
@@ -1218,22 +1335,36 @@ elif "Phase 3" in phase:
                  
                  # Prepare Evidence Context
                  st.write("Analyzing Phase 2 Evidence...")
-                 ev_context = "\n".join([f"- ID {e['id']}: {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})" for e in evidence_list])
+                 
+                 def format_evidence_item(e):
+                     base = f"- ID {e['id']}: {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})"
+                     content = ""
+                     if e.get('full_text'):
+                         content = f"\n  FULL TEXT (Truncated): {e['full_text'][:10000]}...\n"
+                     else:
+                         content = f"\n  ABSTRACT: {e.get('abstract', 'No abstract available.')}\n"
+                     return base + content
+
+                 ev_context = "\n".join([format_evidence_item(e) for e in evidence_list])
                  
                  # ENHANCED PROMPT: BROADENED DEFINITIONS
                  st.write("Structuring Clinical Logic...")
                  prompt = f"""
                  Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
                  
+                 CRITICAL INSTRUCTION: Thoroughly read and analyze the evidence provided below. 
+                 Where FULL TEXT is available, prioritize it for deep clinical nuance. Otherwise, use the ABSTRACT.
+                 Ensure the decision tree is truly evidence-based and informed by the specific findings, recommendations, and guidelines presented in these texts.
+                 
                  STRICT TEMPLATE RULES (Match the user's Visual Logic Language):
                  1. **Start**: Entry point (e.g., "Patient presents to ED").
-                 2. **Decisions (Red Diamonds)**: Binary checkpoints (e.g., "Is patient pregnant?", "Stone < 5mm?").
-                 3. **Process (Yellow Box)**: Clinical actions (e.g., "Order CT Abdomen", "Consult Urology").
+                 2. **Decisions (Red Diamonds)**: Logic checkpoints. Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High) based on validated scores (e.g., Wells Score, HEART Score).
+                 3. **Process (Yellow Box)**: Action-oriented steps (e.g., "Order BMP/CBC", "Order MRI", "Admit to Medicine", "Consult Neurosurgery"). Use imperative verbs.
                  4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
                  5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
                  
                  **Logic Structure Strategy (CRITICAL):**
-                 - **Decisions**: Must ALWAYS have a 'Yes' and 'No' path.
+                 - **Decisions**: Must have clear branches. For Binary: 'Yes'/'No'. For Risk: 'Low'/'Moderate'/'High' (or similar categories). Ensure process steps follow each specific branch.
                  - **Red Flags**: Should be represented as 'Notes' (Blue Wave) attached to relevant steps, OR as 'Decisions' (e.g., "Red flags present?") leading to different outcomes.
                  - **Flow**: Ensure a logical progression from Start to End.
                  
