@@ -75,25 +75,30 @@ st.set_page_config(
 # --- CUSTOM CSS: GLOBAL DARK BROWN THEME ---
 st.markdown("""
 <style>
-    /* 1. DEFAULT BUTTONS (Secondary) -> Dark Brown (#5D4037) */
+    /* 1. ALL STANDARD BUTTONS (Primary & Secondary) -> Dark Brown (#5D4037) */
     div.stButton > button, 
     div[data-testid="stButton"] > button,
-    div.stButton > button[kind="secondary"] {
+    button[kind="primary"],
+    button[kind="secondary"] {
         background-color: #5D4037 !important; 
         color: white !important;
-        border: none !important;
+        border: 1px solid #5D4037 !important;
         border-radius: 5px !important;
     }
     div.stButton > button:hover, 
     div[data-testid="stButton"] > button:hover,
-    div.stButton > button[kind="secondary"]:hover {
-        background-color: #3E2723 !important; /* Darker brown on hover */
+    button[kind="primary"]:hover,
+    button[kind="secondary"]:hover {
+        background-color: #3E2723 !important; 
+        border-color: #3E2723 !important;
         color: white !important;
     }
     div.stButton > button:active, 
     div[data-testid="stButton"] > button:active,
-    div.stButton > button[kind="secondary"]:active {
+    button[kind="primary"]:active,
+    button[kind="secondary"]:active {
         background-color: #3E2723 !important;
+        border-color: #3E2723 !important;
         color: white !important;
     }
 
@@ -111,21 +116,6 @@ st.markdown("""
     div.stDownloadButton > button:active {
         background-color: #3E2723 !important;
         color: white !important;
-    }
-
-    /* 1c. PRIMARY BUTTONS (Charter, Nav) -> Dark Brown (#5D4037) */
-    /* This targets buttons with type="primary" */
-    div.stButton > button[kind="primary"] {
-        background-color: #5D4037 !important;
-        border-color: #5D4037 !important;
-    }
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #3E2723 !important;
-        border-color: #3E2723 !important;
-    }
-    div.stButton > button[kind="primary"]:active {
-        background-color: #3E2723 !important;
-        border-color: #3E2723 !important;
     }
 
     /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
