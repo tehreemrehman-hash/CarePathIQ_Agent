@@ -193,13 +193,16 @@ with st.sidebar:
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Use Google AI Studio Key")
     
     # Default to Auto for best performance
-    model_options = ["Auto", "gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
+    # User specified models: gemini 2.5 flash, gemini 2.5 flash lite, gemini-2.5-flash-tts, gemini-robotics-er-1.5-preview
+    model_options = ["Auto", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-tts", "gemini-robotics-er-1.5-preview"]
     model_choice = st.selectbox("AI Agent Model", model_options, index=0)
     
     if gemini_api_key:
         gemini_api_key = gemini_api_key.strip() # Remove any leading/trailing whitespace
         genai.configure(api_key=gemini_api_key)
-        st.success(f"Connected: {model_choice}")
+        # Show last 4 chars for verification
+        key_suffix = gemini_api_key[-4:] if len(gemini_api_key) > 4 else "****"
+        st.success(f"Connected: {model_choice} (Key: ...{key_suffix})")
         
     st.divider()
     
@@ -426,17 +429,17 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     # If Auto is selected, prioritize Flash models for speed
     if model_choice == "Auto":
         candidates = [
-            "gemini-1.5-flash", 
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp"
+            "gemini-2.5-flash", 
+            "gemini-2.5-flash-lite",
+            "gemini-robotics-er-1.5-preview",
+            "gemini-2.5-flash-tts"
         ]
     else:
         # User selected specific model, try that first, then fallbacks
         candidates = [
             model_choice,
-            "gemini-1.5-flash",
-            "gemini-1.5-pro"
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite"
         ]
     
     # Deduplicate preserving order
