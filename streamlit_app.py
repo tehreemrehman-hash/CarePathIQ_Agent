@@ -1357,7 +1357,12 @@ elif "Phase 4" in phase:
                 with st.expander(f"{k}: {v_str[:50]}...", expanded=False):
                     st.markdown(f"**Principle:** *{def_text}*")
                     st.divider()
-                    st.info(v_str)
+                    # Custom styling: White background, Dark Brown font
+                    st.markdown(f"""
+                    <div style="background-color: white; color: #5D4037; padding: 10px; border-radius: 5px; border: 1px solid #5D4037;">
+                        {v_str}
+                    </div>
+                    """, unsafe_allow_html=True)
             
             if st.button("Refresh Analysis (After Edits)", type="primary", use_container_width=True):
                  st.session_state.auto_run["p4_heuristics"] = False
