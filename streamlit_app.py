@@ -871,7 +871,7 @@ elif "Phase 2" in phase:
         
         with c_act1:
             # GRADE Button
-            grade_help = "Analyzes evidence using Prasad 2024 Framework (Risk of Bias, Inconsistency, Indirectness, Imprecision)."
+            grade_help = "The GRADE framework (Grading of Recommendations Assessment, Development and Evaluation) is a transparent approach to grading the quality of evidence (High, Moderate, Low, Very Low) and the strength of recommendations."
             if st.button("Search & GRADE Evidence", help=grade_help, type="primary", use_container_width=True):
                 if not search_q.strip():
                     st.error("Query is empty.")
@@ -912,12 +912,17 @@ elif "Phase 2" in phase:
                  st.write("Preparing citations for analysis...")
                  titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
                  
-                 # ENHANCED PROMPT BASED ON PRASAD 2024
+                 # ENHANCED PROMPT BASED ON GRADE
                  prompt = f"""
-                 Act as a Clinical Methodologist applying the GRADE framework (Prasad 2024).
+                 Act as a Clinical Methodologist applying the GRADE framework.
                  Analyze the following citations.
                  
-                 For each citation, assign a Grade: High, Moderate, Low, or Very Low.
+                 For each citation, assign a Grade from these EXACT options: 
+                 - "High (A)"
+                 - "Moderate (B)"
+                 - "Low (C)"
+                 - "Very Low (D)"
+                 
                  CRITICAL: You must determine the grade based on these specific factors:
                  1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
                  2. Upgrade (if observational) for: Large Effect, Dose-Response, Plausible Bias direction.
@@ -988,7 +993,7 @@ elif "Phase 2" in phase:
                     required=True
                 ),
                 "rationale": st.column_config.TextColumn(
-                    "GRADE Rationale (Prasad Criteria)",
+                    "GRADE Rationale",
                     help="Factors: Risk of Bias, Inconsistency, Indirectness, Imprecision",
                     width="large"
                 ),
