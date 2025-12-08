@@ -264,9 +264,9 @@ with st.sidebar:
             st.session_state.current_phase_label = PHASES[curr_idx+1]
             st.rerun()
 
-    # Progress Bar
-    progress = curr_idx / len(PHASES)
-    st.caption(f"Progress Complete: {int(progress*100)}%")
+    # Progress Bar (Granular)
+    progress = calculate_granular_progress()
+    st.caption(f"Overall Completion: {int(progress*100)}%")
     st.progress(progress)
 
 # --- SESSION STATE INITIALIZATION ---
@@ -299,6 +299,47 @@ if "auto_run" not in st.session_state:
 # ==========================================
 # 3. HELPER FUNCTIONS
 # ==========================================
+def calculate_granular_progress():
+    """Calculates progress based on completed fields across all phases."""
+    if 'data' not in st.session_state: return 0.0
+    
+    data = st.session_state.data
+    total_points = 0
+    earned_points = 0
+    
+    # Phase 1: 6 points (Inputs)
+    p1 = data.get('phase1', {})
+    for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
+        total_points += 1
+        if p1.get(k): earned_points += 1
+        
+    # Phase 2: 6 points (PICO + Query + Evidence)
+    p2 = data.get('phase2', {})
+    for k in ['pico_p', 'pico_i', 'pico_c', 'pico_o', 'mesh_query']:
+        total_points += 1
+        if p2.get(k): earned_points += 1
+    total_points += 1
+    if p2.get('evidence'): earned_points += 1
+    
+    # Phase 3: 3 points (Pathway Nodes - Weighted)
+    p3 = data.get('phase3', {})
+    total_points += 3
+    if p3.get('nodes'): earned_points += 3
+    
+    # Phase 4: 2 points (Heuristics Analysis)
+    p4 = data.get('phase4', {})
+    total_points += 2
+    if p4.get('heuristics_data'): earned_points += 2
+    
+    # Phase 5: 3 points (Assets Generated)
+    p5 = data.get('phase5', {})
+    for k in ['beta_content', 'slides', 'epic_csv']:
+        total_points += 1
+        if p5.get(k): earned_points += 1
+        
+    if total_points == 0: return 0.0
+    return min(1.0, earned_points / total_points)
+
 def create_pdf_view_link(html_content, label="Open Charter in New Window"):
     """Generates a link to open HTML in new tab, simulating PDF."""
     b64 = base64.b64encode(html_content.encode()).decode()
