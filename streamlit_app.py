@@ -89,19 +89,19 @@ st.markdown("""
         color: white !important;
     }
 
-    /* 1c. PRIMARY BUTTONS (Navigation) -> Dark Brown (#5D4037) */
+    /* 1c. PRIMARY BUTTONS (Navigation) -> Mint Green (#00897B) */
     /* This targets buttons with type="primary" */
     div.stButton > button[kind="primary"] {
-        background-color: #5D4037 !important;
-        border-color: #5D4037 !important;
+        background-color: #00897B !important;
+        border-color: #00897B !important;
     }
     div.stButton > button[kind="primary"]:hover {
-        background-color: #3E2723 !important;
-        border-color: #3E2723 !important;
+        background-color: #00695C !important;
+        border-color: #00695C !important;
     }
     div.stButton > button[kind="primary"]:active {
-        background-color: #3E2723 !important;
-        border-color: #3E2723 !important;
+        background-color: #00695C !important;
+        border-color: #00695C !important;
     }
 
     /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
@@ -194,10 +194,10 @@ with st.sidebar:
             st.session_state.current_phase_label = PHASES[curr_idx-1]
             st.rerun()
             
-    # --- DARK BROWN STATUS BOX ---
+    # --- MINT GREEN STATUS BOX ---
     st.markdown(f"""
     <div style="
-        background-color: #5D4037; 
+        background-color: #00897B; 
         color: white; 
         padding: 10px; 
         border-radius: 5px; 
@@ -218,7 +218,7 @@ with st.sidebar:
             st.rerun()
 
     # Progress Bar
-    progress = (curr_idx + 1) / len(PHASES)
+    progress = curr_idx / len(PHASES)
     st.caption(f"Progress Complete: {int(progress*100)}%")
     st.progress(progress)
 
@@ -522,8 +522,6 @@ if "Phase 1" in phase:
 # PHASE 2: EVIDENCE
 # ------------------------------------------
 elif "Phase 2" in phase:
-    st.subheader("Rapid Evidence Appraisal")
-    
     # AUTO-RUN: PICO & MESH GENERATION
     p1_cond = st.session_state.data['phase1']['condition']
     if p1_cond and not st.session_state.auto_run.get("p2_pico", False):
@@ -630,9 +628,17 @@ elif "Phase 2" in phase:
         
         col_search, col_open = st.columns([1, 1])
         with col_search:
-            if st.button("Import to Evidence Table"):
+            grade_tooltip = """
+            GRADE (Grading of Recommendations Assessment, Development and Evaluation) is a framework for rating the quality of evidence.
+            
+            High (A): We are very confident that the true effect lies close to that of the estimate of the effect.
+            Moderate (B): We are moderately confident in the effect estimate: The true effect is likely to be close to the estimate of the effect, but there is a possibility that it is substantially different.
+            Low (C): Our confidence in the effect estimate is limited: The true effect may be substantially different from the estimate of the effect.
+            Very Low (D): We have very little confidence in the effect estimate: The true effect is likely to be substantially different from the estimate of effect.
+            """
+            if st.button("GRADE Evidence", help=grade_tooltip):
                 if search_q:
-                    with st.spinner("Searching PubMed API..."):
+                    with st.spinner("Searching PubMed & Grading Evidence..."):
                         results = search_pubmed(search_q)
                         if not results:
                             st.warning("No results found via API. Try refining the query or opening directly in PubMed.")
@@ -712,7 +718,6 @@ elif "Phase 2" in phase:
 # PHASE 3: LOGIC
 # ------------------------------------------
 elif "Phase 3" in phase:
-    st.subheader("Decision Science")
     col1, col2 = st.columns([1, 2])
     
     with col1:
@@ -776,7 +781,6 @@ elif "Phase 3" in phase:
 # PHASE 4: VISUALIZATION
 # ------------------------------------------
 elif "Phase 4" in phase:
-    st.subheader("Heuristic Evaluation")
     col1, col2 = st.columns([2, 1])
     
     with col1:
