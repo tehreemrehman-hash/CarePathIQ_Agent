@@ -110,8 +110,8 @@ with st.sidebar:
     st.divider()
     
     gemini_api_key = st.text_input("Gemini API Key", type="password", help="Use Google AI Studio Key")
-    # Default to gemini-pro for maximum compatibility
-    model_choice = st.selectbox("AI Agent Model", ["gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro"], index=0)
+    # Default to gemini-1.5-pro as requested
+    model_choice = st.selectbox("AI Agent Model", ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"], index=0)
     
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
@@ -178,30 +178,36 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
     st.download_button(f"{label}", final_content, filename, mime_type)
 
 def get_gemini_response(prompt, json_mode=False):
-    """Robust AI caller with JSON cleaner and auto-fallback."""
+    """Robust AI caller with JSON cleaner and multi-model fallback."""
     if not gemini_api_key: return None
     
-    def _generate(m_name):
-        model = genai.GenerativeModel(m_name)
-        # Relaxed safety for medical terms
-        safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
-        time.sleep(1) # Prevent 429 errors
-        return model.generate_content(prompt, safety_settings=safety)
+    # Define fallback hierarchy
+    candidates = [model_choice, "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
+    # Deduplicate preserving order
+    candidates = list(dict.fromkeys(candidates))
+    
+    response = None
+    last_error = None
 
-    try:
-        response = _generate(model_choice)
-    except Exception as e:
-        # Auto-fallback to gemini-pro if the selected model fails (e.g. 404 Not Found)
-        if "404" in str(e) and model_choice != "gemini-pro":
-            try:
-                response = _generate("gemini-pro")
-                st.toast("Switched to gemini-pro (auto-fallback)", icon="🔄")
-            except Exception as e2:
-                st.error(f"AI Error (Fallback failed): {e2}")
-                return None
-        else:
-            st.error(f"AI Error: {e}")
-            return None
+    for model_name in candidates:
+        try:
+            model = genai.GenerativeModel(model_name)
+            # Relaxed safety for medical terms
+            safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
+            time.sleep(1) # Prevent 429 errors
+            response = model.generate_content(prompt, safety_settings=safety)
+            
+            if response:
+                if model_name != model_choice:
+                    st.toast(f"Switched to {model_name} (auto-fallback)", icon="🔄")
+                break # Success
+        except Exception as e:
+            last_error = e
+            continue # Try next model
+
+    if not response:
+        st.error(f"AI Error: All models failed. Last error: {last_error}")
+        return None
 
     try:
         text = response.text
@@ -682,7 +688,7 @@ elif "Phase 5" in phase:
     
     with c1:
         st.subheader("Beta Testing")
-        beta_email_input = st.text_input("Enter email to receive beta feedback:")
+        beta_email_input = st.text_input("Enter email to receive beta testing feedback submitted through the interactive guide when you share it")
         
         # CORRECTED BUTTON TEXT
         if st.button("Generate Interactive Guide"):
