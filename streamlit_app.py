@@ -89,6 +89,21 @@ st.markdown("""
         color: white !important;
     }
 
+    /* 1c. PRIMARY BUTTONS (Navigation) -> Mmit Green (#2E7D32) */
+    /* This targets buttons with type="primary" */
+    div.stButton > button[kind="primary"] {
+        background-color: #2E7D32 !important;
+        border-color: #2E7D32 !important;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #1B5E20 !important;
+        border-color: #1B5E20 !important;
+    }
+    div.stButton > button[kind="primary"]:active {
+        background-color: #1B5E20 !important;
+        border-color: #1B5E20 !important;
+    }
+
     /* 2. RADIO BUTTONS (The Little Circles) */
     /* Unchecked: White background, Brown border */
     div[role="radiogroup"] label > div:first-child {
@@ -146,8 +161,29 @@ with st.sidebar:
         
     st.divider()
     
+    # --- NAVIGATION & PROGRESS ---
+    PHASES = [
+        "Phase 1: Scoping & Charter", 
+        "Phase 2: Rapid Evidence Appraisal", 
+        "Phase 3: Decision Science", 
+        "Phase 4: Heuristic Evaluation", 
+        "Phase 5: Operationalize"
+    ]
+    
+    # Determine current index
+    current_label = st.session_state.get('current_phase_label', PHASES[0])
+    try:
+        curr_idx = PHASES.index(current_label)
+    except ValueError:
+        curr_idx = 0
+        
+    # Previous Button (Green)
+    if curr_idx > 0:
+        if st.button(f"⬆️ Previous: {PHASES[curr_idx-1].split(':')[0]}", type="primary", use_container_width=True):
+            st.session_state.current_phase_label = PHASES[curr_idx-1]
+            st.rerun()
+            
     # --- DARK BROWN STATUS BOX ---
-    current_phase = st.session_state.get('current_phase_label', 'Start')
     st.markdown(f"""
     <div style="
         background-color: #5D4037; 
@@ -156,11 +192,24 @@ with st.sidebar:
         border-radius: 5px; 
         text-align: center;
         font-weight: bold;
-        font-size: 0.9em;">
+        font-size: 0.9em;
+        margin-top: 5px;
+        margin-bottom: 5px;">
         Current Phase: <br>
-        <span style="font-size: 1.1em;">{current_phase}</span>
+        <span style="font-size: 1.1em;">{current_label}</span>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Next Button (Green)
+    if curr_idx < len(PHASES) - 1:
+        if st.button(f"⬇️ Next: {PHASES[curr_idx+1].split(':')[0]}", type="primary", use_container_width=True):
+            st.session_state.current_phase_label = PHASES[curr_idx+1]
+            st.rerun()
+
+    # Progress Bar
+    progress = (curr_idx + 1) / len(PHASES)
+    st.caption(f"Progress Complete: {int(progress*100)}%")
+    st.progress(progress)
 
 # --- SESSION STATE INITIALIZATION ---
 if "data" not in st.session_state:
@@ -342,7 +391,8 @@ phase = st.radio("Workflow Phase",
                   "Phase 4: Heuristic Evaluation", 
                   "Phase 5: Operationalize"], 
                  horizontal=True,
-                 key="current_phase_label")
+                 key="current_phase_label",
+                 label_visibility="collapsed")
 
 st.divider()
 
