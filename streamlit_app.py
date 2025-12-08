@@ -427,18 +427,16 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if model_choice == "Auto":
         candidates = [
             "gemini-1.5-flash", 
-            "gemini-2.5-flash",
-            "gemini-2.0-flash-exp",
-            "gemini-1.5-pro", 
-            "gemini-1.0-pro"
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash-exp"
         ]
     else:
         # User selected specific model, try that first, then fallbacks
         candidates = [
             model_choice,
             "gemini-1.5-flash",
-            "gemini-1.5-pro", 
-            "gemini-1.0-pro"
+            "gemini-1.5-pro"
         ]
     
     # Deduplicate preserving order
@@ -468,7 +466,12 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
                     st.toast(f"Switched to {model_name} (auto-fallback)", icon="🔄")
                 break # Success
         except Exception as e:
-            last_error = e
+            # Prioritize keeping 429 errors (Quota Exceeded) over 404s (Not Found)
+            e_str = str(e)
+            if "429" in e_str:
+                last_error = e
+            elif last_error is None or "429" not in str(last_error):
+                last_error = e
             continue # Try next model
 
     if not response:
@@ -497,6 +500,14 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
 
     if not response:
         error_msg = str(last_error)
+        if "429" in error_msg:
+            st.error("⚠️ **Quota Exceeded (Rate Limit)**: You have hit the free tier limit for Gemini API.")
+            st.info("Please wait a minute before trying again, or use a different API key.")
+        elif "404" in error_msg:
+            st.error("⚠️ **Model Not Found**: The selected AI model is not available in your region or API version.")
+        else:
+            st.error(f"AI Error: All models failed. Last error: {error_msg}")
+        return None
         if "API_KEY_INVALID" in error_msg or "400" in error_msg:
             st.error("🚨 API Key Error: The provided Google Gemini API Key is invalid. Please check for typos or extra spaces, or generate a new key at Google AI Studio.")
         else:
