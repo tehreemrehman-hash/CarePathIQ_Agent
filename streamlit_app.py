@@ -454,6 +454,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         candidates = [
             "gemini-2.5-flash", 
             "gemini-2.5-flash-lite",
+            "gemini-1.5-flash", # Added for speed/stability
             "gemini-robotics-er-1.5-preview",
             "gemini-2.5-flash-tts"
         ]
@@ -462,6 +463,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         candidates = [
             model_choice,
             "gemini-2.5-flash",
+            "gemini-1.5-flash",
             "gemini-2.5-flash-lite"
         ]
     
@@ -477,8 +479,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             # Relaxed safety for medical terms
             safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
             
-            # Only sleep on retries to keep first attempt fast
-            if i > 0: time.sleep(1) 
+            # Minimal sleep on retries to keep momentum
+            if i > 0: time.sleep(0.1) 
             
             # Enable streaming if container provided
             is_stream = stream_container is not None
@@ -501,28 +503,18 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             continue # Try next model
 
     if not response:
-        # Final Hail Mary: Fast Dynamic Discovery
-        # Instead of trying to generate with every model, just find the first valid 'gemini' model and try it once.
+        # Final Hail Mary: Try standard 1.5 Flash directly instead of slow list_models()
         try:
-            st.toast("Attempting dynamic model discovery...")
-            found_model = None
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name:
-                    found_model = m.name
-                    break # Just take the first one found
-            
-            if found_model:
-                try:
-                    model = genai.GenerativeModel(found_model)
-                    safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
-                    is_stream = stream_container is not None
-                    response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
-                    if response:
-                        st.toast(f"Recovered with: {found_model}")
-                except Exception as e:
-                    last_error = f"{last_error} | Dynamic attempt failed: {e}"
+            fallback_model = "gemini-1.5-flash"
+            if fallback_model not in candidates:
+                model = genai.GenerativeModel(fallback_model)
+                safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
+                is_stream = stream_container is not None
+                response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
+                if response:
+                    st.toast(f"Recovered with: {fallback_model}")
         except Exception as e:
-            last_error = f"{last_error} | Discovery failed: {e}"
+            last_error = f"{last_error} | Final fallback failed: {e}"
 
     if not response:
         error_msg = str(last_error)
@@ -557,7 +549,37 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
             if match:
                 text = match.group()
-            return json.loads(text)
+            
+            # Attempt to fix common JSON errors (like invalid escapes)
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Fallback: Escape backslashes that aren't already escaped
+                # This is a simple heuristic to fix things like "C:\Path" -> "C:\\Path"
+                # But we must be careful not to double escape valid escapes like \n or \"
+                try:
+                    # Regex to find backslashes that are NOT followed by valid escape chars
+                    # Valid JSON escapes: ", \, /, b, f, n, r, t, uXXXX
+                    # We want to escape \ that is NOT one of these.
+                    # This is complex, so a simpler approach is often to just use a permissive parser or try to strip bad chars.
+                    # Let's try a simple replace of single backslash with double, but this breaks valid escapes.
+                    
+                    # Better approach: Use a raw string cleanup or just try to ignore strictness if possible (not in std lib).
+                    # Let's try to just strip invalid escapes if they are causing issues, or use a library if available (we don't have one).
+                    
+                    # Specific fix for the error "Invalid \escape":
+                    # Often caused by LaTeX like \frac or file paths.
+                    # Let's try to escape backslashes that look like they are part of text.
+                    cleaned_text = text.replace('\\', '\\\\') 
+                    # But wait, this breaks \n -> \\n which is not a newline anymore.
+                    
+                    # Let's try a different strategy: If standard load fails, try `eval` (dangerous but effective for Python-like dicts)
+                    # ONLY if it looks safe-ish.
+                    import ast
+                    return ast.literal_eval(text)
+                except:
+                    pass
+                raise # Re-raise original error if fallback fails
         return text
     except Exception as e:
         st.error(f"Parsing Error: {e}")
