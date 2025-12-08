@@ -1111,7 +1111,6 @@ elif "Phase 5" in phase:
     # --- 1. TARGET AUDIENCE SELECTOR ---
     st.subheader("Target Audience")
     
-    # Initialize session state for audience if missing
     if 'target_audience' not in st.session_state:
         st.session_state.target_audience = "Multidisciplinary Team"
 
@@ -1138,21 +1137,57 @@ elif "Phase 5" in phase:
     st.divider()
 
     # --- 2. GENERATION LOGIC ---
-    
-    # Store binary data in session state to prevent reload loss
     if "p5_files" not in st.session_state:
         st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None}
 
     # AUTO-RUN: If files are missing, generate them
     if not st.session_state.auto_run["p5_all"]:
-        with st.spinner("AI Agent generating Operational Assets..."):
+        with st.spinner("AI Agent generating Operational Assets (Docs, Slides with Flowchart)..."):
             cond = st.session_state.data['phase1']['condition']
             prob = st.session_state.data['phase1']['problem']
             goals = st.session_state.data['phase1']['objectives']
             audience = st.session_state.target_audience
-            nodes_json = json.dumps(st.session_state.data['phase3']['nodes'])
+            nodes = st.session_state.data['phase3']['nodes']
+            nodes_json = json.dumps(nodes)
 
-            # A. WORD DOC (BETA GUIDE)
+            # --- A. GENERATE FLOWCHART IMAGE FOR PPT ---
+            # We recreate the graph here silently to pass the binary to the PPT function
+            flowchart_stream = None
+            if nodes:
+                try:
+                    graph = graphviz.Digraph()
+                    graph.attr(rankdir='TB', splines='ortho')
+                    for i, n in enumerate(nodes):
+                        node_id = str(i)
+                        label = n.get('label', '?')
+                        node_type = n.get('type', 'Process')
+                        if node_type == 'Start':
+                            graph.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4')
+                        elif node_type == 'Decision':
+                            graph.node(node_id, label, shape='diamond', style='filled', fillcolor='#F8CECC')
+                        elif node_type == 'Note':
+                            graph.node(node_id, label, shape='note', style='filled', fillcolor='#DAE8FC')
+                        else:
+                            graph.node(node_id, label, shape='box', style='filled', fillcolor='#FFF2CC')
+                    
+                    # Edges
+                    for i, n in enumerate(nodes):
+                        if i < len(nodes) - 1:
+                            if n.get('type') == 'Decision':
+                                graph.edge(str(i), str(i+1), label="Yes", color="green")
+                                if i+2 < len(nodes): graph.edge(str(i), str(i+2), label="No", color="red")
+                            elif n.get('type') == 'Note':
+                                if i > 0: graph.edge(str(i), str(i-1), style="dotted", dir="back")
+                                graph.edge(str(i-1), str(i+1))
+                            elif nodes[i+1].get('type') == 'Note': pass
+                            else: graph.edge(str(i), str(i+1))
+                    
+                    # Get binary
+                    flowchart_stream = BytesIO(graph.pipe(format='png'))
+                except Exception as e:
+                    print(f"Flowchart generation failed for PPT: {e}")
+
+            # --- B. WORD DOC (BETA GUIDE) ---
             prompt_guide = f"""
             Act as a Clinical Operations Manager. Create a Beta Testing Guide for the '{cond}' pathway.
             Target User: {audience}.
@@ -1168,19 +1203,21 @@ elif "Phase 5" in phase:
             if guide_text:
                 st.session_state.p5_files["docx"] = create_word_docx(guide_text)
 
-            # B. POWERPOINT (SLIDE DECK)
+            # --- C. POWERPOINT (SLIDE DECK) ---
             prompt_slides = f"""
             Act as a Healthcare Executive. Create content for a PowerPoint slide deck for the '{cond}' pathway.
             Target Audience: {audience}.
+            Context: {prob}
             
             Return a JSON Object with this structure:
             {{
                 "title": "Main Presentation Title",
                 "audience": "{audience}",
                 "slides": [
+                    {{"title": "Clinical Gap", "content": "Describe the gap: {prob}"}},
                     {{"title": "Scope", "content": "..."}},
-                    {{"title": "Objectives", "content": "..."}},
-                    {{"title": "Format", "content": "..."}},
+                    {{"title": "Objectives", "content": "Goals: {goals}"}},
+                    {{"title": "Format", "content": "This slide displays the visual flowchart segment (Image inserted automatically)."}},
                     {{"title": "Content Overview", "content": "..."}},
                     {{"title": "Anticipated Impact", "content": "Focus on: \n1. Value of Advancing Care Standardization.\n2. Improving Health Equity."}}
                 ]
@@ -1188,9 +1225,10 @@ elif "Phase 5" in phase:
             """
             slides_json = get_gemini_response(prompt_slides, json_mode=True)
             if isinstance(slides_json, dict):
-                st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
+                # Pass the flowchart stream to the creator function
+                st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json, flowchart_stream)
 
-            # C. CSV (EPIC SPECS)
+            # --- D. CSV (EPIC SPECS) ---
             prompt_specs = f"Map these pathway nodes to Epic EHR build specifications (Order Sets, BPAs, Flowsheets). Return CSV string.\nNodes: {nodes_json}"
             csv_data = get_gemini_response(prompt_specs)
             if csv_data:
@@ -1216,7 +1254,7 @@ elif "Phase 5" in phase:
 
     with c2:
         st.subheader("Education Deck")
-        st.info(f"Audience: {st.session_state.target_audience}\nFormat: PowerPoint (.pptx)")
+        st.info(f"Audience: {st.session_state.target_audience}\nFormat: PowerPoint (.pptx)\nIncludes Flowchart Image")
         if st.session_state.p5_files["pptx"]:
             st.download_button(
                 label="Download Slides (.pptx)",
