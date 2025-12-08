@@ -351,7 +351,7 @@ if "Phase 1" in phase:
                 - "exclusion": string
                 - "setting": string
                 - "problem": string
-                - "objectives": list of strings
+                - "objectives": list of strings (Must be SMART goals: Specific, Measurable, Achievable, Relevant, Time-bound)
                 """
                 data = get_gemini_response(prompt, json_mode=True)
                 if data:
