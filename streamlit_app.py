@@ -110,11 +110,21 @@ with st.sidebar:
     st.title("AI Agent")
     st.divider()
     
-    gemini_api_key = st.text_input("Gemini API Key", type="password", help="Use Google AI Studio Key")
-    # Default to gemini-2.5-flash as requested
-    model_choice = st.selectbox("AI Agent Model", ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"], index=0)
+    # Try to load from secrets, otherwise empty
+    default_key = ""
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            default_key = st.secrets["GEMINI_API_KEY"]
+    except FileNotFoundError:
+        pass
+
+    gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Use Google AI Studio Key")
+    
+    # Default to gemini-2.5-flash as requested, but include fallbacks
+    model_choice = st.selectbox("AI Agent Model", ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"], index=0)
     
     if gemini_api_key:
+        gemini_api_key = gemini_api_key.strip() # Remove any leading/trailing whitespace
         genai.configure(api_key=gemini_api_key)
         st.success(f"Connected: {model_choice}")
         
@@ -234,7 +244,11 @@ def get_gemini_response(prompt, json_mode=False):
             last_error = f"{last_error} | Dynamic discovery failed: {e}"
 
     if not response:
-        st.error(f"AI Error: All models failed. Last error: {last_error}")
+        error_msg = str(last_error)
+        if "API_KEY_INVALID" in error_msg or "400" in error_msg:
+            st.error("🚨 API Key Error: The provided Google Gemini API Key is invalid. Please check for typos or extra spaces, or generate a new key at Google AI Studio.")
+        else:
+            st.error(f"AI Error: All models failed. Last error: {last_error}")
         return None
 
     try:
