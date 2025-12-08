@@ -27,7 +27,7 @@ try:
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
 except ImportError:
-    st.error("⚠️ Missing Libraries: Please run `pip install python-docx python-pptx` to use the new Phase 5 features.")
+    st.error("Missing Libraries: Please run `pip install python-docx python-pptx` to use the new Phase 5 features.")
 
 # ==========================================
 # 1. CONSTANTS & COPYRIGHT SETUP
@@ -190,8 +190,8 @@ with st.sidebar:
     except FileNotFoundError:
         pass
 
-    st.markdown("### 🔑 Access Required")
-    st.info("To use this AI Agent, you need a Google Gemini API Key. \n\n[👉 Get a free API Key here](https://aistudio.google.com/app/apikey)")
+    st.markdown("### Access Required")
+    st.info("To use this AI Agent, you need a Google Gemini API Key. \n\n[Get a free API Key here](https://aistudio.google.com/app/apikey)")
 
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Paste your key from Google AI Studio")
     
@@ -469,7 +469,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
                     # Optional: Log which model was actually used in Auto mode if not the first
                     pass 
                 elif model_choice != "Auto" and model_name != model_choice:
-                    st.toast(f"Switched to {model_name} (auto-fallback)", icon="🔄")
+                    st.toast(f"Switched to {model_name} (auto-fallback)")
                 break # Success
         except Exception as e:
             # Prioritize keeping 429 errors (Quota Exceeded) over 404s (Not Found)
@@ -484,7 +484,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         # Final Hail Mary: Fast Dynamic Discovery
         # Instead of trying to generate with every model, just find the first valid 'gemini' model and try it once.
         try:
-            st.toast("Attempting dynamic model discovery...", icon="🔎")
+            st.toast("Attempting dynamic model discovery...")
             found_model = None
             for m in genai.list_models():
                 if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name:
@@ -498,7 +498,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
                     is_stream = stream_container is not None
                     response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
                     if response:
-                        st.toast(f"Recovered with: {found_model}", icon="✅")
+                        st.toast(f"Recovered with: {found_model}")
                 except Exception as e:
                     last_error = f"{last_error} | Dynamic attempt failed: {e}"
         except Exception as e:
@@ -507,15 +507,15 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not response:
         error_msg = str(last_error)
         if "429" in error_msg:
-            st.error("⚠️ **Quota Exceeded (Rate Limit)**: You have hit the free tier limit for Gemini API.")
+            st.error("**Quota Exceeded (Rate Limit)**: You have hit the free tier limit for Gemini API.")
             st.info("Please wait a minute before trying again, or use a different API key.")
         elif "404" in error_msg:
-            st.error("⚠️ **Model Not Found**: The selected AI model is not available in your region or API version.")
+            st.error("**Model Not Found**: The selected AI model is not available in your region or API version.")
         else:
             st.error(f"AI Error: All models failed. Last error: {error_msg}")
         return None
         if "API_KEY_INVALID" in error_msg or "400" in error_msg:
-            st.error("🚨 API Key Error: The provided Google Gemini API Key is invalid. Please check for typos or extra spaces, or generate a new key at Google AI Studio.")
+            st.error("API Key Error: The provided Google Gemini API Key is invalid. Please check for typos or extra spaces, or generate a new key at Google AI Studio.")
         else:
             st.error(f"AI Error: All models failed. Last error: {last_error}")
         return None
