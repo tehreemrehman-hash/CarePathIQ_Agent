@@ -844,57 +844,157 @@ elif "Phase 3" in phase:
         st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
 
 # ------------------------------------------
-# PHASE 4: VISUALIZATION
+# PHASE 4: USER INTERFACE DESIGN
 # ------------------------------------------
 elif "Phase 4" in phase:
+    st.markdown("### User Interface Design & Heuristics")
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        st.subheader("Clinical Pathway Visualizer")
+        
         nodes = st.session_state.data['phase3']['nodes']
         if nodes:
             try:
+                # --- ENHANCED GRAPHVIZ LOGIC FOR YES/NO BRANCHING ---
                 graph = graphviz.Digraph()
-                graph.attr(rankdir='TB')
+                graph.attr(rankdir='TB', splines='ortho') # Orthogonal lines for professional look
+                graph.attr('node', fontname='Helvetica', fontsize='10')
+                
+                # 1. Define Nodes with specific shapes/colors matching your template
                 for i, n in enumerate(nodes):
-                    color = {'Start':'#D5E8D4', 'Decision':'#F8CECC', 'Process':'#FFF2CC', 'End':'#D5E8D4'}.get(n.get('type'), '#E0F2F1')
-                    shape = {'Decision':'diamond', 'Start':'oval', 'End':'oval'}.get(n.get('type'), 'box')
-                    graph.node(str(i), n.get('label', '?'), shape=shape, style='filled', fillcolor=color)
-                    if i > 0: graph.edge(str(i-1), str(i))
+                    node_id = str(i)
+                    label = n.get('label', '?')
+                    node_type = n.get('type', 'Process')
+                    
+                    if node_type == 'Start':
+                        graph.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
+                    elif node_type == 'End':
+                        graph.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
+                    elif node_type == 'Decision':
+                        graph.node(node_id, label, shape='diamond', style='filled', fillcolor='#F8CECC', color='#B85450')
+                    elif node_type == 'Note':
+                        # Note shape (folder-like or note)
+                        graph.node(node_id, label, shape='note', style='filled', fillcolor='#DAE8FC', color='#6C8EBF')
+                    else: # Process
+                        graph.node(node_id, label, shape='box', style='filled', fillcolor='#FFF2CC', color='#D6B656')
+
+                # 2. Define Edges with Logic
+                # This simple logic assumes a linear list where:
+                # - 'Decision' nodes branch: 
+                #     - 'Yes' goes to the immediate next node (i+1)
+                #     - 'No' attempts to skip to a logical end or later step (simulated here as i+2 or End)
+                # - 'Note' nodes connect to their parent with a dotted line
+                
+                for i, n in enumerate(nodes):
+                    if i < len(nodes) - 1:
+                        curr_id = str(i)
+                        next_id = str(i + 1)
+                        curr_type = n.get('type')
+                        
+                        if curr_type == 'Decision':
+                            # YES Path (Green)
+                            graph.edge(curr_id, next_id, label="Yes", color="green", fontcolor="green")
+                            
+                            # NO Path (Red) - Logic to find a jump or End
+                            # For this auto-draft, we connect 'No' to the node AFTER next, or End if none exists
+                            if i + 2 < len(nodes):
+                                no_target_id = str(i + 2)
+                            else:
+                                # Create a generic End if needed or link to last
+                                no_target_id = str(len(nodes) - 1) 
+                            
+                            # Avoid self-loops if logic is tight
+                            if no_target_id != next_id:
+                                graph.edge(curr_id, no_target_id, label="No", color="red", fontcolor="red")
+                                
+                        elif curr_type == 'Note':
+                            # Dotted line to the previous Process/Decision it modifies
+                            # Assuming Note comes AFTER the step it describes in your list
+                            if i > 0:
+                                prev_id = str(i - 1)
+                                # Notes are usually attached TO the main flow, so we reverse edge or make it distinct
+                                graph.edge(curr_id, prev_id, style="dotted", arrowtail="none", dir="back", constraint="false")
+                                # Notes usually don't continue the flow themselves, the flow bypasses them
+                                # So we connect i-1 to i+1 directly if i is a Note? 
+                                # For simplicity in this linear list view, we just link Note back to parent.
+                                # To keep flow continuity:
+                                graph.edge(prev_id, next_id) 
+                        
+                        elif nodes[i+1].get('type') == 'Note':
+                            # If next is a note, skip logic handled above
+                            pass
+                        
+                        else:
+                            # Standard flow
+                            graph.edge(curr_id, next_id)
+
                 st.graphviz_chart(graph)
                 
-                # UNLOCKED DOWNLOADS
+                # --- DOWNLOADS ---
+                st.markdown("##### Export Flowchart")
                 c_dl1, c_dl2 = st.columns(2)
                 with c_dl1:
                      try:
                          png_data = graph.pipe(format='png')
-                         st.download_button("High-Res PNG", png_data, "pathway.png", "image/png", type="primary")
-                     except: 
-                         st.download_button("Download DOT (Fallback)", graph.source, "pathway.dot", "text/plain")
+                         st.download_button(
+                             label="Download High-Res PNG",
+                             data=png_data,
+                             file_name="clinical_pathway.png",
+                             mime="image/png",
+                             type="primary",
+                             use_container_width=True
+                         )
+                     except Exception as e: 
+                         st.error(f"PNG Error: {e}")
                 with c_dl2:
                      try:
                          svg_data = graph.pipe(format='svg')
-                         st.download_button("Visio-Ready SVG", svg_data, "pathway.svg", "image/svg+xml")
-                     except: pass
+                         st.download_button(
+                             label="Download SVG (Visio Ready)",
+                             data=svg_data,
+                             file_name="clinical_pathway.svg",
+                             mime="image/svg+xml",
+                             type="primary",
+                             use_container_width=True
+                         )
+                     except Exception as e:
+                         st.error(f"SVG Error: {e}")
+                         
             except Exception as e:
-                st.error(f"Graph Error: {e}")
+                st.error(f"Graph Visualization Error: {e}")
+                st.info("Tip: Ensure your Phase 3 Logic list is populated.")
 
     with col2:
-        st.markdown("#### Heuristic Evaluation")
+        st.subheader("Nielsen's Heuristic Analysis")
         
         nodes = st.session_state.data['phase3']['nodes']
         if not nodes:
-            st.info("Please define the pathway logic in Phase 3 (Decision Science) to enable Heuristic Evaluation.")
+            st.warning("No pathway logic defined in Phase 3.")
         
         # AUTO-RUN: HEURISTICS
         nodes_json = json.dumps(nodes)
         if nodes and not st.session_state.auto_run["p4_heuristics"]:
-             with st.spinner("AI Agent analyzing against Nielsen's 10 Heuristics..."):
+             with st.spinner("AI Agent analyzing User Interface Design risks..."):
+                 
                  prompt = f"""
-                 Analyze logic: {nodes_json}
-                 Evaluate against Nielsen's 10 Usability Heuristics.
-                 Return JSON {{H1: "[Insight]", ... H10: "[Insight]"}}.
+                 Act as a UX Researcher specializing in Clinical Decision Support. 
+                 Analyze this clinical pathway logic: {nodes_json}
+                 
+                 Evaluate it against **Jakob Nielsen's 10 Usability Heuristics** (nngroup.com).
+                 For each heuristic, provide a specific critique or suggestion for the pathway design.
+                 
+                 Focus on:
+                 - **Match between system and real world**: Do the terms (e.g., '{nodes[0].get('label')}') match clinical mental models?
+                 - **Error Prevention**: Are there 'Decision' nodes lacking clear 'No' paths?
+                 - **Recognition rather than recall**: Is critical info (dosage, criteria) visible in 'Note' nodes?
+                 
+                 Return a JSON object: {{ "H1": "insight...", "H2": "insight...", ... "H10": "insight..." }}
                  """
+                 
                  risks = get_gemini_response(prompt, json_mode=True)
+                 
                  if isinstance(risks, dict): 
                      st.session_state.data['phase4']['heuristics_data'] = risks
                      st.session_state.auto_run["p4_heuristics"] = True
@@ -903,22 +1003,19 @@ elif "Phase 4" in phase:
         risks = st.session_state.data['phase4'].get('heuristics_data', {})
         if risks:
             st.markdown("""
-            <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 10px;">
-                <strong>AI Agent Output:</strong> Analysis complete.
+            <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 15px;">
+                <strong>AI Design Critique:</strong> Review these insights to improve your pathway's usability.
             </div>
             """, unsafe_allow_html=True)
             
             for k, v in risks.items():
-                # TOOLTIP LOGIC
-                def_text = HEURISTIC_DEFS.get(k, "No definition available.")
-                st.markdown(f"""
-                <div style="margin-bottom: 5px;">
-                    <span class="heuristic-title" title="{def_text}">{k} Insight (Hover for Def)</span>
-                </div>
-                """, unsafe_allow_html=True)
-                st.info(v)
+                def_text = HEURISTIC_DEFS.get(k, "Nielsen's Usability Heuristic")
+                with st.expander(f"{k}: {v[:50]}...", expanded=False):
+                    st.markdown(f"**Principle:** *{def_text}*")
+                    st.divider()
+                    st.info(v)
             
-            if st.button("Run New Analysis (Modify)", type="primary"):
+            if st.button("Refresh Analysis (After Edits)", type="primary", use_container_width=True):
                  st.session_state.auto_run["p4_heuristics"] = False
                  st.rerun()
 
