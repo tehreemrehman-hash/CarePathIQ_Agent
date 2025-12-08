@@ -698,8 +698,12 @@ if "Phase 1" in phase:
                     prompt = f"Act as a CMO. For clinical condition '{cond_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return a JSON object with keys: 'inclusion', 'exclusion'."
                     data = get_gemini_response(prompt, json_mode=True)
                     if data:
-                        inc_text = data.get('inclusion') or data.get('Inclusion') or ''
-                        exc_text = data.get('exclusion') or data.get('Exclusion') or ''
+                        inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
+                        exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
+                        
+                        # Ensure strings (handle lists if AI returns them)
+                        inc_text = "\n".join([f"- {x}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
+                        exc_text = "\n".join([f"- {x}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
                         
                         st.session_state.data['phase1']['inclusion'] = inc_text
                         st.session_state.data['phase1']['exclusion'] = exc_text
@@ -732,8 +736,12 @@ if "Phase 1" in phase:
                     prompt = f"Act as a CMO. For condition '{curr_cond}' with inclusion '{curr_inc}', suggest a 'setting' and a 'problem' statement (clinical gap). Return JSON with keys: 'setting', 'problem'."
                     data = get_gemini_response(prompt, json_mode=True)
                     if data:
-                        setting_text = data.get('setting') or data.get('Setting') or ''
-                        problem_text = data.get('problem') or data.get('Problem') or ''
+                        setting_raw = data.get('setting') or data.get('Setting') or ''
+                        problem_raw = data.get('problem') or data.get('Problem') or ''
+                        
+                        # Ensure strings
+                        setting_text = str(setting_raw)
+                        problem_text = str(problem_raw)
                         
                         st.session_state.data['phase1']['setting'] = setting_text
                         st.session_state.data['phase1']['problem'] = problem_text
