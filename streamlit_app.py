@@ -575,48 +575,77 @@ if "Phase 1" in phase:
             key="p1_cond_input"
         )
         
-        # AUTO-DRAFT BUTTON
-        if st.button("✨ Auto-Draft Scoping (AI)", type="primary"):
+        # TARGET POPULATION
+        st.subheader("2. Target Population")
+        
+        # Stepwise Button 1: Criteria
+        if st.button("✨ Suggest Criteria", help="Generate Inclusion/Exclusion based on Condition"):
             if cond_input:
-                with st.spinner(f"AI Agent drafting scope for {cond_input}..."):
-                    prompt = f"""
-                    Act as a Chief Medical Officer. User is building a pathway for: '{cond_input}'.
-                    Return a valid JSON object with these exact keys:
-                    - "inclusion": string (precise clinical criteria)
-                    - "exclusion": string (contraindications/out of scope)
-                    - "setting": string (specific care setting)
-                    - "problem": string (the clinical gap or quality issue)
-                    - "objectives": list of strings (3 SMART goals)
-                    """
+                with st.spinner("Drafting criteria..."):
+                    prompt = f"Act as a CMO. For clinical condition '{cond_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
                     data = get_gemini_response(prompt, json_mode=True)
                     if data:
-                        # Update the main data store
-                        st.session_state.data['phase1']['condition'] = cond_input
                         st.session_state.data['phase1']['inclusion'] = data.get('inclusion', '')
                         st.session_state.data['phase1']['exclusion'] = data.get('exclusion', '')
-                        st.session_state.data['phase1']['setting'] = data.get('setting', '')
-                        st.session_state.data['phase1']['problem'] = data.get('problem', '')
-                        
-                        objs = data.get('objectives', [])
-                        obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
-                        st.session_state.data['phase1']['objectives'] = obj_text
+                        # Sync to widgets
+                        st.session_state['p1_inc'] = data.get('inclusion', '')
+                        st.session_state['p1_exc'] = data.get('exclusion', '')
                         st.rerun()
             else:
                 st.warning("Please enter a condition first.")
 
-        # TARGET POPULATION
-        st.subheader("2. Target Population")
         st.text_area("Inclusion Criteria", value=st.session_state.data['phase1'].get('inclusion', ''), height=100, key="p1_inc")
         st.text_area("Exclusion Criteria", value=st.session_state.data['phase1'].get('exclusion', ''), height=100, key="p1_exc")
         
     with col2:
         # CONTEXT
         st.subheader("3. Context")
+        
+        # Stepwise Button 2: Context
+        if st.button("✨ Suggest Context", help="Generate Setting/Problem based on Criteria"):
+            # Use current widget values if available, else data store
+            curr_cond = st.session_state.get('p1_cond_input', '') or st.session_state.data['phase1'].get('condition', '')
+            curr_inc = st.session_state.get('p1_inc', '') or st.session_state.data['phase1'].get('inclusion', '')
+            
+            if curr_cond:
+                with st.spinner("Drafting context..."):
+                    prompt = f"Act as a CMO. For condition '{curr_cond}' with inclusion '{curr_inc}', suggest a 'setting' and a 'problem' statement (clinical gap). Return JSON."
+                    data = get_gemini_response(prompt, json_mode=True)
+                    if data:
+                        st.session_state.data['phase1']['setting'] = data.get('setting', '')
+                        st.session_state.data['phase1']['problem'] = data.get('problem', '')
+                        # Sync to widgets
+                        st.session_state['p1_setting'] = data.get('setting', '')
+                        st.session_state['p1_prob'] = data.get('problem', '')
+                        st.rerun()
+            else:
+                st.warning("Please enter a condition first.")
+
         st.text_input("Care Setting", value=st.session_state.data['phase1'].get('setting', ''), key="p1_setting")
         st.text_area("Problem Statement / Clinical Gap", value=st.session_state.data['phase1'].get('problem', ''), height=100, key="p1_prob")
         
         # OBJECTIVES
         st.subheader("4. SMART Objectives")
+        
+        # Stepwise Button 3: Objectives
+        if st.button("✨ Suggest Objectives", help="Generate SMART Goals based on Problem"):
+            curr_cond = st.session_state.get('p1_cond_input', '')
+            curr_prob = st.session_state.get('p1_prob', '')
+            
+            if curr_cond:
+                with st.spinner("Drafting objectives..."):
+                    prompt = f"Act as a CMO. For condition '{curr_cond}' and problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON with key 'objectives' (list of strings)."
+                    data = get_gemini_response(prompt, json_mode=True)
+                    if data:
+                        objs = data.get('objectives', [])
+                        obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
+                        st.session_state.data['phase1']['objectives'] = obj_text
+                        # Sync to widgets
+                        st.session_state['p1_obj'] = obj_text
+                        st.rerun()
+            else:
+                st.warning("Please enter a condition first.")
+
         st.text_area("Project Goals", value=st.session_state.data['phase1'].get('objectives', ''), height=150, key="p1_obj")
 
     st.divider()
