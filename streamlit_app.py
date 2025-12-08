@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
 import graphviz
@@ -342,10 +343,10 @@ if "Phase 1" in phase:
                 if data:
                     st.session_state.suggestions = data
                     st.session_state.suggestions['condition_ref'] = cond_input
-                    st.session_state.data['phase1']['inclusion'] = f"e.g. {data.get('inclusion', '')}"
-                    st.session_state.data['phase1']['exclusion'] = f"e.g. {data.get('exclusion', '')}"
-                    st.session_state.data['phase1']['setting'] = f"e.g. {data.get('setting', '')}"
-                    st.session_state.data['phase1']['problem'] = f"e.g. {data.get('problem', '')}"
+                    st.session_state.data['phase1']['inclusion'] = data.get('inclusion', '')
+                    st.session_state.data['phase1']['exclusion'] = data.get('exclusion', '')
+                    st.session_state.data['phase1']['setting'] = data.get('setting', '')
+                    st.session_state.data['phase1']['problem'] = data.get('problem', '')
                     
                     # Handle objectives safely
                     objs = data.get('objectives', [])
@@ -354,7 +355,7 @@ if "Phase 1" in phase:
                     else:
                         obj_text = str(objs)
                         
-                    st.session_state.data['phase1']['objectives'] = f"e.g. Suggested Objectives:\n{obj_text}"
+                    st.session_state.data['phase1']['objectives'] = f"Suggested Objectives:\n{obj_text}"
                     st.rerun()
                 else:
                     st.warning("AI Agent could not generate suggestions. Please try again or enter manually.")
@@ -409,7 +410,16 @@ if "Phase 1" in phase:
                     </body>
                     </html>
                     """
-                    st.markdown(create_pdf_view_link(full_html), unsafe_allow_html=True)
+                    st.markdown("Charter generated! Opening in a new window...")
+                    b64_pdf = base64.b64encode(full_html.encode()).decode()
+                    js_script = f"""
+                        <script>
+                            var win = window.open("", "_blank");
+                            win.document.write(atob("{b64_pdf}"));
+                            win.document.close();
+                        </script>
+                    """
+                    components.html(js_script, height=0, width=0)
 
 # ------------------------------------------
 # PHASE 2: EVIDENCE
@@ -650,8 +660,7 @@ elif "Phase 4" in phase:
                  prompt = f"""
                  Analyze logic: {nodes_json}
                  Evaluate against Nielsen's 10 Usability Heuristics.
-                 Return JSON {{H1: "e.g. [Insight]", ... H10: "e.g. [Insight]"}}.
-                 Important: Start every insight with "e.g.".
+                 Return JSON {{H1: "[Insight]", ... H10: "[Insight]"}}.
                  """
                  risks = get_gemini_response(prompt, json_mode=True)
                  if isinstance(risks, dict): 
