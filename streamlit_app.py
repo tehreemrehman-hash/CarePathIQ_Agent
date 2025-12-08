@@ -1039,15 +1039,16 @@ elif "Phase 2" in phase:
             setting = st.session_state.data['phase1'].get('setting', '')
 
             prompt_mesh = f"""
-            Construct a PubMed search query for: {p1_cond}.
+            Construct a PubMed search query.
             
             The query MUST strictly follow this format:
-            "evidence-based guidelines for managing [Population]"
+            "guidelines for managing patients with [Condition] in [Setting]"
             
-            Extract the core [Population] term from the PICO Population: "{p}".
-            Keep it simple and direct.
+            Use these values:
+            - Condition: {p1_cond}
+            - Setting: {setting}
             
-            Example: "evidence-based guidelines for managing Sepsis"
+            Example: "guidelines for managing patients with Sepsis in Emergency Department"
             
             OUTPUT FORMAT:
             - Return ONLY the raw query string.
