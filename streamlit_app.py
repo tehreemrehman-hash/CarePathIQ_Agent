@@ -1557,8 +1557,8 @@ elif "Phase 4" in phase:
                                     st.success("Pathway updated!")
                                     time.sleep(1)
                                     st.rerun()
-                            else:
-                                st.error("Failed to apply changes. Please try again.")
+                                else:
+                                    st.error("Failed to apply changes. Please try again.")
 
             # UNDO BUTTON
             if 'node_history' in st.session_state and st.session_state.node_history:
