@@ -45,11 +45,10 @@ def calculate_granular_progress():
         total_points += 1
         if p1.get(k): earned_points += 1
         
-    # Phase 2: 6 points (PICO + Query + Evidence)
+    # Phase 2: 2 points (Query + Evidence)
     p2 = data.get('phase2', {})
-    for k in ['pico_p', 'pico_i', 'pico_c', 'pico_o', 'mesh_query']:
-        total_points += 1
-        if p2.get(k): earned_points += 1
+    total_points += 1
+    if p2.get('mesh_query'): earned_points += 1
     total_points += 1
     if p2.get('evidence'): earned_points += 1
     
@@ -993,49 +992,14 @@ elif "Phase 2" in phase:
     p1_cond = st.session_state.data['phase1']['condition']
     
     # Only run if condition exists and we haven't run PICO yet
-    # --- A. AUTO-RUN: PICO & SEARCH STRATEGY ---
+    # --- A. AUTO-RUN: SEARCH STRATEGY ---
     # Trigger only if we have a condition and haven't run yet
     p1_cond = st.session_state.data['phase1'].get('condition', '')
     
-    # 1. PICO GENERATION (From Phase 1)
-    if p1_cond and not st.session_state.auto_run.get("p2_pico", False):
-        with st.spinner("AI Agent drafting PICO framework..."):
-            
-            # Generate PICO
-            problem_context = st.session_state.data['phase1'].get('problem', '')
-            setting_context = st.session_state.data['phase1'].get('setting', '')
-            prompt_pico = f"""
-            Act as a Medical Librarian. Define the PICO framework for: '{p1_cond}'.
-            Context: {problem_context}
-            Setting: {setting_context}
-            Return a valid JSON object with these keys: {{ "P": "...", "I": "...", "C": "...", "O": "..." }}
-            """
-            pico_data = get_gemini_response(prompt_pico, json_mode=True)
-            
-            if pico_data:
-                # Ensure strings for all PICO fields
-                st.session_state.data['phase2']['pico_p'] = str(pico_data.get("P", "") or "")
-                st.session_state.data['phase2']['pico_i'] = str(pico_data.get("I", "") or "")
-                st.session_state.data['phase2']['pico_c'] = str(pico_data.get("C", "") or "")
-                st.session_state.data['phase2']['pico_o'] = str(pico_data.get("O", "") or "")
-            
-            st.session_state.auto_run["p2_pico"] = True
-            # Force query update since PICO changed
-            st.session_state.auto_run["p2_query"] = False
-
-    # 2. QUERY GENERATION (From PICO)
-    # Run if query is stale (p2_query=False) AND we have PICO data
-    has_pico = any(st.session_state.data['phase2'].get(k) for k in ['pico_p', 'pico_i', 'pico_c', 'pico_o'])
-    
-    if has_pico and not st.session_state.auto_run.get("p2_query", False):
+    # QUERY GENERATION (Directly from Phase 1)
+    if p1_cond and not st.session_state.auto_run.get("p2_query", False):
         with st.spinner("AI Agent drafting Search Query..."):
-            # Retrieve PICO
-            p = st.session_state.data['phase2']['pico_p']
-            i = st.session_state.data['phase2']['pico_i']
-            o = st.session_state.data['phase2']['pico_o']
-            
             # Retrieve Phase 1 context
-            inc = st.session_state.data['phase1'].get('inclusion', '')
             setting = st.session_state.data['phase1'].get('setting', '')
 
             prompt_mesh = f"""
@@ -1064,46 +1028,27 @@ elif "Phase 2" in phase:
             st.session_state.auto_run["p2_query"] = True
             st.rerun()
 
-    # --- B. UI: PICO INPUTS ---
-    col1, col2 = st.columns([1, 2])
+    # --- B. UI: SEARCH & GRADE ---
     
     # Helper to sync Phase 2 widgets
     def sync_p2_widgets():
-        st.session_state.data['phase2']['pico_p'] = st.session_state.get('p2_p', '')
-        st.session_state.data['phase2']['pico_i'] = st.session_state.get('p2_i', '')
-        st.session_state.data['phase2']['pico_c'] = st.session_state.get('p2_c', '')
-        st.session_state.data['phase2']['pico_o'] = st.session_state.get('p2_o', '')
         st.session_state.data['phase2']['mesh_query'] = st.session_state.get('p2_query_box', '')
 
     # Initialize keys if missing
-    if 'p2_p' not in st.session_state: st.session_state['p2_p'] = st.session_state.data['phase2'].get('pico_p', '')
-    if 'p2_i' not in st.session_state: st.session_state['p2_i'] = st.session_state.data['phase2'].get('pico_i', '')
-    if 'p2_c' not in st.session_state: st.session_state['p2_c'] = st.session_state.data['phase2'].get('pico_c', '')
-    if 'p2_o' not in st.session_state: st.session_state['p2_o'] = st.session_state.data['phase2'].get('pico_o', '')
     if 'p2_query_box' not in st.session_state: st.session_state['p2_query_box'] = st.session_state.data['phase2'].get('mesh_query', '')
 
-    with col1:
-        st.markdown("#### PICO Framework")
-        
-        st.text_input("P (Population)", key="p2_p", on_change=sync_p2_widgets)
-        st.text_input("I (Intervention)", key="p2_i", on_change=sync_p2_widgets)
-        st.text_input("C (Comparison)", key="p2_c", on_change=sync_p2_widgets)
-        st.text_input("O (Outcome)", key="p2_o", on_change=sync_p2_widgets)
+    st.markdown("#### Literature Search Strategy")
+    
+    # Search Query Text Area
+    st.text_area("PubMed Search Query", height=100, key="p2_query_box", on_change=sync_p2_widgets)
+    
+    # Define search_q from widget state to fix NameError
+    search_q = st.session_state.p2_query_box
 
-    # --- C. UI: SEARCH & GRADE ---
-    with col2:
-        st.markdown("#### Literature Search Strategy")
-        
-        # Search Query Text Area
-        st.text_area("PubMed Search Query", height=150, key="p2_query_box", on_change=sync_p2_widgets)
-        
-        # Define search_q from widget state to fix NameError
-        search_q = st.session_state.p2_query_box
-
-        # Action Buttons Row
-        c_act1, c_act2 = st.columns([1, 1])
-        
-        with c_act1:
+    # Action Buttons Row
+    c_act1, c_act2 = st.columns([1, 1])
+    
+    with c_act1:
             # GRADE Button
             grade_help = "The GRADE framework (Grading of Recommendations Assessment, Development and Evaluation) is a transparent approach to grading the quality of evidence (High, Moderate, Low, Very Low) and the strength of recommendations."
             if st.button("Search & GRADE Evidence", help=grade_help, type="primary", use_container_width=True):
