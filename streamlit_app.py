@@ -110,8 +110,8 @@ with st.sidebar:
     st.divider()
     
     gemini_api_key = st.text_input("Gemini API Key", type="password", help="Use Google AI Studio Key")
-    # Default to gemini-1.5-pro as requested
-    model_choice = st.selectbox("AI Agent Model", ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"], index=0)
+    # Default to gemini-2.5-flash as requested
+    model_choice = st.selectbox("AI Agent Model", ["gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"], index=0)
     
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
@@ -184,7 +184,8 @@ def get_gemini_response(prompt, json_mode=False):
     # Define fallback hierarchy
     # We include 'gemini-pro' and other variants because API model names can vary by region/version
     candidates = [
-        model_choice, 
+        model_choice,
+        "gemini-2.5-flash",
         "gemini-1.5-pro", 
         "gemini-1.5-flash", 
         "gemini-1.0-pro", 
