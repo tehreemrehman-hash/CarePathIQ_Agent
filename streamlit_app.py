@@ -754,7 +754,7 @@ elif "Phase 3" in phase:
         if st.session_state.auto_run["p3_logic"]:
              st.markdown("""
             <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 10px;">
-                <strong>AI Agent Output:</strong> Logic draft generated. <br>
+                <strong>AI Agent Output:</strong> Decision tree generated. <br>
                 <strong>Keep/Modify</strong> rows below, or click 'Clear Logic' to start fresh.
             </div>
             """, unsafe_allow_html=True)
