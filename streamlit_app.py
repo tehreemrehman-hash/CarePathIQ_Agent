@@ -176,6 +176,9 @@ st.markdown("""
 
     /* Headers */
     h1, h2, h3 { color: #00695C; }
+
+    /* Hide the anchor link icons on hover for headers */
+    [data-testid="stHeaderAction"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
