@@ -73,18 +73,21 @@ st.markdown("""
     }
 
     /* 2. RADIO BUTTONS (The Little Circles) */
-    /* Unchecked border */
+    /* Unchecked: White background, Brown border */
     div[role="radiogroup"] label > div:first-child {
+        background-color: white !important;
         border-color: #5D4037 !important;
     }
-    /* Checked background - Target the inner circle */
-    div[role="radiogroup"] label > div:first-child > div {
-        background-color: #5D4037 !important;
-    }
-    /* Checked border */
+    
+    /* Checked: Brown background, Brown border */
     div[role="radiogroup"] label[data-checked="true"] > div:first-child {
-        border-color: #5D4037 !important;
         background-color: #5D4037 !important;
+        border-color: #5D4037 !important;
+    }
+    
+    /* Checked: Inner dot - make it white for contrast */
+    div[role="radiogroup"] label[data-checked="true"] > div:first-child > div {
+        background-color: white !important;
     }
 
     /* 3. TOOLTIPS HOVER STYLE */
@@ -107,8 +110,8 @@ with st.sidebar:
     st.divider()
     
     gemini_api_key = st.text_input("Gemini API Key", type="password", help="Use Google AI Studio Key")
-    # Default to Flash for speed and stability
-    model_choice = st.selectbox("AI Agent Model", ["gemini-1.5-flash", "gemini-1.5-pro"], index=0)
+    # Default to gemini-pro for maximum compatibility
+    model_choice = st.selectbox("AI Agent Model", ["gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro"], index=0)
     
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
@@ -175,16 +178,33 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
     st.download_button(f"{label}", final_content, filename, mime_type)
 
 def get_gemini_response(prompt, json_mode=False):
-    """Robust AI caller with JSON cleaner."""
+    """Robust AI caller with JSON cleaner and auto-fallback."""
     if not gemini_api_key: return None
-    try:
-        model = genai.GenerativeModel(model_choice)
+    
+    def _generate(m_name):
+        model = genai.GenerativeModel(m_name)
         # Relaxed safety for medical terms
         safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
         time.sleep(1) # Prevent 429 errors
-        response = model.generate_content(prompt, safety_settings=safety)
+        return model.generate_content(prompt, safety_settings=safety)
+
+    try:
+        response = _generate(model_choice)
+    except Exception as e:
+        # Auto-fallback to gemini-pro if the selected model fails (e.g. 404 Not Found)
+        if "404" in str(e) and model_choice != "gemini-pro":
+            try:
+                response = _generate("gemini-pro")
+                st.toast("Switched to gemini-pro (auto-fallback)", icon="🔄")
+            except Exception as e2:
+                st.error(f"AI Error (Fallback failed): {e2}")
+                return None
+        else:
+            st.error(f"AI Error: {e}")
+            return None
+
+    try:
         text = response.text
-        
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
             # Robust JSON extraction via regex
@@ -194,7 +214,7 @@ def get_gemini_response(prompt, json_mode=False):
             return json.loads(text)
         return text
     except Exception as e:
-        st.error(f"AI Error: {e}")
+        st.error(f"Parsing Error: {e}")
         return None
 
 def search_pubmed(query):
