@@ -570,7 +570,6 @@ st.divider()
 # PHASE 1: SCOPING & CHARTER
 # ------------------------------------------
 if "Phase 1" in phase:
-    st.markdown("### Project Scoping & Charter")
     
     col1, col2 = st.columns([1, 1])
     
@@ -765,9 +764,18 @@ if "Phase 1" in phase:
 # PHASE 2: RAPID EVIDENCE APPRAISAL
 # ------------------------------------------
 elif "Phase 2" in phase:
-    st.markdown("### Rapid Evidence Appraisal")
     
     # --- A. AUTO-RUN: PICO & MESH GENERATION ---
+    # 1. SYNC PHASE 1 DATA (Fix for manual edits not propagating)
+    # We check if the widget keys exist in session_state (meaning user visited Phase 1)
+    # and update the data dictionary before proceeding.
+    if 'p1_cond_input' in st.session_state: st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
+    if 'p1_inc' in st.session_state: st.session_state.data['phase1']['inclusion'] = st.session_state.p1_inc
+    if 'p1_exc' in st.session_state: st.session_state.data['phase1']['exclusion'] = st.session_state.p1_exc
+    if 'p1_setting' in st.session_state: st.session_state.data['phase1']['setting'] = st.session_state.p1_setting
+    if 'p1_prob' in st.session_state: st.session_state.data['phase1']['problem'] = st.session_state.p1_prob
+    if 'p1_obj' in st.session_state: st.session_state.data['phase1']['objectives'] = st.session_state.p1_obj
+
     p1_cond = st.session_state.data['phase1']['condition']
     
     # Only run if condition exists and we haven't run PICO yet
@@ -776,9 +784,11 @@ elif "Phase 2" in phase:
             
             # 1. Generate PICO
             problem_context = st.session_state.data['phase1'].get('problem', '')
+            setting_context = st.session_state.data['phase1'].get('setting', '')
             prompt_pico = f"""
             Act as a Medical Librarian. Define the PICO framework for: '{p1_cond}'.
             Context: {problem_context}
+            Setting: {setting_context}
             Return a valid JSON object with these keys: {{ "P": "...", "I": "...", "C": "...", "O": "..." }}
             """
             pico_data = get_gemini_response(prompt_pico, json_mode=True)
@@ -841,7 +851,7 @@ elif "Phase 2" in phase:
 
         st.divider()
         
-        if st.button("🔄 Regenerate Query from PICO", type="primary", use_container_width=True):
+        if st.button("Regenerate Query from PICO", type="secondary", use_container_width=True):
             st.session_state.auto_run["p2_pico"] = False # Force re-run logic
             st.rerun()
 
@@ -862,7 +872,7 @@ elif "Phase 2" in phase:
         with c_act1:
             # GRADE Button
             grade_help = "Analyzes evidence using Prasad 2024 Framework (Risk of Bias, Inconsistency, Indirectness, Imprecision)."
-            if st.button("🔍 Search & GRADE Evidence", help=grade_help, use_container_width=True):
+            if st.button("Search & GRADE Evidence", help=grade_help, type="primary", use_container_width=True):
                 if not search_q.strip():
                     st.error("Query is empty.")
                 else:
@@ -890,7 +900,7 @@ elif "Phase 2" in phase:
                 # Encode the query safely for URL
                 encoded_query = urllib.parse.quote(search_q.strip())
                 pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
-                st.link_button("Open in PubMed ↗", pubmed_url, type="secondary", use_container_width=True)
+                st.link_button("Open in PubMed ↗", pubmed_url, type="primary", use_container_width=True)
             else:
                 st.button("Open in PubMed ↗", disabled=True, use_container_width=True)
 
