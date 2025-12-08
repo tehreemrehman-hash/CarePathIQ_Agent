@@ -1278,6 +1278,10 @@ elif "Phase 2" in phase:
         # Ensure columns exist
         if 'rationale' not in df.columns: df['rationale'] = ""
         if 'grade' not in df.columns: df['grade'] = "Un-graded"
+        
+        # Create "Supporting Evidence" column for display
+        if 'id' in df.columns:
+            df['Supporting Evidence'] = df['id'].apply(lambda x: f"PMID: {x}")
 
         grade_help = """
         High (A): High confidence in effect estimate.
@@ -1288,7 +1292,8 @@ elif "Phase 2" in phase:
         
         edited_df = st.data_editor(df, column_config={
             "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
-            "id": st.column_config.TextColumn("ID", disabled=True),
+            "id": None,
+            "Supporting Evidence": st.column_config.TextColumn("Supporting Evidence", disabled=True),
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn(
                 "GRADE", 
@@ -1303,7 +1308,7 @@ elif "Phase 2" in phase:
                 width="large"
             ),
             "citation": st.column_config.TextColumn("Citation", disabled=True),
-        }, column_order=["title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
+        }, column_order=["title", "Supporting Evidence", "url", "grade", "rationale"], hide_index=True, key="ev_editor")
         
         # Save manual edits back to state
         st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
