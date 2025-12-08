@@ -422,20 +422,16 @@ if "Phase 1" in phase:
                     </body>
                     </html>
                     """
-                    st.markdown("Charter generated! Downloading Word Document...")
-                    b64_doc = base64.b64encode(word_html.encode()).decode()
-                    js_script = f"""
-                        <script>
-                            var a = document.createElement('a');
-                            a.href = 'data:application/msword;base64,{b64_doc}';
-                            a.download = 'Project_Charter.doc';
-                            a.style.display = 'none';
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                        </script>
-                    """
-                    components.html(js_script, height=0, width=0)
+                    st.session_state['charter_doc'] = word_html
+        
+        if 'charter_doc' in st.session_state:
+            st.success("Charter generated successfully!")
+            st.download_button(
+                label="Download Project Charter (.doc)",
+                data=st.session_state['charter_doc'],
+                file_name="Project_Charter.doc",
+                mime="application/msword"
+            )
 
 # ------------------------------------------
 # PHASE 2: EVIDENCE
