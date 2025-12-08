@@ -1320,154 +1320,138 @@ elif "Phase 2" in phase:
 # PHASE 3: DECISION SCIENCE
 # ------------------------------------------
 elif "Phase 3" in phase:
-    col1, col2 = st.columns([1, 2])
     
-    with col1:
-        # AUTO-RUN: LOGIC DRAFT
-        cond = st.session_state.data['phase1']['condition']
-        evidence_list = st.session_state.data['phase2']['evidence']
-        nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
-        
-        if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
-             with st.status("AI Agent drafting decision tree...", expanded=True) as status:
-                 
-                 # Prepare Evidence Context
-                 st.write("Analyzing Phase 2 Evidence...")
-                 
-                 def format_evidence_item(e):
-                     base = f"- ID {e['id']}: {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})"
-                     content = ""
-                     if e.get('full_text'):
-                         content = f"\n  FULL TEXT (Truncated): {e['full_text'][:10000]}...\n"
-                     else:
-                         content = f"\n  ABSTRACT: {e.get('abstract', 'No abstract available.')}\n"
-                     return base + content
+    # AUTO-RUN: LOGIC DRAFT
+    cond = st.session_state.data['phase1']['condition']
+    evidence_list = st.session_state.data['phase2']['evidence']
+    nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
+    
+    if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
+         with st.status("AI Agent drafting decision tree...", expanded=True) as status:
+             
+             # Prepare Evidence Context
+             st.write("Analyzing Phase 2 Evidence...")
+             
+             def format_evidence_item(e):
+                 base = f"- ID {e['id']}: {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})"
+                 content = ""
+                 if e.get('full_text'):
+                     content = f"\n  FULL TEXT (Truncated): {e['full_text'][:10000]}...\n"
+                 else:
+                     content = f"\n  ABSTRACT: {e.get('abstract', 'No abstract available.')}\n"
+                 return base + content
 
-                 ev_context = "\n".join([format_evidence_item(e) for e in evidence_list])
-                 
-                 # ENHANCED PROMPT: BROADENED DEFINITIONS
-                 st.write("Structuring Clinical Logic...")
-                 prompt = f"""
-                 Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
-                 
-                 CRITICAL INSTRUCTION: Thoroughly read and analyze the evidence provided below. 
-                 Where FULL TEXT is available, prioritize it for deep clinical nuance. Otherwise, use the ABSTRACT.
-                 Ensure the decision tree is truly evidence-based and informed by the specific findings, recommendations, and guidelines presented in these texts.
-                 
-                 STRICT TEMPLATE RULES (Match the user's Visual Logic Language):
-                 1. **Start**: Entry point (e.g., "Patient presents to ED").
-                 2. **Decisions (Red Diamonds)**: Logic checkpoints. Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High) based on validated scores (e.g., Wells Score, HEART Score).
-                 3. **Process (Yellow Box)**: Action-oriented steps (e.g., "Order BMP/CBC", "Order MRI", "Admit to Medicine", "Consult Neurosurgery"). Use imperative verbs.
-                 4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
-                 5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
-                 
-                 **Logic Structure Strategy (CRITICAL):**
-                 - **Decisions**: Must have clear branches. For Binary: 'Yes'/'No'. For Risk: 'Low'/'Moderate'/'High' (or similar categories). Ensure process steps follow each specific branch.
-                 - **Red Flags**: Should be represented as 'Notes' (Blue Wave) attached to relevant steps, OR as 'Decisions' (e.g., "Red flags present?") leading to different outcomes.
-                 - **Flow**: Ensure a logical progression from Start to End.
-                 
-                 **Evidence Mapping:**
-                 - For each step, if a specific piece of evidence from the list below supports it, include the "evidence_id" (e.g., "12345").
-                 
-                 Context Evidence:
-                 {ev_context}
-                 
-                 Return a JSON List of objects: 
-                 [{{
-                     "type": "Start" | "Decision" | "Process" | "Note" | "End", 
-                     "label": "Short Text (Max 6 words)", 
-                     "detail": "Longer clinical detail/criteria",
-                     "evidence_id": "Optional PubMed ID string matching the provided list"
-                 }}]
-                 """
-                 
-                 st.write("Mapping Evidence to Steps...")
-                 nodes = get_gemini_response(prompt, json_mode=True)
-                 
-                 if isinstance(nodes, list):
-                     # Post-process to format evidence string for dropdown
-                     for n in nodes:
-                         eid = n.get('evidence_id')
-                         if eid:
-                             # Find matching evidence object
-                             match = next((e for e in evidence_list if str(e['id']) == str(eid)), None)
-                             if match:
-                                 n['evidence'] = f"PMID: {match['id']}"
-                             else:
-                                 n['evidence'] = None
+             ev_context = "\n".join([format_evidence_item(e) for e in evidence_list])
+             
+             # ENHANCED PROMPT: BROADENED DEFINITIONS
+             st.write("Structuring Clinical Logic...")
+             prompt = f"""
+             Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
+             
+             CRITICAL INSTRUCTION: Thoroughly read and analyze the evidence provided below. 
+             Where FULL TEXT is available, prioritize it for deep clinical nuance. Otherwise, use the ABSTRACT.
+             Ensure the decision tree is truly evidence-based and informed by the specific findings, recommendations, and guidelines presented in these texts.
+             
+             STRICT TEMPLATE RULES (Match the user's Visual Logic Language):
+             1. **Start**: Entry point (e.g., "Patient presents to ED").
+             2. **Decisions (Red Diamonds)**: Logic checkpoints. Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High) based on validated scores (e.g., Wells Score, HEART Score).
+             3. **Process (Yellow Box)**: Action-oriented steps (e.g., "Order BMP/CBC", "Order MRI", "Admit to Medicine", "Consult Neurosurgery"). Use imperative verbs.
+             4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
+             5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
+             
+             **Logic Structure Strategy (CRITICAL):**
+             - **Decisions**: Must have clear branches. For Binary: 'Yes'/'No'. For Risk: 'Low'/'Moderate'/'High' (or similar categories). Ensure process steps follow each specific branch.
+             - **Red Flags**: Should be represented as 'Notes' (Blue Wave) attached to relevant steps, OR as 'Decisions' (e.g., "Red flags present?") leading to different outcomes.
+             - **Flow**: Ensure a logical progression from Start to End.
+             
+             **Evidence Mapping:**
+             - For each step, if a specific piece of evidence from the list below supports it, include the "evidence_id" (e.g., "12345").
+             
+             Context Evidence:
+             {ev_context}
+             
+             Return a JSON List of objects: 
+             [{{
+                 "type": "Start" | "Decision" | "Process" | "Note" | "End", 
+                 "label": "Short Text (Max 6 words)", 
+                 "detail": "Longer clinical detail/criteria",
+                 "evidence_id": "Optional PubMed ID string matching the provided list"
+             }}]
+             """
+             
+             st.write("Mapping Evidence to Steps...")
+             nodes = get_gemini_response(prompt, json_mode=True)
+             
+             if isinstance(nodes, list):
+                 # Post-process to format evidence string for dropdown
+                 for n in nodes:
+                     eid = n.get('evidence_id')
+                     if eid:
+                         # Find matching evidence object
+                         match = next((e for e in evidence_list if str(e['id']) == str(eid)), None)
+                         if match:
+                             n['evidence'] = f"PMID: {match['id']}"
                          else:
                              n['evidence'] = None
+                     else:
+                         n['evidence'] = None
 
-                     st.session_state.data['phase3']['nodes'] = nodes
-                     st.session_state.auto_run["p3_logic"] = True
-                     status.update(label="Decision Tree Drafted!", state="complete", expanded=False)
-                     st.rerun()
+                 st.session_state.data['phase3']['nodes'] = nodes
+                 st.session_state.auto_run["p3_logic"] = True
+                 status.update(label="Decision Tree Drafted!", state="complete", expanded=False)
+                 st.rerun()
 
-    with col2:
-        if st.session_state.auto_run["p3_logic"]:
-             st.markdown("""
-            <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 10px;">
-                <strong>AI Agent Output:</strong> Logic generated. <br>
-                <strong>Review Below:</strong> Ensure 'Decisions' are followed by their 'Yes' path.
-            </div>
-            """, unsafe_allow_html=True)
-             
-             c_btn1, c_btn2 = st.columns([1,1])
-             with c_btn1:
-                 if st.button("Clear Logic to Restart", type="primary"):
-                     st.session_state.data['phase3']['nodes'] = []
-                     st.session_state.auto_run["p3_logic"] = True # Prevent immediate auto-run
-                     st.rerun()
-             with c_btn2:
-                 if st.button("Add Manual Step"):
-                     st.session_state.data['phase3']['nodes'].append({"type": "Process", "label": "New Step", "detail": ""})
-                     st.rerun()
+    if st.session_state.auto_run["p3_logic"]:
+         if st.button("Add Manual Step"):
+             st.session_state.data['phase3']['nodes'].append({"type": "Process", "label": "New Step", "detail": ""})
+             st.rerun()
 
-        # DYNAMIC EVIDENCE DROPDOWN & EDITOR
-        if not st.session_state.data['phase3']['nodes']:
-             st.session_state.data['phase3']['nodes'] = [{"type":"Start", "label":"Triage", "detail":""}]
-        
-        df_nodes = pd.DataFrame(st.session_state.data['phase3']['nodes'])
-        
-        # Ensure columns exist
-        if "detail" not in df_nodes.columns: df_nodes["detail"] = ""
-        if "evidence" not in df_nodes.columns: df_nodes["evidence"] = None
+    # DYNAMIC EVIDENCE DROPDOWN & EDITOR
+    if not st.session_state.data['phase3']['nodes']:
+         st.session_state.data['phase3']['nodes'] = [{"type":"Start", "label":"Triage", "detail":""}]
+    
+    df_nodes = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+    
+    # Ensure columns exist
+    if "detail" not in df_nodes.columns: df_nodes["detail"] = ""
+    if "evidence" not in df_nodes.columns: df_nodes["evidence"] = None
 
-        # Prepare Evidence Options
-        evidence_options = []
-        if st.session_state.data['phase2']['evidence']:
-            evidence_options = [f"PMID: {e['id']}" for e in st.session_state.data['phase2']['evidence']]
-        
-        # COLOR-CODED TYPE DROPDOWN
-        type_options = ["Start", "Decision", "Process", "Note", "End"]
-        
-        edited_nodes = st.data_editor(df_nodes, column_config={
-            "type": st.column_config.SelectboxColumn(
-                "Node Type", 
-                options=type_options, 
-                required=True,
-                help="Decision=Red Diamond, Process=Yellow Box, Note=Blue Wave, End=Green Oval",
-                width="medium"
-            ),
-            "label": st.column_config.TextColumn(
-                "Label (Flowchart)", 
-                help="Short text shown inside the shape",
-                width="medium"
-            ),
-            "detail": st.column_config.TextColumn(
-                "Clinical Detail / Criteria", 
-                help="Specifics (e.g. 'Serum Cr > 2.0', 'Failed PO trial')",
-                width="large"
-            ),
-            "evidence": st.column_config.SelectboxColumn(
-                "Supporting Evidence",
-                options=evidence_options,
-                help="Link to Phase 2 Evidence",
-                width="small"
-            )
-        }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
-        
-        st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
+    # Prepare Evidence Options
+    evidence_options = []
+    if st.session_state.data['phase2']['evidence']:
+        evidence_options = [f"PMID: {e['id']}" for e in st.session_state.data['phase2']['evidence']]
+    
+    # COLOR-CODED TYPE DROPDOWN
+    type_options = ["Start", "Decision", "Process", "Note", "End"]
+    
+    edited_nodes = st.data_editor(df_nodes, column_config={
+        "type": st.column_config.SelectboxColumn(
+            "Node Type", 
+            options=type_options, 
+            required=True,
+            help="Decision=Red Diamond, Process=Yellow Box, Note=Blue Wave, End=Green Oval",
+            width="medium"
+        ),
+        "label": st.column_config.TextColumn(
+            "Label (Flowchart)", 
+            help="Short text shown inside the shape",
+            width="medium"
+        ),
+        "detail": st.column_config.TextColumn(
+            "Clinical Detail / Criteria", 
+            help="Specifics (e.g. 'Serum Cr > 2.0', 'Failed PO trial')",
+            width="large"
+        ),
+        "evidence": st.column_config.SelectboxColumn(
+            "Supporting Evidence",
+            options=evidence_options,
+            help="Link to Phase 2 Evidence",
+            width="small"
+        ),
+        "evidence_id": None # Hide the raw ID column
+    }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
+    
+    st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
 
 # ------------------------------------------
 # PHASE 4: USER INTERFACE DESIGN
@@ -1761,7 +1745,7 @@ elif "Phase 4" in phase:
                         del st.session_state['p4_pending_custom']
                         st.rerun()
             
-            if st.button("Refresh Analysis (After Edits)", type="secondary", use_container_width=True):
+            if st.button("Rerun Analysis (After Edits)", type="secondary", use_container_width=True):
                  st.session_state.auto_run["p4_heuristics"] = False
                  st.rerun()
 
