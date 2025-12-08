@@ -773,6 +773,7 @@ if "Phase 1" in phase:
                     data = get_gemini_response(prompt, json_mode=True)
                     if data:
                         objs = data.get('objectives', [])
+                        # Ensure string format
                         obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
                         st.session_state.data['phase1']['objectives'] = obj_text
                         # Sync to widgets
@@ -927,10 +928,11 @@ elif "Phase 2" in phase:
             pico_data = get_gemini_response(prompt_pico, json_mode=True)
             
             if pico_data:
-                st.session_state.data['phase2']['pico_p'] = pico_data.get("P", "")
-                st.session_state.data['phase2']['pico_i'] = pico_data.get("I", "")
-                st.session_state.data['phase2']['pico_c'] = pico_data.get("C", "")
-                st.session_state.data['phase2']['pico_o'] = pico_data.get("O", "")
+                # Ensure strings for all PICO fields
+                st.session_state.data['phase2']['pico_p'] = str(pico_data.get("P", "") or "")
+                st.session_state.data['phase2']['pico_i'] = str(pico_data.get("I", "") or "")
+                st.session_state.data['phase2']['pico_c'] = str(pico_data.get("C", "") or "")
+                st.session_state.data['phase2']['pico_o'] = str(pico_data.get("O", "") or "")
             
             # 2. Generate MeSH Query (Chained immediately after PICO)
             # Retrieve PICO we just generated or existing ones
