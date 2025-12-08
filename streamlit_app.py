@@ -403,34 +403,36 @@ if "Phase 1" in phase:
                     prompt = f"Create a formal Project Charter (HTML). Condition: {cond_input}. Inclusion: {inc}. Exclusion: {exc}. Setting: {setting}. Problem: {prob}. Objectives: {obj}. Return HTML."
                     charter_content = get_gemini_response(prompt)
                     
-                    # Wrap for PDF-like view
-                    full_html = f"""
-                    <html>
+                    # Wrap for Word Doc
+                    word_html = f"""
+                    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
                     <head>
+                        <meta charset="utf-8">
                         <style>
-                            body {{ font-family: 'Times New Roman', serif; padding: 40px; background-color: #525659; }}
-                            .page {{ background: white; padding: 50px; width: 210mm; min-height: 297mm; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
+                            body {{ font-family: 'Times New Roman', serif; }}
                             h1 {{ color: #00695C; text-align: center; }}
                             h2 {{ color: #2E7D32; border-bottom: 2px solid #2E7D32; }}
                         </style>
                     </head>
                     <body>
-                        <div class="page">
-                            {charter_content}
-                            <div style="margin-top: 50px; font-size: 0.8em; color: gray; text-align: center; border-top: 1px solid #ddd; padding-top: 10px;">
-                                CarePathIQ © 2024 by Tehreem Rehman. Licensed under CC BY-SA 4.0.
-                            </div>
+                        {charter_content}
+                        <div style="margin-top: 50px; font-size: 0.8em; color: gray; text-align: center; border-top: 1px solid #ddd; padding-top: 10px;">
+                            CarePathIQ © 2024 by Tehreem Rehman. Licensed under CC BY-SA 4.0.
                         </div>
                     </body>
                     </html>
                     """
-                    st.markdown("Charter generated! Opening in a new window...")
-                    b64_pdf = base64.b64encode(full_html.encode()).decode()
+                    st.markdown("Charter generated! Downloading Word Document...")
+                    b64_doc = base64.b64encode(word_html.encode()).decode()
                     js_script = f"""
                         <script>
-                            var win = window.open("", "_blank");
-                            win.document.write(atob("{b64_pdf}"));
-                            win.document.close();
+                            var a = document.createElement('a');
+                            a.href = 'data:application/msword;base64,{b64_doc}';
+                            a.download = 'Project_Charter.doc';
+                            a.style.display = 'none';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
                         </script>
                     """
                     components.html(js_script, height=0, width=0)
