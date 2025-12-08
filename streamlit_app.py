@@ -190,9 +190,6 @@ with st.sidebar:
     except FileNotFoundError:
         pass
 
-    st.markdown("### Access Required")
-    st.info("To use this AI Agent, you need a Google Gemini API Key. \n\n[Get a free API Key here](https://aistudio.google.com/app/apikey)")
-
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Paste your key from Google AI Studio")
     
     # Default to Auto for best performance
@@ -592,7 +589,8 @@ if not gemini_api_key:
         border-radius: 5px; 
         color: white;
         margin-bottom: 20px;">
-        <strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent.
+        <strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. 
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; text-decoration: underline;">Get a free API key here</a>.
     </div>
     """, unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
