@@ -827,7 +827,7 @@ elif "Phase 2" in phase:
             setting = st.session_state.data['phase1'].get('setting', '')
 
             prompt_mesh = f"""
-            Act as an expert Medical Librarian. Construct a specific PubMed search query for: {p1_cond}.
+            Act as an expert Medical Librarian. Construct a sophisticated PubMed search query for: {p1_cond}.
             
             Use these elements:
             - Population: {p} (Inclusion: {inc})
@@ -835,11 +835,20 @@ elif "Phase 2" in phase:
             - Outcome: {o}
             - Setting: {setting}
 
-            STRICT FORMATTING RULES:
-            1. Return ONLY the raw query string. 
-            2. Do NOT use markdown code blocks (no ```). 
-            3. Do NOT add explanations or labels like "Query:".
-            4. Use valid MeSH terms like "Sepsis"[Mesh] and boolean operators (AND, OR).
+            ADVANCED SEARCH LOGIC:
+            1. **Concept Grouping**: Group synonyms for each element (P, I, O) using OR within parentheses.
+               - Example: (Heart Failure[Mesh] OR "cardiac failure"[tiab] OR "heart decompensation"[tiab])
+            2. **Boolean Operators**: Combine the P, I, and O groups using AND.
+               - Structure: (Population Terms) AND (Intervention Terms) AND (Outcome Terms)
+            3. **Field Tags**: Use `[Mesh]` for controlled vocabulary and `[tiab]` for title/abstract keywords.
+            4. **Refinement**: 
+               - Use truncation (`*`) for root words (e.g., `random*`).
+               - Exclude animal studies NOT involving humans: `NOT (Animals[Mesh] NOT Humans[Mesh])`.
+            
+            OUTPUT FORMAT:
+            - Return ONLY the raw query string.
+            - Do NOT use markdown blocks.
+            - Do NOT include explanations.
             """
             raw_query = get_gemini_response(prompt_mesh)
             
