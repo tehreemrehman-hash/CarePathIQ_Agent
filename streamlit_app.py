@@ -13,6 +13,7 @@ from io import BytesIO
 import datetime
 from datetime import date
 import os
+import copy
 
 # --- GRAPHVIZ PATH FIX ---
 # Ensure the system path includes the location of the 'dot' executable
@@ -1079,9 +1080,10 @@ elif "Phase 3" in phase:
                  4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
                  5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
                  
-                 **Logic Structure Strategy for Linear List:**
-                 - When designing a 'Decision', place the 'Yes' action IMMEDIATELY after it.
-                 - Place the 'No' action (alternative) 1-2 steps down.
+                 **Logic Structure Strategy (CRITICAL):**
+                 - **Decisions**: Must ALWAYS have a 'Yes' and 'No' path.
+                 - **Red Flags**: Should be represented as 'Notes' (Blue Wave) attached to relevant steps, OR as 'Decisions' (e.g., "Red flags present?") leading to different outcomes.
+                 - **Flow**: Ensure a logical progression from Start to End.
                  
                  **Evidence Mapping:**
                  - For each step, if a specific piece of evidence from the list below supports it, include the "evidence_id" (e.g., "12345").
@@ -1363,8 +1365,85 @@ elif "Phase 4" in phase:
                         {v_str}
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    # APPLY RECOMMENDATION BUTTON
+                    if st.button(f"Apply Recommendations ({k})", key=f"btn_fix_{k}"):
+                        with st.spinner("AI Agent applying recommendations..."):
+                            # Initialize history if needed
+                            if 'node_history' not in st.session_state:
+                                st.session_state.node_history = []
+                            
+                            # Save current state to history
+                            st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                            
+                            # AI Call to modify nodes
+                            curr_nodes = st.session_state.data['phase3']['nodes']
+                            prompt_fix = f"""
+                            Act as a Clinical Decision Scientist.
+                            Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
+                            
+                            Usability Critique to Address: "{v_str}"
+                            
+                            Task: Update the pathway JSON to fulfill the critique recommendations.
+                            - Maintain the existing structure and keys.
+                            - Only make necessary changes.
+                            - Return ONLY the valid JSON list of nodes.
+                            """
+                            new_nodes = get_gemini_response(prompt_fix, json_mode=True)
+                            
+                            if new_nodes and isinstance(new_nodes, list):
+                                st.session_state.data['phase3']['nodes'] = new_nodes
+                                st.success("Pathway updated!")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Failed to apply changes. Please try again.")
+
+            # UNDO BUTTON
+            if 'node_history' in st.session_state and st.session_state.node_history:
+                if st.button("Undo Last Change", type="secondary", use_container_width=True):
+                    st.session_state.data['phase3']['nodes'] = st.session_state.node_history.pop()
+                    st.rerun()
+
+            st.divider()
             
-            if st.button("Refresh Analysis (After Edits)", type="primary", use_container_width=True):
+            # MANUAL REFINEMENT
+            st.markdown("#### Custom Refinement")
+            custom_edit = st.text_area("Describe any other changes you want to make:", placeholder="e.g., 'Add a step to check blood pressure after triage'")
+            
+            if st.button("Apply Custom Change", type="primary", use_container_width=True):
+                if custom_edit:
+                    with st.spinner("AI Agent applying custom changes..."):
+                        # Initialize history if needed
+                        if 'node_history' not in st.session_state:
+                            st.session_state.node_history = []
+                        
+                        # Save current state
+                        st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                        
+                        # AI Call
+                        curr_nodes = st.session_state.data['phase3']['nodes']
+                        prompt_custom = f"""
+                        Act as a Clinical Decision Scientist.
+                        Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
+                        
+                        User Request: "{custom_edit}"
+                        
+                        Task: Update the pathway JSON to fulfill the user request.
+                        - Maintain the existing structure and keys.
+                        - Return ONLY the valid JSON list of nodes.
+                        """
+                        new_nodes = get_gemini_response(prompt_custom, json_mode=True)
+                        
+                        if new_nodes and isinstance(new_nodes, list):
+                            st.session_state.data['phase3']['nodes'] = new_nodes
+                            st.success("Custom changes applied!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Failed to apply changes.")
+            
+            if st.button("Refresh Analysis (After Edits)", type="secondary", use_container_width=True):
                  st.session_state.auto_run["p4_heuristics"] = False
                  st.rerun()
 
