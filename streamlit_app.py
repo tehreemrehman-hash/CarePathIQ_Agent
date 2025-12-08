@@ -182,7 +182,16 @@ def get_gemini_response(prompt, json_mode=False):
     if not gemini_api_key: return None
     
     # Define fallback hierarchy
-    candidates = [model_choice, "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
+    # We include 'gemini-pro' and other variants because API model names can vary by region/version
+    candidates = [
+        model_choice, 
+        "gemini-1.5-pro", 
+        "gemini-1.5-flash", 
+        "gemini-1.0-pro", 
+        "gemini-pro", 
+        "gemini-1.0-pro-latest",
+        "gemini-1.0-pro-001"
+    ]
     # Deduplicate preserving order
     candidates = list(dict.fromkeys(candidates))
     
@@ -204,6 +213,23 @@ def get_gemini_response(prompt, json_mode=False):
         except Exception as e:
             last_error = e
             continue # Try next model
+
+    if not response:
+        # Final Hail Mary: Try to dynamically find ANY available Gemini model
+        try:
+            st.toast("Attempting dynamic model discovery...", icon="🔎")
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods and 'gemini' in m.name:
+                    try:
+                        model = genai.GenerativeModel(m.name)
+                        safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
+                        response = model.generate_content(prompt, safety_settings=safety)
+                        if response:
+                            st.toast(f"Found working model: {m.name}", icon="✅")
+                            break
+                    except: continue
+        except Exception as e:
+            last_error = f"{last_error} | Dynamic discovery failed: {e}"
 
     if not response:
         st.error(f"AI Error: All models failed. Last error: {last_error}")
