@@ -1055,7 +1055,7 @@ if "Phase 1" in phase:
                    - Goals / Metrics
                    - Expected Deliverables
                 4. **Project Scope**: Within Scope vs Outside Scope.
-                5. **Tentative Schedule**: A table with columns [Key Milestone | Start | Finish] including these standard phases:
+                5. **Tentative Schedule (Gantt Chart)**: A table representing a Gantt Chart with columns [Key Milestone | Owner | Start Date | End Date | Duration]. Include these standard phases:
                      - Form Project Team and Conduct Preliminary Review
                      - Finalize Project Plan and Project Charter
                      - Conduct Definition Phase
@@ -1064,6 +1064,7 @@ if "Phase 1" in phase:
                      - Conduct Improvement Phase
                      - Conduct Control Phase
                      - Close Out Project and Write Summary Report
+                6. **Key Performance Indicators (KPIs)**: A table with columns [Metric | Definition | Target | Data Source | Owner]. Include relevant clinical, operational, and financial metrics.
                 
                 **Style Guide:**
                 - Use <h2> headers for sections.
@@ -1576,7 +1577,7 @@ elif "Phase 4" in phase:
                 st.info("Tip: Ensure your Phase 3 Logic list is populated.")
 
     with col2:
-        st.subheader("Nielsen's Heuristic Analysis")
+        st.subheader("Nielsen's Heuristics Analysis")
         
         nodes = st.session_state.data['phase3']['nodes']
         if not nodes:
