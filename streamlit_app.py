@@ -1268,6 +1268,7 @@ elif "Phase 2" in phase:
             - "High (A)"
             - "Moderate (B)"
             - "Low (C)"
+            - "Very Low (D)"
             
             CRITICAL: You must determine the grade based on these specific factors:
             1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
@@ -1336,7 +1337,7 @@ elif "Phase 2" in phase:
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn(
                 "GRADE", 
-                options=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"],
+                options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
                 help=grade_help, 
                 width="small",
                 required=True
