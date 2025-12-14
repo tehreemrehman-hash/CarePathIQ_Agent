@@ -711,7 +711,14 @@ def search_pubmed(query):
     try:
         # 1. ESearch to get IDs
         # Increased retmax to 30 to get more results, sorted by relevance
-        search_params = {'db': 'pubmed', 'term': query, 'retmode': 'json', 'retmax': 30, 'sort': 'relevance'}
+        # Added date filter for last 5 years
+        search_params = {
+            'db': 'pubmed', 
+            'term': f"{query} AND (\"last 5 years\"[dp])", 
+            'retmode': 'json', 
+            'retmax': 30, 
+            'sort': 'relevance'
+        }
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response:
             data = json.loads(response.read().decode())
@@ -1261,7 +1268,6 @@ elif "Phase 2" in phase:
             - "High (A)"
             - "Moderate (B)"
             - "Low (C)"
-            - "Very Low (D)"
             
             CRITICAL: You must determine the grade based on these specific factors:
             1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
@@ -1322,7 +1328,6 @@ elif "Phase 2" in phase:
         High (A): High confidence in effect estimate.
         Moderate (B): Moderate confidence; true effect likely close.
         Low (C): Limited confidence; true effect may differ.
-        Very Low (D): Very little confidence.
         """
         
         edited_df = st.data_editor(df, column_config={
@@ -1331,7 +1336,7 @@ elif "Phase 2" in phase:
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn(
                 "GRADE", 
-                options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
+                options=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"],
                 help=grade_help, 
                 width="small",
                 required=True
