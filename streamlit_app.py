@@ -1309,11 +1309,18 @@ elif "Phase 2" in phase:
     if evidence_list:
         st.markdown("### Evidence Table")
         
-        # Clear Button
-        if st.button("Clear Evidence List", key="clear_ev"):
-            st.session_state.data['phase2']['evidence'] = []
-            st.session_state.auto_run["p2_grade"] = False
-            st.rerun()
+        # Filter & Clear
+        all_grades = ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]
+        default_grades = ["High (A)", "Moderate (B)", "Low (C)", "Un-graded"]
+        
+        col_filter, col_clear = st.columns([3, 1])
+        with col_filter:
+            selected_grades = st.multiselect("Filter by GRADE:", options=all_grades, default=default_grades)
+        with col_clear:
+            if st.button("Clear Evidence List", key="clear_ev"):
+                st.session_state.data['phase2']['evidence'] = []
+                st.session_state.auto_run["p2_grade"] = False
+                st.rerun()
 
         df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
         
@@ -1324,14 +1331,18 @@ elif "Phase 2" in phase:
         # Remove "Supporting Evidence" column from Phase 2 display
         if 'Supporting Evidence' in df.columns:
             df = df.drop(columns=['Supporting Evidence'])
+            
+        # Apply Filter
+        df_filtered = df[df['grade'].isin(selected_grades)]
 
         grade_help = """
         High (A): High confidence in effect estimate.
         Moderate (B): Moderate confidence; true effect likely close.
         Low (C): Limited confidence; true effect may differ.
+        Very Low (D): Very little confidence.
         """
         
-        edited_df = st.data_editor(df, column_config={
+        edited_df = st.data_editor(df_filtered, column_config={
             "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
             "id": None,
             "url": st.column_config.LinkColumn("Link", disabled=True),
@@ -1350,8 +1361,19 @@ elif "Phase 2" in phase:
             "citation": st.column_config.TextColumn("Citation", disabled=True),
         }, column_order=["title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
         
-        # Save manual edits back to state
-        st.session_state.data['phase2']['evidence'] = edited_df.to_dict('records')
+        # Save manual edits back to state (Merge Logic)
+        # We must merge edited rows back into the full dataset to avoid losing hidden rows
+        edited_map = {str(row['id']): row for row in edited_df.to_dict('records')}
+        
+        updated_evidence = []
+        for row in st.session_state.data['phase2']['evidence']:
+            rid = str(row['id'])
+            if rid in edited_map:
+                updated_evidence.append(edited_map[rid])
+            else:
+                updated_evidence.append(row)
+        
+        st.session_state.data['phase2']['evidence'] = updated_evidence
         
         # CSV Download
         csv = edited_df.to_csv(index=False)
