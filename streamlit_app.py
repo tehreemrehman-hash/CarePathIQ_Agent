@@ -535,6 +535,38 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
     buffer.seek(0)
     return buffer
 
+def render_bottom_navigation():
+    """Renders Previous/Next buttons at the bottom of the page."""
+    st.divider()
+    
+    PHASES = [
+        "Phase 1: Scoping & Charter", 
+        "Phase 2: Rapid Evidence Appraisal", 
+        "Phase 3: Decision Science", 
+        "Phase 4: User Interface Design", 
+        "Phase 5: Operationalize"
+    ]
+    
+    current_label = st.session_state.get('current_phase_label', PHASES[0])
+    try:
+        curr_idx = PHASES.index(current_label)
+    except ValueError:
+        curr_idx = 0
+        
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if curr_idx > 0:
+            if st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key="bottom_prev", use_container_width=True):
+                st.session_state.current_phase_label = PHASES[curr_idx-1]
+                st.rerun()
+                
+    with col3:
+        if curr_idx < len(PHASES) - 1:
+            if st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key="bottom_next", type="primary", use_container_width=True):
+                st.session_state.current_phase_label = PHASES[curr_idx+1]
+                st.rerun()
+
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     """Robust AI caller with JSON cleaner, multi-model fallback, and streaming."""
     if not gemini_api_key: return None
@@ -1131,6 +1163,8 @@ if "Phase 1" in phase:
             type="primary"
         )
 
+    render_bottom_navigation()
+
 # ------------------------------------------
 # PHASE 2: RAPID EVIDENCE APPRAISAL
 # ------------------------------------------
@@ -1317,6 +1351,8 @@ elif "Phase 2" in phase:
         csv = edited_df.to_csv(index=False)
         export_widget(csv, "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
 
+    render_bottom_navigation()
+
 # ------------------------------------------
 # PHASE 3: DECISION SCIENCE
 # ------------------------------------------
@@ -1453,6 +1489,8 @@ elif "Phase 3" in phase:
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
     
     st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
+
+    render_bottom_navigation()
 
 # ------------------------------------------
 # PHASE 4: USER INTERFACE DESIGN
@@ -1749,6 +1787,8 @@ elif "Phase 4" in phase:
             if st.button("Rerun Analysis (After Edits)", type="secondary", use_container_width=True):
                  st.session_state.auto_run["p4_heuristics"] = False
                  st.rerun()
+
+    render_bottom_navigation()
 
 # ------------------------------------------
 # PHASE 5: OPERATIONALIZE
@@ -2072,6 +2112,8 @@ elif "Phase 5" in phase:
         st.markdown("### Executive Summary")
         st.markdown(st.session_state.data['phase5']['exec_summary'])
         export_widget(st.session_state.data['phase5']['exec_summary'], "executive_summary.md", label="Download Summary")
+
+    render_bottom_navigation()
 
 # ==========================================
 # FOOTER
