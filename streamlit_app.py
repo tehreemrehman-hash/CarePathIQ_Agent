@@ -1,479 +1,1756 @@
-
-
-```python
 import streamlit as st
+import streamlit.components.v1 as components
+import google.generativeai as genai
 import pandas as pd
-import requests
-import xml.etree.ElementTree as ET
+import urllib.request
+import urllib.parse
+import json
+import re
+import time
 import base64
-import os
+from io import BytesIO
 import datetime
-import graphviz
+from datetime import date, timedelta
+import os
+import copy
+import xml.etree.ElementTree as ET
+import altair as alt
 
-# =========================================================
-# 0. CONFIGURATION & ASSETS
-# =========================================================
+# --- GRAPHVIZ PATH FIX ---
+# Ensure the system path includes the location of the 'dot' executable
+os.environ["PATH"] += os.pathsep + '/usr/bin'
+
+# --- NEW IMPORTS FOR PHASE 5 ---
+try:
+    from docx import Document
+    from docx.shared import Inches as DocxInches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+except ImportError:
+    st.error("Missing Libraries: Please run `pip install python-docx python-pptx` to use the new Phase 5 features.")
+
+def calculate_granular_progress():
+    """Calculates progress based on completed fields across all phases."""
+    if 'data' not in st.session_state: return 0.0
+    
+    data = st.session_state.data
+    total_points = 0
+    earned_points = 0
+    
+    # Phase 1: 6 points (Inputs)
+    p1 = data.get('phase1', {})
+    for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
+        total_points += 1
+        if p1.get(k): earned_points += 1
+        
+    # Phase 2: 2 points (Query + Evidence)
+    p2 = data.get('phase2', {})
+    total_points += 1
+    if p2.get('mesh_query'): earned_points += 1
+    total_points += 1
+    if p2.get('evidence'): earned_points += 1
+    
+    # Phase 3: 3 points (Pathway Nodes - Weighted)
+    p3 = data.get('phase3', {})
+    total_points += 3
+    if p3.get('nodes'): earned_points += 3
+    
+    # Phase 4: 2 points (Heuristics Analysis)
+    p4 = data.get('phase4', {})
+    total_points += 2
+    if p4.get('heuristics_data'): earned_points += 2
+    
+    # Phase 5: 3 points (Assets Generated)
+    p5 = data.get('phase5', {})
+    for k in ['beta_content', 'slides', 'epic_csv']:
+        total_points += 1
+        if p5.get(k): earned_points += 1
+        
+    if total_points == 0: return 0.0
+    return min(1.0, earned_points / total_points)
+
+# ==========================================
+# 1. CONSTANTS & COPYRIGHT SETUP
+# ==========================================
+COPYRIGHT_HTML = """
+<div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.85em; color: #666;">
+    <p>
+        <a href="https://www.carepathiq.org" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">CarePathIQ</a> 
+        © 2024 by 
+        <a href="https://www.tehreemrehman.com" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">Tehreem Rehman</a> 
+        is licensed under 
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" style="text-decoration:none; color:#4a4a4a;">CC BY-SA 4.0</a>
+    </p>
+</div>
+"""
+
+COPYRIGHT_MD = """
+---
+**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+"""
+
+# Nielsen's Definitions for Tooltips
+HEURISTIC_DEFS = {
+    "H1": "Visibility of system status: The design should always keep users informed about what is going on, through appropriate feedback within a reasonable amount of time.",
+    "H2": "Match between system and real world: The design should speak the users' language. Use words, phrases, and concepts familiar to the user, rather than internal jargon.",
+    "H3": "User control and freedom: Users often perform actions by mistake. They need a clearly marked 'emergency exit' to leave the unwanted action without having to go through an extended process.",
+    "H4": "Consistency and standards: Users should not have to wonder whether different words, situations, or actions mean the same thing. Follow platform and industry conventions.",
+    "H5": "Error prevention: Good error messages are important, but the best designs carefully prevent problems from occurring in the first place.",
+    "H6": "Recognition rather than recall: Minimize the user's memory load by making elements, actions, and options visible. The user should not have to remember information from one part of the interface to another.",
+    "H7": "Flexibility and efficiency of use: Shortcuts — hidden from novice users — may speed up the interaction for the expert user such that the design can cater to both inexperienced and experienced users.",
+    "H8": "Aesthetic and minimalist design: Interfaces should not contain information which is irrelevant or rarely needed. Every extra unit of information in an interface competes with the relevant units of information.",
+    "H9": "Help users recognize, diagnose, and recover from errors: Error messages should be expressed in plain language (no error codes), precisely indicate the problem, and constructively suggest a solution.",
+    "H10": "Help and documentation: It’s best if the system doesn’t need any additional explanation. However, it may be necessary to provide documentation to help users understand how to complete their tasks."
+}
+
+# ==========================================
+# 2. PAGE CONFIGURATION & STYLING
+# ==========================================
 st.set_page_config(
-    page_title="CarePathIQ - Clinical Pathway Designer",
-    layout="centered", 
+    page_title="CarePathIQ AI Agent",
+    layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for White Expanders & Clean Look
+# --- CUSTOM CSS: GLOBAL DARK BROWN THEME ---
 st.markdown("""
 <style>
-.streamlit-expanderHeader { background-color: white !important; color: black !important; }
-.streamlit-expanderContent { background-color: white !important; border: 1px solid #ddd; }
-div[data-testid="stExpander"] { background-color: white !important; border-radius: 5px; }
+    /* 1. ALL STANDARD BUTTONS (Primary & Secondary) -> Dark Brown (#5D4037) */
+    div.stButton > button, 
+    div[data-testid="stButton"] > button,
+    button[kind="primary"],
+    button[kind="secondary"] {
+        background-color: #5D4037 !important; 
+        color: white !important;
+        border: 1px solid #5D4037 !important;
+        border-radius: 5px !important;
+    }
+    div.stButton > button:hover, 
+    div[data-testid="stButton"] > button:hover,
+    button[kind="primary"]:hover,
+    button[kind="secondary"]:hover {
+        background-color: #3E2723 !important; 
+        border-color: #3E2723 !important;
+        color: white !important;
+    }
+    div.stButton > button:active, 
+    div[data-testid="stButton"] > button:active,
+    button[kind="primary"]:active,
+    button[kind="secondary"]:active {
+        background-color: #3E2723 !important; 
+        border-color: #3E2723 !important;
+        color: white !important;
+    }
+    
+    /* DISABLE BUTTONS (Standard Streamlit Disable Grey) */
+    div.stButton > button:disabled {
+        background-color: #eee !important;
+        color: #999 !important;
+        border: 1px solid #ccc !important;
+    }
+
+    /* 1b. DOWNLOAD BUTTONS -> Dark Brown (#5D4037) */
+    div.stDownloadButton > button {
+        background-color: #5D4037 !important; 
+        color: white !important;
+        border: none !important;
+        border-radius: 5px !important;
+    }
+
+    /* TOOLTIP STYLING */
+    div[data-testid="stTooltipContent"] {
+        background-color: white !important;
+        color: black !important;
+        border: 1px solid #ccc !important;
+        font-family: 'Arial', sans-serif !important;
+    }
+    div.stDownloadButton > button:hover {
+        background-color: #3E2723 !important; 
+        color: white !important;
+    }
+    div.stDownloadButton > button:active {
+        background-color: #3E2723 !important; 
+        color: white !important;
+    }
+
+    /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
+    a[kind="secondary"] {
+        background-color: #5D4037 !important; 
+        border-color: #5D4037 !important;
+        color: white !important;
+    }
+    a[kind="secondary"]:hover {
+        background-color: #3E2723 !important; 
+        border-color: #3E2723 !important;
+    }
+
+    /* 1e. SIDEBAR BUTTONS (Previous/Next) -> Mint Green (#A9EED1) */
+    section[data-testid="stSidebar"] div.stButton > button {
+        background-color: #A9EED1 !important; 
+        color: #5D4037 !important; /* Dark Brown text */
+        border: none !important;
+    }
+    section[data-testid="stSidebar"] div.stButton > button:hover {
+        background-color: #8FD9BC !important; 
+        color: #3E2723 !important;
+    }
+    
+    /* 2. RADIO BUTTONS (The Little Circles) */
+    /* Unchecked: White background, Brown border */
+    div[role="radiogroup"] label > div:first-child {
+        background-color: white !important; 
+        border-color: #5D4037 !important;
+    }
+    
+    /* Checked: Brown background, Brown border */
+    div[role="radiogroup"] label[data-checked="true"] > div:first-child {
+        background-color: #5D4037 !important; 
+        border-color: #5D4037 !important;
+    }
+    
+    /* Checked: Inner dot - make it white for contrast */
+    div[role="radiogroup"] label[data-checked="true"] > div:first-child > div {
+        background-color: white !important;
+    }
+
+    /* 2b. SPINNER (Loading Circle) -> Dark Brown */
+    .stSpinner > div {
+        border-top-color: #5D4037 !important;
+    }
+    
+    /* 2c. COLLAPSIBLE BUTTONS (Expanders) -> Dark Brown Background, White Text */
+    div[data-testid="stExpander"] details summary {
+        background-color: #5D4037 !important;
+        color: white !important;
+        border-radius: 5px;
+        margin-bottom: 5px;
+    }
+    div[data-testid="stExpander"] details summary:hover {
+        color: #A9EED1 !important;
+    }
+    div[data-testid="stExpander"] details summary svg {
+        color: white !important;
+    }
+
+    /* 3. TOOLTIPS HOVER STYLE */
+    .heuristic-title {
+        cursor: help;
+        font-weight: bold;
+        color: #00695C; /* Keeping Teal for Text Contrast */
+        text-decoration: underline dotted;
+        font-size: 1.05em;
+    }
+
+    /* Headers */
+    h1, h2, h3 { color: #00695C; }
+
+    /* Tooltip Background - Force White */
+    div[data-testid="stTooltipContent"] {
+        background-color: white !important; 
+        color: #333 !important;
+        border: 1px solid #ddd !important;
+    }
+
+    /* Hide the anchor link icons on hover for headers */
+    [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+    .st-emotion-cache-1629p8f a, h1 a, h2 a, h3 a { display: none !important; pointer-events: none; color: transparent !important; }
 </style>
 """, unsafe_allow_html=True)
 
-def get_image_base64(image_file):
-    if not os.path.exists(image_file): return ""
-    with open(image_file, "rb") as f: data = f.read()
-    return base64.b64encode(data).decode()
-
-# ✅ LOGO SETUP
-logo_filename = "CarePathIQ_Logo.png" 
-logo_b64 = get_image_base64(logo_filename)
-
-# Standardized Footer Tag for HTML Deliverables
-logo_html_tag = f"""
-<div style="text-align: right; margin-top: 30px; border-top: 1px solid #eee; padding-top: 15px;">
-    <img src="data:image/png;base64,{logo_b64}" alt="CarePathIQ" style="height: 45px;">
-    <br><span style="font-family: sans-serif; font-size: 0.8em; color: #777;">Powered by CarePathIQ</span>
-</div>
-""" if logo_b64 else "<div style='text-align:right; margin-top:20px;'><strong>CarePathIQ</strong></div>"
-
-# =========================================================
-# 1. PATHWAY GENERATION (Swimlanes, PMIDs, End Nodes)
-# =========================================================
-def search_pubmed(condition, setting):
-    # Query: Keywords only (No Quotes)
-    query = f"Guidelines Managing Patients {condition} {setting}"
-    current_year = datetime.date.today().year
-    start_year = current_year - 5
-    
-    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    params = {
-        "db": "pubmed", "term": query, "retmax": 20, "sort": "relevance", "retmode": "json",
-        "mindate": f"{start_year}/01/01", "maxdate": f"{current_year}/12/31", "datetype": "pdat"
-    }
+# --- SIDEBAR: CONFIG ---
+with st.sidebar:
+    # Clickable Logo (Custom HTML for larger size)
     try:
-        response = requests.get(base_url, params=params)
-        return response.json().get("esearchresult", {}).get("idlist", [])
-    except: return []
-
-def fetch_details(id_list):
-    if not id_list: return []
-    ids = ",".join(id_list)
-    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+        with open("CarePathIQ_Logo.png", "rb") as f:
+            logo_data = base64.b64encode(f.read()).decode()
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin-bottom: 10px;">
+                <a href="https://carepathiq.org/" target="_blank">
+                    <img src="data:image/png;base64,{logo_data}" width="220" style="max-width: 100%;">
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        st.warning("Logo not found.")
+    
+    st.title("AI Agent")
+    st.divider()
+    
+    # Try to load from secrets, otherwise empty
+    default_key = ""
     try:
-        response = requests.get(base_url, params={"db": "pubmed", "id": ids, "retmode": "xml"})
-        root = ET.fromstring(response.content)
-        articles = []
-        for article in root.findall(".//PubmedArticle"):
-            title = article.find(".//ArticleTitle").text
-            pmid = article.find(".//PMID").text 
-            
-            # Mock Grading
-            if "Systematic Review" in title: grade = "High (A)"
-            elif "Guideline" in title: grade = "High (A)"
-            elif "Randomized" in title: grade = "Moderate (B)"
-            else: grade = "Low (C)"
-            
-            articles.append({"Grade": grade, "PMID": pmid, "Title": title})
-        return articles
-    except: return []
+        if "GEMINI_API_KEY" in st.secrets:
+            default_key = st.secrets["GEMINI_API_KEY"]
+    except FileNotFoundError:
+        pass
 
-def render_pathway_generator():
-    st.header("1. Evidence & Pathway Generation")
+    gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Paste your key from Google AI Studio")
     
-    col1, col2 = st.columns(2)
-    with col1: condition = st.text_input("Condition:", "Asymptomatic Hypertension")
-    with col2: setting = st.text_input("Setting:", "Emergency Department")
+    # Default to Auto for best performance
+    model_options = ["Auto", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-tts", "gemini-robotics-er-1.5-preview"]
+    model_choice = st.selectbox("AI Agent Model", model_options, index=0)
     
-    if st.button("🔍 Generate Pathway", use_container_width=True):
-        st.info(f"Searching: 'Guidelines Managing Patients {condition} {setting}' (Last 5 Years)...")
+    if gemini_api_key:
+        gemini_api_key = gemini_api_key.strip() # Remove any leading/trailing whitespace
+        genai.configure(api_key=gemini_api_key)
+        # Show last 4 chars for verification
+        key_suffix = gemini_api_key[-4:] if len(gemini_api_key) > 4 else "****"
+        st.success(f"Connected: {model_choice} (Key: ...{key_suffix})")
         
-        # --- Phase 2: Evidence (With PMIDs) ---
-        ids = search_pubmed(condition, setting)
-        articles = fetch_details(ids)
+    st.divider()
+    
+    # --- NAVIGATION & PROGRESS ---
+    PHASES = [
+        "Phase 1: Scoping & Charter", 
+        "Phase 2: Rapid Evidence Appraisal", 
+        "Phase 3: Decision Science", 
+        "Phase 4: User Interface Design", 
+        "Phase 5: Operationalize"
+    ]
+    
+    # Determine current index
+    current_label = st.session_state.get('current_phase_label', PHASES[0])
+    try:
+        curr_idx = PHASES.index(current_label)
+    except ValueError:
+        curr_idx = 0
         
-        if articles:
-            df = pd.DataFrame(articles)
-            grade_order = ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)"]
-            df['Grade'] = pd.Categorical(df['Grade'], categories=grade_order, ordered=True)
-            df = df.sort_values('Grade')
+    # Previous Button (Dark Brown)
+    if curr_idx > 0:
+        if st.button(f"Previous: {PHASES[curr_idx-1].split(':')[0]}", type="primary", use_container_width=True):
+            st.session_state.current_phase_label = PHASES[curr_idx-1]
+            st.rerun()
             
-            st.subheader("Phase 2: Supporting Evidence")
-            # ✅ Displaying PMID Column
-            st.dataframe(df[['Grade', 'PMID', 'Title']], use_container_width=True, hide_index=True)
-        else:
-            st.warning("No recent guidelines found.")
-
-        st.divider()
-
-        # --- Phase 3: Algorithm (Swimlanes + End Nodes) ---
-        st.subheader("Phase 3: Clinical Algorithm")
-        
-        pathway_prompt = f"""
-        ACT AS: Clinical Informatics Architect.
-        TASK: Create a clinical pathway for '{condition}' in '{setting}'.
-        OUTPUT: Valid Graphviz DOT syntax.
-        
-        VISUAL RULES:
-        1. END NODES (Discharge/Admit): Shape=oval, Fillcolor="#D5F5E3" (Green).
-        2. PROCESS: Shape=box, Fillcolor="#FCF3CF" (Yellow).
-        3. DECISION: Shape=diamond, Fillcolor="#FADBD8" (Red).
-        4. NOTES: Shape=parallelogram, Fillcolor="#AED6F1" (Blue), style=dashed.
-        5. SWIMLANES: Use subgraphs (cluster_0, cluster_1, cluster_2).
-        """
-        
-        with st.expander("View AI Prompt"):
-            st.code(pathway_prompt, language="markdown")
-
-        # Simulated DOT with Swimlanes & Correct Colors
-        dot_code = """
-        digraph G {
-            rankdir=TB; splines=ortho; nodesep=0.6;
-            node [fontname="Arial", fontsize=10, style="filled,rounded", penwidth=0, margin=0.2];
-            edge [fontname="Arial", fontsize=9, color="#5D6D7E", penwidth=1.2];
-
-            # Swimlane 1
-            subgraph cluster_0 {
-                label = "Assessment";
-                style = filled; color = "#F4F6F6";
-                Start [label="1. Triage\nBP > 160/100", shape=oval, fillcolor="#D5F5E3"];
-                Dec_Symp [label="2. Symptomatic\nor End-Organ Damage?", shape=diamond, fillcolor="#FADBD8"];
-            }
-
-            # Swimlane 2
-            subgraph cluster_1 {
-                label = "Management";
-                style = filled; color = "#F4F6F6";
-                Act_Emerg [label="3. Treat as Emergency\nICU Admit", shape=box, fillcolor="#FCF3CF"];
-                Act_Obs [label="4. Observation\nRecheck 30min", shape=box, fillcolor="#FCF3CF"];
-                Note_Meds [label="Note: Check Formulary", shape=parallelogram, fillcolor="#AED6F1"];
-            }
-            
-            # Swimlane 3
-            subgraph cluster_2 {
-                label = "Disposition";
-                style = filled; color = "#F4F6F6";
-                End_Admit [label="5. Admit to ICU", shape=oval, fillcolor="#D5F5E3"];
-                End_Disch [label="6. Discharge Home", shape=oval, fillcolor="#D5F5E3"];
-            }
-
-            # Edges
-            Start -> Dec_Symp;
-            Dec_Symp -> Act_Emerg [label="Yes"];
-            Dec_Symp -> Act_Obs [label="No"];
-            Act_Emerg -> End_Admit;
-            Act_Obs -> End_Disch [label="Improved"];
-            Act_Emerg -> Note_Meds [style=dashed, arrowhead=none, color="#AED6F1"];
-        }
-        """
-        
-        try:
-            graph = graphviz.Source(dot_code)
-            st.graphviz_chart(graph, use_container_width=True)
-            png_bytes = graph.pipe(format='png')
-            st.download_button("📥 Download High-Res Flowchart", png_bytes, "Pathway.png", "image/png")
-        except: st.error("Graphviz Error")
-
-# =========================================================
-# 2. HEURISTIC EVALUATION (Radio Buttons)
-# =========================================================
-def render_heuristic_dashboard():
-    st.header("2. Heuristic Evaluation Dashboard")
+    # --- CURRENT PHASE STATUS BOX (Dark Brown) ---
+    st.markdown(f"""
+    <div style="
+        background-color: #5D4037; 
+        color: white; 
+        padding: 10px; 
+        border-radius: 5px; 
+        text-align: center;
+        font-weight: bold;
+        font-size: 0.9em;
+        margin-top: 15px;
+        margin-bottom: 15px;">
+        Current Phase: <br>
+        <span style="font-size: 1.1em;">{current_label}</span>
+    </div>
+    """, unsafe_allow_html=True)
     
-    if 'heuristic_evaluations' not in st.session_state:
-        st.session_state['heuristic_evaluations'] = {}
-
-    heuristics = {
-        "H1: Visibility of system status": "Keep users informed.",
-        "H2: Match between system and real world": "Speak users' language.",
-        "H3: User control and freedom": "Emergency exits.",
-        "H4: Consistency and standards": "Follow conventions.",
-        "H5: Error prevention": "Prevent problems first.",
-        "H6: Recognition rather than recall": "Minimize memory load.",
-        "H7: Flexibility and efficiency": "Accelerators for experts.",
-        "H8: Aesthetic and minimalist": "No irrelevant info.",
-        "H9: Help users recover": "Plain error messages.",
-        "H10: Help and documentation": "Easy to search."
-    }
-
-    # Radio Button Selection
-    selected_h = st.radio("Select Heuristic:", list(heuristics.keys()))
-    st.info(f"**Description:** {heuristics[selected_h]}")
-
-    existing = st.session_state['heuristic_evaluations'].get(selected_h, {})
-    
-    with st.form("eval_form"):
-        severity = st.radio("Severity:", [0, 1, 2, 3, 4], 
-                           format_func=lambda x: f"{x} - {['None','Cosmetic','Minor','Major','Catastrophe'][x]}",
-                           index=existing.get('severity', 0), horizontal=True)
-        obs = st.text_area("Observations:", value=existing.get('observation', ""))
-        
-        if st.form_submit_button("Save Evaluation"):
-            st.session_state['heuristic_evaluations'][selected_h] = {'observation': obs, 'severity': severity}
-            st.success("Saved!")
+    # Next Button (Dark Brown)
+    if curr_idx < len(PHASES) - 1:
+        if st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]}", type="primary", use_container_width=True):
+            st.session_state.current_phase_label = PHASES[curr_idx+1]
             st.rerun()
 
-    if st.session_state['heuristic_evaluations']:
-        st.divider()
-        st.subheader("Summary")
-        data = [{"Heuristic": k, "Severity": v['severity'], "Obs": v['observation']} 
-                for k, v in st.session_state['heuristic_evaluations'].items()]
-        st.dataframe(pd.DataFrame(data), use_container_width=True)
+    # Progress Bar (Granular)
+    progress = calculate_granular_progress()
+    st.caption(f"Overall Completion: {int(progress*100)}%")
+    st.progress(progress)
 
-# =========================================================
-# 3. BETA TESTING (Restored Full HTML + Logo)
-# =========================================================
-def render_beta_testing():
-    st.header("3. Beta Testing Resources")
+# --- SESSION STATE INITIALIZATION ---
+if "data" not in st.session_state:
+    st.session_state.data = {
+        "phase1": {"condition": "", "inclusion": "", "exclusion": "", "setting": "", "problem": "", "objectives": ""},
+        "phase2": {"evidence": [], "pico_p": "", "pico_i": "", "pico_c": "", "pico_o": "", "mesh_query": ""},
+        "phase3": {"nodes": []},
+        "phase4": {"heuristics_data": {}}, 
+        "phase5": {"beta_email": "", "beta_content": "", "slides": "", "epic_csv": ""} 
+    }
+
+if "suggestions" not in st.session_state:
+    st.session_state.suggestions = {}
+
+if "current_phase_label" not in st.session_state:
+    st.session_state.current_phase_label = "Phase 1: Scoping & Charter"
     
-    # Sophisticated HTML Protocol
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333; line-height: 1.6; padding: 20px; }}
-            .container {{ max-width: 800px; margin: 0 auto; padding: 30px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9; }}
-            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-            h2 {{ color: #2980b9; margin-top: 30px; }}
-            .box {{ background: #fff; padding: 15px; border-left: 5px solid #3498db; margin: 15px 0; }}
-            .warning {{ background: #fff; padding: 15px; border-left: 5px solid #e74c3c; margin: 15px 0; color: #c0392b; font-weight: bold; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
-            th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
-            th {{ background-color: #2c3e50; color: white; }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>CarePathIQ: Beta Testing Protocol</h1>
-            <p><strong>Status:</strong> Draft | <strong>Target:</strong> {st.session_state.get('setting_input', 'ED')}</p>
+# Flags to control "Auto-Run" logic once per phase update
+if "auto_run" not in st.session_state:
+    st.session_state.auto_run = {
+        "p2_pico": False,
+        "p2_query": False,
+        "p2_grade": False,
+        "p3_logic": False,
+        "p4_heuristics": False,
+        "p5_all": False
+    }
 
-            <h2>1. Objectives</h2>
-            <div class="box">
-                We are testing the system's ability to generate accurate clinical decision support.
-                <br><strong>Primary Metric:</strong> Time to identifying the correct exclusion criteria.
-            </div>
+# ==========================================
+# 3. HELPER FUNCTIONS
+# ==========================================
+def styled_info(text):
+    """Custom info box with Pink background and Black text."""
+    # Convert markdown bold to HTML bold for correct rendering inside div
+    formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    st.markdown(f"""
+    <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
+        {formatted_text}
+    </div>
+    """, unsafe_allow_html=True)
 
-            <h2>2. Test Scenarios</h2>
-            <h3>Scenario A: {st.session_state.get('condition_input', 'Hypertension')}</h3>
-            <table>
-                <tr><th>Step</th><th>Success Criteria</th></tr>
-                <tr><td>1. Login & Navigation</td><td>Finds "Create New" < 10s.</td></tr>
-                <tr><td>2. Input Criteria</td><td>Correctly inputs exclusion criteria.</td></tr>
-                <tr><td>3. Verification</td><td>Identifies hallucinated drug dosages (Safety Check).</td></tr>
-            </table>
+def create_pdf_view_link(html_content, label="Open Charter in New Window"):
+    """Generates a link to open HTML in new tab, simulating PDF."""
+    b64 = base64.b64encode(html_content.encode()).decode()
+    return f'<a href="data:text/html;base64,{b64}" target="_blank" style="text-decoration:none; color:white; background-color:#5D4037; padding:10px 20px; border-radius:5px; font-weight:bold; display:inline-block;">{label}</a>'
 
-            <div class="warning">
-                CRITICAL SAFETY CHECK: Ensure user verifies all medication dosages against the hospital formulary.
-            </div>
+def export_widget(content, filename, mime_type="text/plain", label="Download"):
+    """Universal download widget with copyright."""
+    final_content = content
+    if "text" in mime_type or "csv" in mime_type:
+        if isinstance(content, str):
+            final_content = content + "\n\n" + COPYRIGHT_MD
+    st.download_button(f"{label}", final_content, filename, mime_type)
 
-            {logo_html_tag}
-        </div>
-    </body>
-    </html>
-    """
+def create_word_docx(content_text):
+    """Generates a Word Document from text content."""
+    try:
+        doc = Document()
+    except NameError:
+        return None # Library not loaded
+
+    doc.add_heading('Clinical Pathway: Beta Testing Guide', 0)
     
-    st.components.v1.html(html_content, height=600, scrolling=True)
-    st.download_button("Download Protocol (HTML)", html_content, "Beta_Protocol.html", "text/html")
-
-# =========================================================
-# 4. EDUCATION MODULE (Restored Interactive LMS & Art Director)
-# =========================================================
-def generate_slide_deck_prompt(topic, audience, points):
-    # ✅ RESTORED: The sophisticated "Art Director" prompt
-    return f"""
-    ACT AS: Senior Medical Education Designer and Visual Communication Expert.
-    TASK: Create a 5-slide presentation outline for a new clinical pathway: "{topic}".
-    TARGET AUDIENCE: {audience}.
-    
-    OUTPUT FORMAT: 
-    For each slide, provide:
-    1. SLIDE TITLE: Catchy and informative.
-    2. VISUAL LAYOUT: Describe the visual composition (e.g., "Split screen: Old workflow vs. New workflow").
-    3. BULLET POINTS: Max 3-4 high-impact lines per slide.
-    4. SPEAKER NOTES: Script for the presenter explaining the "Why".
-    5. ENGAGEMENT HOOK: A question or poll to ask the audience.
-
-    DESIGN STYLE: Minimalist, clean, high-contrast text.
-    """
-
-def get_interactive_education_html(title, content, logo_tag):
-    date_str = datetime.date.today().strftime("%B %d, %Y")
-    # ✅ RESTORED: The Interactive LMS with Tabs, Quiz, and Certificate
-    return f"""
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <style>
-            :root {{ --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --bg: #f4f7f6; }}
-            body {{ font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; color: #333; background: var(--bg); margin: 0; display: flex; flex-direction: column; min-height: 100vh; }}
-            
-            header {{ background: var(--primary); color: white; padding: 2rem 0; text-align: center; }}
-            .container {{ max-width: 800px; margin: -30px auto 40px; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; padding-bottom: 20px; flex: 1; }}
-            
-            .tabs {{ display: flex; border-bottom: 1px solid #ddd; background: #f9f9f9; }}
-            .tab-btn {{ flex: 1; padding: 15px; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #666; transition: 0.3s; }}
-            .tab-btn:hover {{ background: #eee; }}
-            .tab-btn.active {{ background: white; border-top: 3px solid var(--accent); color: var(--accent); }}
-            
-            .content-pane {{ display: none; padding: 30px; }}
-            .content-pane.active {{ display: block; }}
-            
-            .quiz-question {{ background: #f0f8ff; padding: 15px; border-left: 4px solid var(--accent); margin-bottom: 20px; border-radius: 4px; }}
-            .feedback {{ display: none; padding: 10px; margin-top: 10px; border-radius: 4px; font-weight: bold; }}
-            .correct {{ background: #d4edda; color: #155724; display: block; }}
-            .incorrect {{ background: #f8d7da; color: #721c24; display: block; }}
-            
-            /* Certificate Styles - Hidden until Print/Unlock */
-            #certificate-view {{ display: none; text-align: center; padding: 50px; border: 10px solid var(--primary); background: white; position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1000; }}
-            
-            /* Print Styles */
-            @media print {{
-                body * {{ visibility: hidden; }}
-                #certificate-view, #certificate-view * {{ visibility: visible; }}
-                #certificate-view {{ position: absolute; left: 0; top: 0; width: 100%; border: 5px solid #333; }}
-                .no-print {{ display: none !important; }}
-            }}
-            .footer {{ margin-top: auto; padding: 20px; text-align: right; border-top: 1px solid #ddd; }}
-        </style>
-    </head>
-    <body>
-
-    <header class="no-print">
-        <h1>🎓 {title}</h1>
-        <p>Interactive Staff Education Module</p>
-    </header>
-
-    <div class="container no-print" id="main-container">
-        <div class="tabs">
-            <button class="tab-btn active" onclick="openTab(event, 'Protocol')">1. The Protocol</button>
-            <button class="tab-btn" onclick="openTab(event, 'Quiz')">2. Knowledge Check</button>
-        </div>
-
-        <div id="Protocol" class="content-pane active">
-            <h2>Clinical Objectives</h2>
-            <p>{content}</p>
-            <h3>Exclusion Criteria</h3>
-            <ul><li>Signs of end-organ damage</li><li>Recent dosage change</li></ul>
-        </div>
-
-        <div id="Quiz" class="content-pane">
-            <h2>Verify Your Understanding</h2>
-            <div class="quiz-question" id="q1">
-                <p><strong>Q1: A patient presents with BP 190/100 and no symptoms. What is the primary goal?</strong></p>
-                <button onclick="checkAnswer('correct', 'fb1')">Confirm absence of end-organ damage</button>
-                <button onclick="checkAnswer('wrong', 'fb1')">Immediately lower BP</button>
-                <div id="fb1" class="feedback"></div>
-            </div>
-
-            <div id="cert-unlock" style="display:none; margin-top:30px; background:#e8f6f3; padding:20px; border-radius:8px;">
-                <h3>🎉 Module Complete!</h3>
-                <p>Enter your full name to generate your certificate.</p>
-                <input type="text" id="cert-name-input" placeholder="Dr. Jane Doe" style="padding:8px; width:60%;">
-                <button onclick="generateCertificate()" style="padding:8px 16px; background:var(--success); color:white; border:none; cursor:pointer;">Generate Certificate</button>
-            </div>
-        </div>
+    # Simple markdown-to-docx parser
+    for line in content_text.split('\n'):
+        line = line.strip()
+        # Remove Markdown symbols to preserve clean formatting
+        line = line.replace('*', '').replace('#', '').strip()
         
-        <div class="footer">{logo_tag}</div>
-    </div>
-
-    <div id="certificate-view">
-        <h1 style="color: var(--primary);">Certificate of Completion</h1>
-        <p>This certifies that</p>
-        <h2 id="cert-name-display" style="font-family: 'Georgia', serif; font-size: 3em; margin: 20px 0; color: var(--accent);"></h2>
-        <p>has successfully completed the education module for:</p>
-        <h3>{title}</h3>
-        <p>Date: <strong>{date_str}</strong></p>
-        <div style="margin-top: 50px;">{logo_tag}</div>
-    </div>
-
-    <script>
-        function openTab(evt, tabName) {{
-            var i, x, tablinks;
-            x = document.getElementsByClassName("content-pane");
-            for (i = 0; i < x.length; i++) {{ x[i].className = "content-pane"; }}
-            tablinks = document.getElementsByClassName("tab-btn");
-            for (i = 0; i < tablinks.length; i++) {{ tablinks[i].className = tablinks[i].className.replace(" active", ""); }}
-            document.getElementById(tabName).className += " active";
-            evt.currentTarget.className += " active";
-        }}
-
-        function checkAnswer(val, fbId) {{
-            var fb = document.getElementById(fbId);
-            if(val === "correct") {{
-                fb.innerHTML = "✅ Correct!"; fb.className = "feedback correct";
-                document.getElementById("cert-unlock").style.display = "block";
-            }} else {{
-                fb.innerHTML = "❌ Incorrect. Review the Protocol."; fb.className = "feedback incorrect";
-            }}
-        }}
-
-        function generateCertificate() {{
-            var name = document.getElementById("cert-name-input").value;
-            if(name.trim() === "") {{ alert("Please enter your name."); return; }}
-            document.getElementById("cert-name-display").innerText = name;
-            document.getElementById("main-container").style.display = "none";
-            document.querySelector("header").style.display = "none";
-            document.getElementById("certificate-view").style.display = "block";
-            window.print();
-        }}
-    </script>
-    </body>
-    </html>
-    """
-
-def render_education_module():
-    st.header("4. Education Module")
-    mode = st.radio("Tool Selection", ["Slide Deck Prompter", "Interactive HTML Module"], horizontal=True)
-    
-    topic = st.session_state.get('condition_input', 'Asymptomatic Hypertension')
-    points = st.text_area("Key Clinical Points", "Focus on ruling out end-organ damage. Do not treat asymptomatic numbers acutely.")
-    
-    if mode == "Slide Deck Prompter":
-        if st.button("Generate Slide Outline"):
-            prompt = generate_slide_deck_prompt(topic, "Resident Physicians", points)
-            st.code(prompt, language="markdown")
+        if not line: continue
+        
+        doc.add_paragraph(line)
             
-    elif mode == "Interactive HTML Module":
-        if st.button("Generate Interactive Module"):
-            html_content = get_interactive_education_html(topic, points, logo_html_tag)
-            st.components.v1.html(html_content, height=600, scrolling=True)
-            st.download_button(
-                label="Download HTML Module",
-                data=html_content,
-                file_name="Education_Module.html",
-                mime="text/html"
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def create_ppt_presentation(slides_data, flowchart_img=None):
+    """Generates a Professional PowerPoint with branding."""
+    try:
+        prs = Presentation()
+        # Brand Colors
+        BROWN = RGBColor(93, 64, 55)   # #5D4037
+        TEAL = RGBColor(0, 105, 92)    # #00695C
+        GREY = RGBColor(80, 80, 80)
+        WHITE = RGBColor(255, 255, 255)
+        LIGHT_BG = RGBColor(245, 245, 245)
+    except NameError:
+        return None
+    
+    # Helper: Add Footer
+    def add_footer(slide, text_color=GREY):
+        left = Inches(0.5)
+        top = Inches(7.1)
+        width = Inches(9)
+        height = Inches(0.3)
+        
+        txBox = slide.shapes.add_textbox(left, top, width, height)
+        tf = txBox.text_frame
+        p = tf.paragraphs[0]
+        p.text = "CarePathIQ © 2024 | Confidential Internal Document"
+        p.font.size = Pt(9)
+        p.font.color.rgb = text_color
+        p.font.name = 'Arial'
+        p.alignment = PP_ALIGN.CENTER
+
+    # 1. Title Slide (Custom Layout)
+    slide = prs.slides.add_slide(prs.slide_layouts[6]) # Blank Layout
+    
+    # Background Color (Dark Brown)
+    background = slide.background
+    fill = background.fill
+    fill.solid()
+    fill.fore_color.rgb = BROWN
+    
+    # Title Text
+    title_box = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(2))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = slides_data.get('title', 'Clinical Pathway Launch')
+    p.font.size = Pt(44)
+    p.font.color.rgb = WHITE
+    p.font.bold = True
+    p.font.name = 'Arial'
+    p.alignment = PP_ALIGN.CENTER
+    
+    # Subtitle Text
+    sub_box = slide.shapes.add_textbox(Inches(1), Inches(4.5), Inches(8), Inches(1))
+    tf_sub = sub_box.text_frame
+    p_sub = tf_sub.paragraphs[0]
+    p_sub.text = f"Target Audience: {slides_data.get('audience', 'General')}\nGenerated by CarePathIQ AI Agent"
+    p_sub.font.size = Pt(18)
+    p_sub.font.color.rgb = RGBColor(220, 220, 220) # Off-white
+    p_sub.font.name = 'Arial'
+    p_sub.alignment = PP_ALIGN.CENTER
+    
+    add_footer(slide, text_color=RGBColor(200, 200, 200))
+
+    # 2. Content Slides
+    for slide_info in slides_data.get('slides', []):
+        slide = prs.slides.add_slide(prs.slide_layouts[6]) # Blank Layout
+        
+        # Header Strip
+        shape = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(1.2)) # MSO_SHAPE.RECTANGLE = 1
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = BROWN
+        shape.line.fill.background() # No border
+        
+        # Slide Title
+        title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
+        tf = title_box.text_frame
+        p = tf.paragraphs[0]
+        p.text = slide_info.get('title', 'Untitled')
+        p.font.size = Pt(32)
+        p.font.color.rgb = WHITE
+        p.font.bold = True
+        p.font.name = 'Arial'
+        
+        # Content Area
+        is_flowchart = "Format" in slide_info.get('title', '') and flowchart_img
+        
+        if is_flowchart:
+            if flowchart_img:
+                try:
+                    flowchart_img.seek(0)
+                    # Add Image
+                    pic = slide.shapes.add_picture(flowchart_img, Inches(0.5), Inches(1.5), width=Inches(9))
+                    
+                    # Adjust height if too tall, keeping aspect ratio
+                    if pic.height > Inches(5.5):
+                        ratio = pic.width / pic.height
+                        pic.height = Inches(5.5)
+                        pic.width = Inches(5.5 * ratio)
+                        # Center horizontally
+                        pic.left = Inches((10 - (5.5 * ratio)) / 2)
+                        
+                except Exception as e:
+                    print(f"Image Error: {e}")
+        else:
+            # Text Content
+            content_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.5))
+            tf = content_box.text_frame
+            tf.word_wrap = True
+            
+            content_text = str(slide_info.get('content', ''))
+            lines = content_text.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line: continue
+                
+                # STRIP MARKDOWN ARTIFACTS
+                clean_line = line.replace('**', '').replace('##', '').replace('__', '').replace('`', '')
+                
+                p = tf.add_paragraph()
+                p.text = clean_line
+                p.font.name = 'Arial'
+                p.font.size = Pt(18)
+                p.font.color.rgb = GREY
+                p.space_after = Pt(10)
+                
+                # Simple Bullet Detection
+                if clean_line.startswith('- ') or clean_line.startswith('* '):
+                    p.text = clean_line[2:]
+                    p.level = 1
+                elif clean_line[0].isdigit() and clean_line[1] == '.':
+                    p.level = 0 # Numbered lists handled as top level for now
+                else:
+                    p.level = 0
+
+        add_footer(slide)
+
+    buffer = BytesIO()
+    prs.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def render_bottom_navigation():
+    """Renders Previous/Next buttons at the bottom of the page."""
+    st.divider()
+    
+    PHASES = [
+        "Phase 1: Scoping & Charter", 
+        "Phase 2: Rapid Evidence Appraisal", 
+        "Phase 3: Decision Science", 
+        "Phase 4: User Interface Design", 
+        "Phase 5: Operationalize"
+    ]
+    
+    current_label = st.session_state.get('current_phase_label', PHASES[0])
+    try:
+        curr_idx = PHASES.index(current_label)
+    except ValueError:
+        curr_idx = 0
+        
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    # Callback to update phase safely
+    def set_phase(new_phase):
+        st.session_state.target_phase = new_phase
+
+    with col1:
+        if curr_idx > 0:
+            st.button(
+                f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", 
+                key=f"bottom_prev_{curr_idx}", 
+                use_container_width=True,
+                on_click=set_phase,
+                args=(PHASES[curr_idx-1],)
+            )
+                
+    with col3:
+        if curr_idx < len(PHASES) - 1:
+            st.button(
+                f"Next: {PHASES[curr_idx+1].split(':')[0]} →", 
+                key=f"bottom_next_{curr_idx}", 
+                type="primary", 
+                use_container_width=True,
+                on_click=set_phase,
+                args=(PHASES[curr_idx+1],)
             )
 
-# =========================================================
-# MAIN APP
-# =========================================================
-def main():
-    with st.sidebar:
-        if logo_b64: st.image(f"data:image/png;base64,{logo_b64}", use_column_width=True)
-        else: st.title("CarePathIQ")
-        st.markdown("---")
-        menu = st.radio("Navigation", ["Pathway Generation", "Heuristic Analysis", "Beta Testing Guide", "Education Module"])
-        st.markdown("---")
-        with st.expander("Give Feedback"):
-            with st.form("fb"):
-                st.text_area("Comments:")
-                if st.form_submit_button("Submit"): st.success("Sent!")
+def get_gemini_response(prompt, json_mode=False, stream_container=None):
+    """Robust AI caller with JSON cleaner, multi-model fallback, and streaming."""
+    if not gemini_api_key: return None
+    
+    # Define fallback hierarchy
+    if model_choice == "Auto":
+        candidates = [
+            "gemini-2.5-flash", 
+            "gemini-2.5-flash-lite",
+            "gemini-1.5-flash", 
+            "gemini-robotics-er-1.5-preview",
+            "gemini-2.5-flash-tts"
+        ]
+    else:
+        candidates = [
+            model_choice,
+            "gemini-2.5-flash",
+            "gemini-1.5-flash",
+            "gemini-2.5-flash-lite"
+        ]
+    
+    # Deduplicate preserving order
+    candidates = list(dict.fromkeys(candidates))
+    
+    response = None
+    last_error = None
 
-    if menu == "Pathway Generation": render_pathway_generator()
-    elif menu == "Heuristic Analysis": render_heuristic_dashboard()
-    elif menu == "Beta Testing Guide": render_beta_testing()
-    elif menu == "Education Module": render_education_module()
+    for i, model_name in enumerate(candidates):
+        try:
+            model = genai.GenerativeModel(model_name)
+            # Relaxed safety for medical terms
+            safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
+            
+            # Minimal sleep on retries
+            if i > 0: time.sleep(0.1) 
+            
+            is_stream = stream_container is not None
+            response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
+            
+            if response:
+                if model_choice != "Auto" and model_name != model_choice:
+                    st.toast(f"Switched to {model_name} (auto-fallback)")
+                break 
+        except Exception as e:
+            e_str = str(e)
+            if "429" in e_str:
+                last_error = e
+            elif last_error is None or "429" not in str(last_error):
+                last_error = e
+            continue 
 
-if __name__ == "__main__":
-    main()
-```
+    if not response:
+        try:
+            fallback_model = "gemini-1.5-flash"
+            if fallback_model not in candidates:
+                model = genai.GenerativeModel(fallback_model)
+                safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
+                is_stream = stream_container is not None
+                response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
+                if response:
+                    st.toast(f"Recovered with: {fallback_model}")
+        except Exception as e:
+            last_error = f"{last_error} | Final fallback failed: {e}"
+
+    if not response:
+        error_msg = str(last_error)
+        if "429" in error_msg:
+            st.error("**Quota Exceeded (Rate Limit)**: You have hit the free tier limit for Gemini API.")
+            styled_info("Please wait a minute before trying again, or use a different API key.")
+        elif "404" in error_msg:
+            st.error("**Model Not Found**: The selected AI model is not available in your region or API version.")
+        elif "API_KEY_INVALID" in error_msg or "400" in error_msg:
+            st.error("API Key Error: The provided Google Gemini API Key is invalid.")
+        else:
+            st.error(f"AI Error: All models failed. Last error: {error_msg}")
+        return None
+
+    try:
+        if stream_container:
+            text = ""
+            for chunk in response:
+                if chunk.text:
+                    text += chunk.text
+                    stream_container.markdown(text + "▌")
+            stream_container.markdown(text) 
+        else:
+            text = response.text
+            
+        if json_mode:
+            text = text.replace('```json', '').replace('```', '').strip()
+            match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
+            if match:
+                text = match.group()
+            
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                try:
+                    # Fix escapes
+                    cleaned_text = text.replace('\\', '\\\\') 
+                    import ast
+                    return ast.literal_eval(text)
+                except:
+                    pass
+                raise 
+        return text
+    except Exception as e:
+        st.error(f"Parsing Error: {e}")
+        return None
+
+def search_pubmed(query):
+    """Real PubMed API Search with Abstracts."""
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+    try:
+        # 1. ESearch
+        search_params = {
+            'db': 'pubmed', 
+            'term': f"{query} AND (\"last 5 years\"[dp])", 
+            'retmode': 'json', 
+            'retmax': 30, 
+            'sort': 'relevance'
+        }
+        url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read().decode())
+            id_list = data.get('esearchresult', {}).get('idlist', [])
+        
+        if not id_list: return []
+        
+        # 2. EFetch
+        ids_str = ','.join(id_list)
+        fetch_params = {'db': 'pubmed', 'id': ids_str, 'retmode': 'xml'}
+        url = base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)
+        
+        with urllib.request.urlopen(url) as response:
+            xml_data = response.read().decode()
+            
+        # 3. Parse XML
+        root = ET.fromstring(xml_data)
+        citations = []
+        pmc_map = {} 
+        
+        for article in root.findall('.//PubmedArticle'):
+            try:
+                medline = article.find('MedlineCitation')
+                article_data = medline.find('Article')
+                pmid = medline.find('PMID').text
+                
+                # Check for PMC ID
+                pmc_id = None
+                pubmed_data = article.find('PubmedData')
+                if pubmed_data is not None:
+                    article_id_list = pubmed_data.find('ArticleIdList')
+                    if article_id_list is not None:
+                        for aid in article_id_list.findall('ArticleId'):
+                            if aid.get('IdType') == 'pmc':
+                                pmc_id = aid.text
+                                break
+                
+                title = article_data.find('ArticleTitle').text
+                
+                abstract_text = "No abstract available."
+                abstract = article_data.find('Abstract')
+                if abstract is not None:
+                    abstract_texts = [elem.text for elem in abstract.findall('AbstractText') if elem.text]
+                    if abstract_texts:
+                        abstract_text = " ".join(abstract_texts)
+                
+                author_list = article_data.find('AuthorList')
+                first_author = "Unknown"
+                if author_list is not None and len(author_list) > 0:
+                    last_name = author_list[0].find('LastName')
+                    if last_name is not None:
+                        first_author = last_name.text
+                
+                journal = article_data.find('Journal')
+                source = "Journal"
+                if journal is not None:
+                    title_elem = journal.find('Title')
+                    if title_elem is not None:
+                        source = title_elem.text
+                
+                pubdate = journal.find('JournalIssue').find('PubDate')
+                year = "No Date"
+                if pubdate is not None:
+                    year_elem = pubdate.find('Year')
+                    if year_elem is not None:
+                        year = year_elem.text
+                    else:
+                        medline_date = pubdate.find('MedlineDate')
+                        if medline_date is not None:
+                            year = medline_date.text[:4]
+
+                citation_obj = {
+                    "title": title,
+                    "id": pmid,
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                    "citation": f"{title} by {first_author} ({source}, {year})",
+                    "abstract": abstract_text,
+                    "full_text": None,
+                    "grade": "Un-graded"
+                }
+                
+                citations.append(citation_obj)
+                if pmc_id:
+                    pmc_map[pmc_id] = len(citations) - 1
+                    
+            except Exception as e:
+                continue
+        
+        # 4. Fetch Full Text
+        if pmc_map:
+            try:
+                pmc_ids_clean = [pid.replace('PMC', '') for pid in pmc_map.keys()]
+                pmc_ids_str = ','.join(pmc_ids_clean)
+                pmc_url = base_url + "efetch.fcgi?" + urllib.parse.urlencode({'db': 'pmc', 'id': pmc_ids_str, 'retmode': 'xml'})
+                with urllib.request.urlopen(pmc_url) as response:
+                    pmc_xml = response.read().decode()
+                
+                pmc_root = ET.fromstring(pmc_xml)
+                
+                for article in pmc_root.findall('.//article'):
+                    current_pmc_id = None
+                    for aid in article.findall('.//article-id'):
+                        if aid.get('pub-id-type') == 'pmc':
+                            current_pmc_id = "PMC" + aid.text 
+                            break
+                    
+                    if current_pmc_id and current_pmc_id in pmc_map:
+                        body = article.find('body')
+                        if body is not None:
+                            full_text = "".join(body.itertext())
+                            if len(full_text) > 50000:
+                                full_text = full_text[:50000] + "... [Truncated]"
+                            citations[pmc_map[current_pmc_id]]['full_text'] = full_text
+            except Exception:
+                pass
+                
+        return citations
+    except Exception as e:
+        st.error(f"PubMed Search Error: {e}")
+        return []
+
+# ==========================================
+# 4. MAIN UI
+# ==========================================
+st.title("CarePathIQ AI Agent")
+st.markdown(f"### Intelligently Build and Deploy Clinical Pathways")
+
+if not gemini_api_key:
+    st.markdown("""
+    <div style="
+        background-color: #5D4037; 
+        padding: 15px; 
+        border-radius: 5px; 
+        color: white;
+        margin-bottom: 20px;">
+        <strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. 
+        Get a free API key <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; text-decoration: underline;">here</a>.
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
+    st.stop()
+
+# --- NAVIGATION HANDLER ---
+if 'target_phase' in st.session_state and st.session_state.target_phase:
+    st.session_state.current_phase_label = st.session_state.target_phase
+    st.session_state.target_phase = None
+
+phase = st.radio("Workflow Phase", 
+                 ["Phase 1: Scoping & Charter", 
+                  "Phase 2: Rapid Evidence Appraisal", 
+                  "Phase 3: Decision Science", 
+                  "Phase 4: User Interface Design", 
+                  "Phase 5: Operationalize"], 
+                 horizontal=True,
+                 key="current_phase_label",
+                 label_visibility="collapsed")
+
+st.divider()
+
+# ------------------------------------------
+# PHASE 1: SCOPING & CHARTER
+# ------------------------------------------
+if "Phase 1" in phase:
+    
+    col1, col2 = st.columns([1, 1])
+    
+    def sync_p1_widgets():
+        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
+        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
+        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
+        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
+        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
+        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
+        st.session_state.auto_run["p2_pico"] = False
+        st.session_state.auto_run["p2_query"] = False
+
+    if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
+    if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
+    if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
+    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
+    if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
+    if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
+    
+    styled_info("Tip: This form is interactive. The AI agent will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI agent will use your edits to generate the next section and the final Project Charter.")
+
+    with col1:
+        st.subheader("1. Clinical Focus")
+        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Sepsis", key="p1_cond_input", on_change=sync_p1_widgets)
+        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
+        
+        st.subheader("2. Target Population")
+        curr_key = f"{cond_input}|{setting_input}"
+        last_key = st.session_state.get('last_criteria_key', '')
+        
+        if cond_input and setting_input and curr_key != last_key:
+            with st.spinner("Auto-generating inclusion/exclusion criteria..."):
+                prompt = f"""
+                Act as a Chief Medical Officer. For the clinical pathway on '{cond_input}' in the setting '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria for clinical workflow (NOT for research studies).
+
+                CRITICAL INSTRUCTIONS:
+                - Do NOT use research or study language (e.g., 'study protocol', 'enrollment', 'informed consent', 'randomization', 'investigator').
+                - Focus on real-world clinical criteria for patient selection and pathway entry/exit (e.g., 'Adults age 18+', 'Presenting with flank pain', 'No known allergy to contrast', 'Pregnant patients excluded').
+                - Do NOT automatically exclude patients who are critically ill or have red flag signs; these patients should be included in the pathway with appropriate steps for escalation, stabilization, or urgent management.
+                - Use concise, clinically relevant language that would make sense to a practicing clinician.
+                - Return a JSON object with keys: 'inclusion', 'exclusion'.
+                """
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
+                    exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
+                    def fmt_item(x):
+                        if isinstance(x, dict): return ": ".join([str(v) for v in x.values() if v])
+                        return str(x)
+                    inc_text = "\n".join([f"- {fmt_item(x)}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
+                    exc_text = "\n".join([f"- {fmt_item(x)}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
+
+                    st.session_state.data['phase1']['inclusion'] = inc_text
+                    st.session_state.data['phase1']['exclusion'] = exc_text
+                    st.session_state['p1_inc'] = inc_text
+                    st.session_state['p1_exc'] = exc_text
+                    st.session_state['last_criteria_key'] = curr_key
+                    st.rerun()
+
+        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
+        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
+        
+    with col2:
+        st.subheader("3. Clinical Gap / Problem Statement")
+        curr_inc = st.session_state.get('p1_inc', '')
+        curr_exc = st.session_state.get('p1_exc', '')
+        curr_cond = st.session_state.get('p1_cond_input', '')
+        curr_setting = st.session_state.get('p1_setting', '')
+        
+        curr_prob_key = f"{curr_inc}|{curr_exc}|{curr_cond}"
+        last_prob_key = st.session_state.get('last_prob_key', '')
+        
+        if curr_inc and curr_exc and curr_cond and curr_prob_key != last_prob_key:
+             with st.spinner("Auto-generating problem statement..."):
+                prompt = f"Act as a CMO. For condition '{curr_cond}' in setting '{curr_setting}', suggest a 'problem' statement (clinical gap). The statement MUST explicitly reference variation in current management and the need for care standardization. Return JSON with key: 'problem'."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    problem_text = str(data.get('problem', ''))
+                    st.session_state.data['phase1']['problem'] = problem_text
+                    st.session_state['p1_prob'] = problem_text
+                    st.session_state['last_prob_key'] = curr_prob_key
+                    st.rerun()
+
+        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
+        
+        st.subheader("4. Goals")
+        curr_prob = st.session_state.get('p1_prob', '')
+        curr_obj_key = f"{curr_prob}|{curr_cond}"
+        last_obj_key = st.session_state.get('last_obj_key', '')
+        
+        if curr_prob and curr_cond and curr_obj_key != last_obj_key:
+             with st.spinner("Auto-generating SMART objectives..."):
+                prompt = f"""
+                Act as a **Chief Medical Officer** in a hospital. 
+                For condition '{curr_cond}' in the '{curr_setting}' setting, addressing problem '{curr_prob}', suggest 3 SMART 'objectives'.
+                
+                CRITICAL INSTRUCTIONS:
+                - Focus ONLY on clinical and operational outcomes (e.g., Length of Stay, Mortality, Readmission Rate, Door-to-Needle time, Patient Safety, Compliance with Guidelines).
+                - Do NOT use business or marketing metrics (e.g., no 'leads', 'brand equity', 'sales', 'conversion rates').
+                - **Do NOT use LaTeX formatting (e.g. avoid $\le$). Use standard text characters (e.g. <=, <, >) for inequalities.**
+                - Return JSON with key 'objectives' (list of strings).
+                """
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    objs = data.get('objectives', [])
+                    obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
+                    st.session_state.data['phase1']['objectives'] = obj_text
+                    st.session_state['p1_obj'] = obj_text
+                    st.session_state['last_obj_key'] = curr_obj_key
+                    st.rerun()
+
+        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
+
+    st.divider()
+
+    st.subheader("5. Project Schedule (Gantt Chart)")
+    if 'schedule' not in st.session_state.data['phase1'] or not st.session_state.data['phase1']['schedule']:
+        today = date.today()
+        def add_weeks(start_d, w): return start_d + timedelta(weeks=w)
+        # 1) Project Charter (2 wks)
+        d1_end = add_weeks(today, 2)
+        # 2) Pathway Draft (4 wks)
+        d2_end = add_weeks(d1_end, 4)
+        # 3) Expert Panel Feedback (2 wks)
+        d3_end = add_weeks(d2_end, 2)
+        # 4) Iterative Design (2 wks)
+        d4_end = add_weeks(d3_end, 2)
+        # 5) Informatics Build (4 wks)
+        d5_end = add_weeks(d4_end, 4)
+        # 6) Beta Testing (4 wks)
+        d6_end = add_weeks(d5_end, 4)
+        # 7) Go-Live (2 wks)
+        d7_end = add_weeks(d6_end, 2)
+        # 8) Optimization (4 wks)
+        d8_end = add_weeks(d7_end, 4)
+        # 9) Monitoring (Ongoing 12+ wks)
+        d9_end = add_weeks(d8_end, 12)
+        
+        st.session_state.data['phase1']['schedule'] = [
+            {"Phase": "1. Project Charter", "Owner": "Project Manager", "Start": today, "End": d1_end},
+            {"Phase": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1_end, "End": d2_end},
+            {"Phase": "3. Expert Panel Feedback", "Owner": "Expert Panel", "Start": d2_end, "End": d3_end},
+            {"Phase": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3_end, "End": d4_end},
+            {"Phase": "5. Informatics Build & EHR Integration", "Owner": "Informatics Team", "Start": d4_end, "End": d5_end},
+            {"Phase": "6. Beta Testing", "Owner": "Quality Improvement", "Start": d5_end, "End": d6_end},
+            {"Phase": "7. Go-Live and Staff Education", "Owner": "Operations", "Start": d6_end, "End": d7_end},
+            {"Phase": "8. Post Go-Live Optimizations", "Owner": "Clinical Lead", "Start": d7_end, "End": d8_end},
+            {"Phase": "9. Monitoring and Evaluation", "Owner": "Quality Dept", "Start": d8_end, "End": d9_end},
+        ]
+
+    if st.button("Reset Schedule to Defaults", key="reset_schedule"):
+        st.session_state.data['phase1']['schedule'] = []
+        st.rerun()
+
+    df_schedule = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+    df_schedule['Start'] = pd.to_datetime(df_schedule['Start']).dt.date
+    df_schedule['End'] = pd.to_datetime(df_schedule['End']).dt.date
+
+    styled_info("**Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below.")
+
+    edited_schedule = st.data_editor(
+        df_schedule,
+        column_config={
+            "Phase": st.column_config.TextColumn("Phase", width="medium", disabled=True),
+            "Owner": st.column_config.TextColumn("Owner", width="small"),
+            "Start": st.column_config.DateColumn("Start Date", format="YYYY-MM-DD"),
+            "End": st.column_config.DateColumn("End Date", format="YYYY-MM-DD"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        key="gantt_editor"
+    )
+    
+    st.session_state.data['phase1']['schedule'] = edited_schedule.to_dict('records')
+
+    if not edited_schedule.empty:
+        chart_data = edited_schedule.copy()
+        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
+        chart_data['End'] = pd.to_datetime(chart_data['End'])
+        
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X('Start', title='Date'),
+            x2='End',
+            y=alt.Y('Phase', sort=None, title=None),
+            color=alt.Color('Owner', legend=alt.Legend(title="Owner")),
+            tooltip=['Phase', 'Start', 'End', 'Owner']
+        ).properties(title="Project Timeline", height=300).interactive()
+        
+        st.altair_chart(chart, use_container_width=True)
+
+    st.divider()
+
+    if st.button("Generate Project Charter", type="primary", use_container_width=True):
+        st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
+        st.session_state.data['phase1']['inclusion'] = st.session_state.p1_inc
+        st.session_state.data['phase1']['exclusion'] = st.session_state.p1_exc
+        st.session_state.data['phase1']['setting'] = st.session_state.p1_setting
+        st.session_state.data['phase1']['problem'] = st.session_state.p1_prob
+        st.session_state.data['phase1']['objectives'] = st.session_state.p1_obj
+
+        d = st.session_state.data['phase1']
+        
+        p_cond = d['condition'] if d['condition'] else "Not specified"
+        p_prob = d['problem'] if d['problem'] else "Not specified"
+        p_set = d['setting'] if d['setting'] else "Not specified"
+        p_inc = d['inclusion'] if d['inclusion'] and d['inclusion'].strip() else "None"
+        p_exc = d['exclusion'] if d['exclusion'] and d['exclusion'].strip() else "None"
+        p_obj = d['objectives'] if d['objectives'] and d['objectives'].strip() else "None"
+        
+        if not d['condition'] or not d['problem']:
+            st.error("Please fill in at least the 'Condition' and 'Problem Statement' to generate a charter.")
+        else:
+            with st.status("AI Agent drafting Project Charter...", expanded=True) as status:
+                st.write("Initializing PMP Agent...")
+                today_str = date.today().strftime("%B %d, %Y")
+                
+                schedule_list = st.session_state.data['phase1']['schedule']
+                schedule_str = ""
+                for item in schedule_list:
+                    s_date = str(item['Start'])
+                    e_date = str(item['End'])
+                    schedule_str += f"- {item['Phase']} (Start: {s_date}, End: {e_date}, Owner: {item['Owner']})\n"
+
+                prompt = f"""
+                Act as a certified Project Management Professional (PMP) in Healthcare. 
+                Create a formal **Project Charter** for a Clinical Pathway initiative.
+                
+                **Use strictly this data (do not hallucinate criteria I deleted). If a field is 'None', state 'None' or leave blank in the charter:**
+                - **Initiative:** {p_cond}
+                - **Clinical Gap:** {p_prob}
+                - **Care Setting:** {p_set}
+                - **In Scope (Inclusion):** {p_inc}
+                - **Out of Scope (Exclusion):** {p_exc}
+                - **Objectives:** {p_obj}
+                - **Date Created:** {today_str}
+                
+                **Output Format:** HTML Body Only.
+                **Structure:** Use the following best-practice Clinical Pathway Project Charter template as your guide. 
+                Organize the content into a clean, professional HTML layout (using tables for the header, financials, and schedule):
+
+                1. **Project Header**: Project Name, Project Manager, Project Sponsor.
+                2. **Financials & Dates**: Estimated Costs, Expected Savings, Start Date, Completion Date.
+                3. **Project Overview**: 
+                    - Problem or Issue
+                    - Purpose of Project
+                    - Business Case
+                    - Goals / Metrics
+                    - Expected Deliverables
+                4. **Project Scope**: Within Scope vs Outside Scope.
+                5. **Tentative Schedule (Gantt Chart)**: A table representing a Gantt Chart with columns [Key Milestone | Owner | Start Date | End Date | Duration]. You MUST use these specific dates provided by the user:
+                      {schedule_str}
+                6. **Key Performance Indicators (KPIs)**: A table with columns [Metric | Definition | Target | Data Source | Owner]. Include relevant clinical, operational, and financial metrics.
+                
+                **Style Guide:**
+                - Use <h2> headers for sections.
+                - Ensure the tone is professional, concise, and persuasive.
+                - **Do NOT use LaTeX formatting. Use standard text.**
+                - **Do NOT write 'None' for missing fields like Sponsor. Leave them blank so the user can fill them in.**
+                - DO NOT use markdown code blocks (```). Just return the HTML.
+                """
+                
+                st.write("Generating content sections...")
+                charter_content = get_gemini_response(prompt)
+                charter_content = charter_content.replace('```html', '').replace('```', '').strip()
+                
+                word_html = f"""
+                <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'>
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        /* Force Black Text for everything */
+                        body {{ font-family: 'Arial', sans-serif; font-size: 11pt; line-height: 1.5; color: #000000 !important; }}
+                        h1 {{ color: #000000 !important; font-size: 24pt; border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 20px; }}
+                        h2 {{ color: #000000 !important; font-size: 14pt; margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }}
+                        p, li, td, th {{ color: #000000 !important; }}
+                        
+                        /* Layout */
+                        table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
+                        td, th {{ border: 1px solid #000000; padding: 8px; vertical-align: top; }}
+                        th {{ background-color: #f2f2f2; font-weight: bold; text-align: left; }}
+                        .footer {{ margin-top: 50px; font-size: 9pt; color: #000000; text-align: center; border-top: 1px solid #000000; padding-top: 10px; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>Project Charter: {d['condition']} Pathway</h1>
+                    <p><strong>Date Generated:</strong> {today_str}</p>
+                    {charter_content}
+                    <div class="footer">
+                        Generated by CarePathIQ AI Agent | Confidential Internal Document
+                    </div>
+                </body>
+                </html>
+                """
+                status.update(label="Charter Generated Successfully!", state="complete", expanded=False)
+                st.session_state['charter_doc'] = word_html
+    
+    if 'charter_doc' in st.session_state:
+        st.success("Charter Generated Successfully.")
+        st.download_button(
+            label="Download Project Charter (.doc)",
+            data=st.session_state['charter_doc'],
+            file_name=f"Project_Charter_{st.session_state.data['phase1']['condition'].replace(' ', '_')}.doc",
+            mime="application/msword",
+            type="primary"
+        )
+
+    render_bottom_navigation()
+
+# ------------------------------------------
+# PHASE 2: RAPID EVIDENCE APPRAISAL
+# ------------------------------------------
+elif "Phase 2" in phase:
+    
+    if 'p1_cond_input' in st.session_state: st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
+    p1_cond = st.session_state.data['phase1'].get('condition', '')
+    
+    if p1_cond:
+        if not st.session_state.data['phase2'].get('mesh_query'):
+            with st.spinner("AI Agent drafting Search Query..."):
+                setting = st.session_state.data['phase1'].get('setting', '')
+                prompt_mesh = f"""
+                Construct a PubMed search query.
+                Format: "guidelines for managing patients with {p1_cond} in {setting}"
+                OUTPUT FORMAT: Return ONLY the raw query string.
+                """
+                raw_query = get_gemini_response(prompt_mesh)
+                if raw_query:
+                    st.session_state.data['phase2']['mesh_query'] = raw_query.replace('```', '').replace('\n', ' ').strip()
+                    st.rerun()
+
+        search_q = st.session_state.data['phase2'].get('mesh_query', '')
+
+        if search_q and not st.session_state.data['phase2']['evidence'] and not st.session_state.auto_run.get("p2_search_done", False):
+             with st.spinner("Fetching PubMed results..."):
+                results = search_pubmed(search_q)
+                if results:
+                    st.session_state.data['phase2']['evidence'].extend(results)
+                    st.session_state.auto_run["p2_grade"] = False 
+                    st.session_state.auto_run["p2_search_done"] = True
+                    st.rerun()
+                else:
+                    st.warning("No results found.")
+                    st.session_state.auto_run["p2_search_done"] = True 
+
+    search_q = st.session_state.data['phase2'].get('mesh_query', '')
+    if search_q:
+        encoded_query = urllib.parse.quote(search_q.strip())
+        pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
+        st.link_button("Open in PubMed ↗", pubmed_url, type="primary")
+
+    evidence_list = st.session_state.data['phase2']['evidence']
+    
+    if evidence_list and not st.session_state.auto_run["p2_grade"]:
+        with st.status("AI Agent Evaluating Evidence...", expanded=True) as status:
+            st.write("Preparing citations for analysis...")
+            titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
+            
+            prompt = f"""
+            Act as a Clinical Methodologist applying GRADE.
+            For each citation: {json.dumps(titles)}
+            Assign a Grade: "High (A)", "Moderate (B)", "Low (C)", "Very Low (D)".
+            Return JSON object: {{ "ID": {{ "grade": "...", "rationale": "..." }} }}
+            """
+            
+            grade_data = get_gemini_response(prompt, json_mode=True)
+            if isinstance(grade_data, dict):
+                for e in st.session_state.data['phase2']['evidence']:
+                    if e['id'] in grade_data:
+                        entry = grade_data[e['id']]
+                        e['grade'] = entry.get('grade', 'Un-graded')
+                        e['rationale'] = entry.get('rationale', 'AI generated.')
+                
+                st.session_state.auto_run["p2_grade"] = True
+                status.update(label="Evaluation Complete!", state="complete", expanded=False)
+                st.rerun()
+
+    if evidence_list:
+        st.markdown("### Evidence Table")
+        
+        col_filter, col_clear = st.columns([3, 1])
+        with col_filter:
+            selected_grades = st.multiselect("Filter by GRADE:", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"])
+        with col_clear:
+            if st.button("Clear Evidence List", key="clear_ev"):
+                st.session_state.data['phase2']['evidence'] = []
+                st.session_state.auto_run["p2_grade"] = False
+                st.rerun()
+
+        df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
+        if 'rationale' not in df.columns: df['rationale'] = ""
+        if 'grade' not in df.columns: df['grade'] = "Un-graded"
+        
+        df_filtered = df[df['grade'].isin(selected_grades)]
+        
+        edited_df = st.data_editor(df_filtered, column_config={
+            "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
+            "id": st.column_config.TextColumn("PMID", width="small", disabled=True),
+            "url": st.column_config.LinkColumn("Link", disabled=True),
+            "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small", required=True),
+            "rationale": st.column_config.TextColumn("GRADE Rationale", width="large"),
+        }, column_order=["id", "title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
+        
+        edited_map = {str(row['id']): row for row in edited_df.to_dict('records')}
+        updated_evidence = []
+        for row in st.session_state.data['phase2']['evidence']:
+            rid = str(row['id'])
+            if rid in edited_map: updated_evidence.append(edited_map[rid])
+            else: updated_evidence.append(row)
+        
+        st.session_state.data['phase2']['evidence'] = updated_evidence
+        
+        csv = edited_df.to_csv(index=False)
+        export_widget(csv, "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
+
+    render_bottom_navigation()
+
+# ------------------------------------------
+# PHASE 3: DECISION SCIENCE
+# ------------------------------------------
+elif "Phase 3" in phase:
+    
+    cond = st.session_state.data['phase1']['condition']
+    evidence_list = st.session_state.data['phase2']['evidence']
+    nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
+    
+    if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
+         with st.status("AI Agent drafting decision tree...", expanded=True) as status:
+             titles = [e['title'] for e in evidence_list]
+             
+             prompt = f"""
+             Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
+             Evidence Titles: {json.dumps(titles)}
+             
+             CRITICAL LOGIC REQUIREMENT (Adhere to this specific flow):
+             1. **Start Node:** Patient presentation.
+             2. **Immediate Triage Sub-pathway Check:** Check for specific populations (e.g. Pregnancy, Hemodynamic Instability). If Yes -> Go to Sub-pathway. If No -> Continue.
+             3. **Risk Stratification:** Use validated scores. Branch into Low/Moderate/High.
+             4. **Process Steps:** - **Diagnostics:** Use standard acronyms (e.g. BMP, CBC, UA, CT Abdomen and Pelvis).
+                - **Medications:** Specify names (e.g. Flomax, Tamsulosin, NSAIDs).
+                - **Consults:** Specify triggers (e.g. "If MRI pos for cauda equina -> STAT Neurosurgery consult").
+             5. **Disposition:** Detailed discharge instructions (e.g. "Discharge with Amb Ref to Urology").
+             
+             Create a logic flow with types: Start, Decision, Process, Note, End.
+             Return JSON List of objects: 
+             [{{ "type": "...", "label": "...", "detail": "...", "role": "...", "evidence_id": "..." }}]
+             """
+             
+             nodes = get_gemini_response(prompt, json_mode=True)
+             if isinstance(nodes, list):
+                 # Auto-assign IDs if missing (D1, P1, S1 etc.)
+                 counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
+                 for i, n in enumerate(nodes):
+                     if 'id' not in n:
+                         ntype = n.get('type', 'Process')
+                         counts[ntype] = counts.get(ntype, 0) + 1
+                         prefix = ntype[0].upper()
+                         n['id'] = f"{prefix}{counts[ntype]}"
+                 
+                 st.session_state.data['phase3']['nodes'] = nodes
+                 st.session_state.auto_run["p3_logic"] = True
+                 status.update(label="Decision Tree Drafted!", state="complete", expanded=False)
+                 st.rerun()
+
+    if st.session_state.auto_run["p3_logic"]:
+         if st.button("Add Manual Step"):
+             st.session_state.data['phase3']['nodes'].append({"type": "Process", "label": "New Step", "detail": ""})
+             st.rerun()
+
+    if not st.session_state.data['phase3']['nodes']:
+         st.session_state.data['phase3']['nodes'] = [{"type":"Start", "label":"Triage", "detail":""}]
+    
+    df_nodes = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+    if "detail" not in df_nodes.columns: df_nodes["detail"] = ""
+    if "role" not in df_nodes.columns: df_nodes["role"] = "Unassigned"
+    if "evidence" not in df_nodes.columns: df_nodes["evidence"] = None
+    if "id" not in df_nodes.columns: df_nodes["id"] = ""
+
+    # Prepare Evidence Options (PMID Only)
+    evidence_options = []
+    if st.session_state.data['phase2']['evidence']:
+        evidence_options = [f"PMID: {e['id']}" for e in st.session_state.data['phase2']['evidence']]
+
+    edited_nodes = st.data_editor(df_nodes, column_config={
+        "id": st.column_config.TextColumn("ID", width="small", disabled=True),
+        "type": st.column_config.SelectboxColumn("Node Type", options=["Start", "Decision", "Process", "Note", "End"], required=True, width="medium"),
+        "label": st.column_config.TextColumn("Label", width="medium"),
+        "role": st.column_config.TextColumn("Role / Owner", width="small"),
+        "detail": st.column_config.TextColumn("Clinical Detail", width="large"),
+        "evidence": st.column_config.SelectboxColumn("Supporting Evidence", options=evidence_options, width="medium"),
+        "evidence_id": None # Hidden
+    }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
+    
+    # Ensure IDs persist if added manually & sync evidence ID
+    updated_nodes = edited_nodes.to_dict('records')
+    counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
+    for n in updated_nodes:
+        # ID Logic
+        ntype = n.get('type', 'Process')
+        counts[ntype] = counts.get(ntype, 0) + 1
+        if not n.get('id'):
+            prefix = ntype[0].upper()
+            n['id'] = f"{prefix}{counts[ntype]}"
+        # Evidence Logic
+        if n.get('evidence'):
+            try:
+                n['evidence_id'] = str(n['evidence']).replace("PMID: ", "")
+            except:
+                pass
+        else:
+            n['evidence_id'] = None
+            
+    st.session_state.data['phase3']['nodes'] = updated_nodes
+
+    render_bottom_navigation()
+
+# ------------------------------------------
+# PHASE 4: USER INTERFACE DESIGN
+# ------------------------------------------
+elif "Phase 4" in phase:
+    col1, col2 = st.columns([2, 1])
+
+    def generate_mermaid_code(nodes, orientation="TD"):
+        code = f"graph {orientation}\n"
+        code += "    %% Node Definitions\n"
+        for i, n in enumerate(nodes):
+            nid = f"N{i}"
+            # Use specific ID in label if available
+            display_id = n.get('id', nid)
+            # Sanitize label
+            safe_label = n.get('label', 'Step').replace('"', "'").strip()
+            full_label = f"{display_id}: {safe_label}"
+            
+            ntype = n.get('type', 'Process')
+            if ntype == 'Start':
+                shape_open, shape_close = '([', '])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
+            elif ntype == 'End':
+                shape_open, shape_close = '([', '])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
+            elif ntype == 'Decision':
+                shape_open, shape_close = '{', '}'
+                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:#000'
+            elif ntype == 'Note':
+                shape_open, shape_close = '>', ']' 
+                style = f'style {nid} fill:#DAE8FC,stroke:#6C8EBF,stroke-width:1px,color:#000,stroke-dasharray: 5 5'
+            else: 
+                shape_open, shape_close = '[', ']'
+                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:#000'
+            
+            code += f'    {nid}{shape_open}"{full_label}"{shape_close}\n'
+            code += f'    {style}\n'
+            
+        code += "\n    %% Logic Flow\n"
+        for i, n in enumerate(nodes):
+            if i < len(nodes) - 1:
+                curr = f"N{i}"
+                next_n = f"N{i+1}"
+                ntype = n.get('type')
+                if ntype == 'Decision':
+                    code += f'    {curr} -->|Yes| {next_n}\n'
+                    if i + 2 < len(nodes):
+                        skip = f"N{i+2}"
+                        code += f'    {curr} -.->|No| {skip}\n'
+                elif ntype == 'Note':
+                    if i > 0:
+                        prev = f"N{i-1}"
+                        code += f'    {curr} -.- {prev}\n'
+                elif nodes[i+1].get('type') == 'Note': pass
+                else: code += f'    {curr} --> {next_n}\n'
+        return code
+
+    with col1:
+        st.subheader("Clinical Pathway Visualizer")
+        
+        with st.expander("Edit Pathway Data", expanded=False):
+            df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+            if "role" not in df_p4.columns: df_p4["role"] = "Unassigned"
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True,
+                column_config={"type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "Note", "End"], width="small"),
+                               "label": st.column_config.TextColumn("Label", width="medium"),
+                               "detail": st.column_config.TextColumn("Details", width="large")})
+            if not df_p4.equals(edited_p4):
+                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                st.rerun()
+
+        nodes = st.session_state.data['phase3']['nodes']
+
+        if nodes:
+            try:
+                c_view1, c_view2 = st.columns([1, 2])
+                with c_view1:
+                    orientation = st.selectbox("Orientation", ["Vertical (TD)", "Horizontal (LR)"], index=0)
+                    mermaid_orient = "TD" if "Vertical" in orientation else "LR"
+                
+                mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
+                mermaid_base64 = base64.b64encode(mermaid_code.encode("utf-8")).decode("utf-8")
+                image_url = f"https://mermaid.ink/img/{mermaid_base64}?bgColor=FFFFFF"
+                
+                with c_view2:
+                    st.write("") 
+                    st.link_button("Zoom In / Open High-Res Image", image_url, use_container_width=True)
+
+                # Local Render using HTML/JS (Fixes "Error opening..." issues)
+                html_code = f"""
+                <div class="mermaid">
+                {mermaid_code}
+                </div>
+                <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+                <script>mermaid.initialize({{startOnLoad:true}});</script>
+                """
+                components.html(html_code, height=600, scrolling=True)
+                
+                with st.expander("View Mermaid Syntax"):
+                    st.code(mermaid_code, language='mermaid')
+
+            except Exception as e:
+                st.error(f"Visualization Error: {e}")
+        else:
+            st.info("No nodes defined. Please go back to Phase 3 or add nodes above.")
+
+    with col2:
+        st.subheader("Nielsen's Heuristics Analysis")
+        nodes_json = json.dumps(nodes)
+        if nodes and not st.session_state.auto_run["p4_heuristics"]:
+             with st.spinner("AI Agent analyzing User Interface Design risks..."):
+                 prompt = f"""
+                 Act as a UX Researcher. Analyze this clinical pathway logic: {nodes_json}
+                 Evaluate it against **Jakob Nielsen's 10 Usability Heuristics**.
+                 For each heuristic, provide:
+                 1. A specific critique.
+                 2. A boolean 'actionable' flag.
+                 Return JSON: {{ "H1": {{ "insight": "...", "actionable": true }}, ... }}
+                 """
+                 risks = get_gemini_response(prompt, json_mode=True)
+                 if isinstance(risks, dict): 
+                     st.session_state.data['phase4']['heuristics_data'] = risks
+                     st.session_state.auto_run["p4_heuristics"] = True
+                     st.rerun()
+
+        risks = st.session_state.data['phase4'].get('heuristics_data', {})
+        if risks:
+            for k, v in risks.items():
+                if isinstance(v, dict):
+                    insight = v.get('insight', 'No insight.')
+                    is_actionable = v.get('actionable', False)
+                else:
+                    insight = str(v)
+                    is_actionable = True
+                
+                def_name = HEURISTIC_DEFS.get(k, "Heuristic").split(":")[0]
+                label = f"{k} ({def_name}): {insight[:50]}..."
+                
+                with st.expander(label, expanded=False):
+                    st.markdown(f"""<div style="background-color: #FDF2F5; color: #5D4037; padding: 10px; border-radius: 4px; border-left: 4px solid #9E4244;"><strong>Critique:</strong> {insight}</div>""", unsafe_allow_html=True)
+                    
+                    if is_actionable:
+                        applied_key = f"heuristic_applied_{k}"
+                        if applied_key not in st.session_state: st.session_state[applied_key] = False
+                        
+                        if not st.session_state[applied_key]:
+                            if st.button("Apply Recommendations", key=f"btn_fix_{k}", use_container_width=True):
+                                with st.spinner("Applying fix..."):
+                                    if 'node_history' not in st.session_state: st.session_state.node_history = []
+                                    st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                                    prompt_fix = f"""
+                                    Act as a Clinical Decision Scientist.
+                                    Update this pathway JSON to address the critique: "{insight}"
+                                    Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
+                                    Return ONLY valid JSON.
+                                    """
+                                    new_nodes = get_gemini_response(prompt_fix, json_mode=True)
+                                    if new_nodes and isinstance(new_nodes, list):
+                                        st.session_state.data['phase3']['nodes'] = new_nodes
+                                        st.session_state[applied_key] = True
+                                        st.rerun()
+                        else:
+                            st.button("Recommendations Applied", disabled=True, key=f"btn_applied_{k}")
+
+            st.divider()
+            c_undo, c_rerun = st.columns(2)
+            with c_undo:
+                if 'node_history' in st.session_state and st.session_state.node_history:
+                    if st.button("Undo Last Change", type="secondary", use_container_width=True):
+                        st.session_state.data['phase3']['nodes'] = st.session_state.node_history.pop()
+                        st.rerun()
+            with c_rerun:
+                if st.button("Rerun Heuristics Analysis", type="secondary", use_container_width=True):
+                    st.session_state.auto_run["p4_heuristics"] = False
+                    st.rerun()
+
+            st.divider()
+            
+            custom_edit = st.text_area("Custom Refinement", placeholder="E.g., 'Add a blood pressure check after triage'", label_visibility="collapsed")
+            if st.button("Apply Changes", type="primary", use_container_width=True):
+                if custom_edit:
+                    with st.spinner("Applying edit..."):
+                        if 'node_history' not in st.session_state: st.session_state.node_history = []
+                        st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                        prompt_custom = f"""
+                        Update this pathway JSON based on user request: "{custom_edit}"
+                        Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
+                        Return ONLY valid JSON.
+                        """
+                        new_nodes = get_gemini_response(prompt_custom, json_mode=True)
+                        if new_nodes and isinstance(new_nodes, list):
+                            st.session_state.data['phase3']['nodes'] = new_nodes
+                            st.rerun()
+
+    render_bottom_navigation()
+
+# ------------------------------------------
+# PHASE 5: OPERATIONALIZE
+# ------------------------------------------
+elif "Phase 5" in phase:
+    st.markdown("### Operational Toolkit & Deployment")
+    
+    # 1. Target Audience
+    st.subheader("Target Audience")
+    if 'target_audience' not in st.session_state: st.session_state.target_audience = "Multidisciplinary Team"
+    new_audience = st.text_input("Define Primary Audience:", value=st.session_state.target_audience)
+    if new_audience != st.session_state.target_audience:
+        st.session_state.target_audience = new_audience
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+
+    st.write("Quick Select:")
+    b1, b2, b3 = st.columns([1, 1, 1])
+    if b1.button("Physicians", use_container_width=True): 
+        st.session_state.target_audience = "Physicians"
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+    if b2.button("Nurses", use_container_width=True): 
+        st.session_state.target_audience = "Nurses"
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+    if b3.button("Informaticists", use_container_width=True): 
+        st.session_state.target_audience = "Informaticists"
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+
+    st.divider()
+
+    # 2. Asset Generation
+    if "p5_files" not in st.session_state: st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None, "html": None}
+
+    if not st.session_state.auto_run.get("p5_assets", False):
+        with st.status(f"Generating Assets...", expanded=True) as status:
+            cond = st.session_state.data['phase1']['condition']
+            audience = st.session_state.target_audience
+            
+            # HTML FEEDBACK FORM (Specific Expert Panel Questions)
+            q1 = "1. Do you recommend any modifications to the start or end nodes of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
+            q2 = "2. Do you recommend any modifications to the decision nodes of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
+            q3 = "3. Do you recommend any modifications to the process steps of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
+            
+            q_html = f"<p><b>{q1}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
+            q_html += f"<p><b>{q2}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
+            q_html += f"<p><b>{q3}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
+            
+            # Javascript for Copy to Clipboard
+            js_script = """
+            <script>
+            function copyFeedback() {
+                let output = "EXPERT PANEL FEEDBACK - " + document.title + "\\n\\n";
+                const paragraphs = document.querySelectorAll("p");
+                paragraphs.forEach(p => {
+                    const question = p.querySelector("b");
+                    const answer = p.querySelector("textarea");
+                    if (question && answer) {
+                        output += "Q: " + question.innerText + "\\n";
+                        output += "A: " + answer.value + "\\n\\n";
+                    }
+                });
+                navigator.clipboard.writeText(output).then(() => {
+                    alert("Feedback copied to clipboard! You can now paste it into an email or document.");
+                }).catch(err => {
+                    alert("Failed to copy: " + err);
+                });
+            }
+            </script>
+            """
+            
+            st.session_state.p5_files["html"] = f"""<html><head>{js_script}</head><body style='font-family:Arial; padding:20px;'>
+            <h2 style='color:#5D4037;'>Expert Panel Feedback Form: {cond}</h2>
+            <p><strong>Audience:</strong> {audience}</p>
+            <hr>{q_html}
+            <br>
+            <button onclick='copyFeedback()' style='background-color:#5D4037; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; margin-right:10px;'>Copy Responses to Clipboard</button>
+            <button onclick='window.print()' style='background-color:#5D4037; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;'>Print / Save to PDF</button>
+            </body></html>"""
+
+            # DOCX (Beta Guide) - No Markdown
+            prompt_guide = f"""
+            Create a Beta Testing Guide for '{cond}' pathway. Target User: {audience}.
+            Structure: Title, Checklist, Questions, Feedback Instructions. 
+            CRITICAL: Do NOT use markdown symbols like * or #. Plain text only.
+            """
+            guide_text = get_gemini_response(prompt_guide)
+            if guide_text: st.session_state.p5_files["docx"] = create_word_docx(guide_text.replace("```", "").replace("*", "").replace("#", "").strip())
+
+            # PPTX - No Markdown
+            prompt_slides = f"""
+            Create content for a PowerPoint slide deck for '{cond}'. Audience: {audience}.
+            Return JSON: {{ "title": "...", "slides": [ {{ "title": "...", "content": "..." }} ] }}
+            CRITICAL: Do NOT use markdown symbols in the content strings. Plain text only.
+            """
+            slides_json = get_gemini_response(prompt_slides, json_mode=True)
+            if isinstance(slides_json, dict): st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
+
+            st.session_state.auto_run["p5_assets"] = True
+            status.update(label="Assets Generated!", state="complete", expanded=False)
+            st.rerun()
+
+    # 3. Downloads (Reordered: Feedback Form First)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.subheader("Expert Panel Feedback Form")
+        if st.session_state.p5_files.get("html"):
+            st.download_button("Download Form (.html)", st.session_state.p5_files["html"], "Expert_Panel_Feedback.html", "text/html", type="primary")
+    with c2:
+        st.subheader("Beta Testing Guide")
+        if st.session_state.p5_files["docx"]:
+            st.download_button("Download Guide (.docx)", st.session_state.p5_files["docx"], "Beta_Guide.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
+    with c3:
+        st.subheader("Education Deck")
+        if st.session_state.p5_files["pptx"]:
+            st.download_button("Download Slides (.pptx)", st.session_state.p5_files["pptx"], "Slides.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", type="primary")
+
+    st.divider()
+    
+    if st.button("Regenerate Assets"):
+        st.session_state.auto_run["p5_assets"] = False
+        st.rerun()
+    
+    # 4. Executive Summary
+    if st.button("Generate Executive Summary", use_container_width=True):
+        with st.spinner("Compiling Executive Summary..."):
+            p1 = st.session_state.data['phase1']
+            prompt = f"Create an Executive Summary for '{p1['condition']}'. Sections: Problem, Objectives, Evidence, Logic, Value."
+            summary = get_gemini_response(prompt)
+            st.session_state.data['phase5']['exec_summary'] = summary
+            
+    if st.session_state.data['phase5'].get('exec_summary'):
+        st.markdown("### Executive Summary")
+        st.markdown(st.session_state.data['phase5']['exec_summary'])
+        export_widget(st.session_state.data['phase5']['exec_summary'], "executive_summary.md", label="Download Summary")
+
+    render_bottom_navigation()
+
+st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
