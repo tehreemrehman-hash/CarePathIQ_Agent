@@ -2086,8 +2086,8 @@ elif "Phase 5" in phase:
         st.session_state.target_audience = "Nurses"
         st.session_state.auto_run["p5_assets"] = False
         st.rerun()
-    if b3.button("IT Analysts", use_container_width=True): 
-        st.session_state.target_audience = "IT Analysts"
+    if b3.button("Informaticists", use_container_width=True): 
+        st.session_state.target_audience = "Informaticists"
         st.session_state.auto_run["p5_assets"] = False
         st.rerun()
 
