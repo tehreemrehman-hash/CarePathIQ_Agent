@@ -1012,6 +1012,7 @@ if "Phase 1" in phase:
                 CRITICAL INSTRUCTIONS:
                 - Do NOT use research or study language (e.g., 'study protocol', 'enrollment', 'informed consent', 'randomization', 'investigator').
                 - Focus on real-world clinical criteria for patient selection and pathway entry/exit (e.g., 'Adults age 18+', 'Presenting with flank pain', 'No known allergy to contrast', 'Pregnant patients excluded').
+                - Do NOT automatically exclude patients who are critically ill or have red flag signs; these patients should be included in the pathway with appropriate steps for escalation, stabilization, or urgent management.
                 - Use concise, clinically relevant language that would make sense to a practicing clinician.
                 - Return a JSON object with keys: 'inclusion', 'exclusion'.
                 """
