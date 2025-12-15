@@ -961,7 +961,7 @@ if "Phase 1" in phase:
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
     # INSTRUCTIONAL BANNER
-    styled_info("**Workflow Tip:** This form is interactive. The AI will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI will use your edits to generate the next section and the final Project Charter.")
+    styled_info("**Workflow Tip:** This form is interactive. The AI agent will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI agent will use your edits to generate the next section and the final Project Charter.")
 
     with col1:
         # CLINICAL CONDITION
