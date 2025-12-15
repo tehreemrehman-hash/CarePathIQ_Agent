@@ -1568,7 +1568,9 @@ elif "Phase 3" in phase:
              
              STRICT TEMPLATE RULES (Match the user's Visual Logic Language):
              1. **Start**: Entry point (e.g., "Patient presents to ED").
-             2. **Decisions (Red Diamonds)**: Logic checkpoints. Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High) based on validated scores (e.g., Wells Score, HEART Score).
+             2. **Decisions (Red Diamonds)**: Logic checkpoints. 
+                - **CRITICAL**: Integrate **validated clinical risk scores** (e.g., Wells, HEART, CURB-65, PSI, PECARN) wherever evidence supports them.
+                - Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High).
              3. **Process (Yellow Box)**: High-Yield Clinical Actions. 
                 - **Concise but Detailed**: Use specific parameters but keep it brief.
                 - **Bad**: "Order Imaging", "Give Meds".
@@ -1730,11 +1732,15 @@ elif "Phase 4" in phase:
                         help="Switch between horizontal (Left-to-Right) and vertical (Top-to-Bottom) swimlanes."
                     )
                 
+                with c_view2:
+                    styled_info("💡 **Viewing Tip:** If the flowchart is too large or small, use the **'Download High-Res PNG'** button below to view the full-size image in your preferred viewer. The chart below is optimized to fit the container width.")
+
                 rank_dir = 'LR' if "Landscape" in orientation else 'TB'
 
                 # --- ENHANCED GRAPHVIZ LOGIC WITH SWIMLANES ---
                 graph = graphviz.Digraph()
-                graph.attr(rankdir=rank_dir, splines='ortho') 
+                # ratio='auto' allows expansion, size=None removes constraints
+                graph.attr(rankdir=rank_dir, splines='ortho', ratio='auto', size='None') 
                 graph.attr('node', fontname='Helvetica', fontsize='10')
                 
                 # Helper to style nodes
