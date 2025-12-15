@@ -558,7 +558,7 @@ def render_bottom_navigation():
     
     # Callback to update phase safely
     def set_phase(new_phase):
-        st.session_state.current_phase_label = new_phase
+        st.session_state.target_phase = new_phase
 
     with col1:
         if curr_idx > 0:
@@ -897,6 +897,11 @@ if not gemini_api_key:
     """, unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
     st.stop()
+
+# --- NAVIGATION HANDLER (Must be before st.radio) ---
+if 'target_phase' in st.session_state and st.session_state.target_phase:
+    st.session_state.current_phase_label = st.session_state.target_phase
+    st.session_state.target_phase = None
 
 phase = st.radio("Workflow Phase", 
                  ["Phase 1: Scoping & Charter", 
