@@ -1004,25 +1004,34 @@ if "Phase 1" in phase:
         last_key = st.session_state.get('last_criteria_key', '')
         
         if cond_input and setting_input and curr_key != last_key:
-             with st.spinner("Auto-generating inclusion/exclusion criteria..."):
-                prompt = f"Act as a CMO. For clinical condition '{cond_input}' in setting '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return a JSON object with keys: 'inclusion', 'exclusion'."
+
+            with st.spinner("Auto-generating inclusion/exclusion criteria..."):
+                prompt = f"""
+                Act as a Chief Medical Officer. For the clinical pathway on '{cond_input}' in the setting '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria for clinical workflow (NOT for research studies).
+
+                CRITICAL INSTRUCTIONS:
+                - Do NOT use research or study language (e.g., 'study protocol', 'enrollment', 'informed consent', 'randomization', 'investigator').
+                - Focus on real-world clinical criteria for patient selection and pathway entry/exit (e.g., 'Adults age 18+', 'Presenting with flank pain', 'No known allergy to contrast', 'Pregnant patients excluded').
+                - Use concise, clinically relevant language that would make sense to a practicing clinician.
+                - Return a JSON object with keys: 'inclusion', 'exclusion'.
+                """
                 data = get_gemini_response(prompt, json_mode=True)
                 if data:
                     inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
                     exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
-                    
+
                     def fmt_item(x):
                         if isinstance(x, dict): return ": ".join([str(v) for v in x.values() if v])
                         return str(x)
 
                     inc_text = "\n".join([f"- {fmt_item(x)}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
                     exc_text = "\n".join([f"- {fmt_item(x)}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
-                    
+
                     st.session_state.data['phase1']['inclusion'] = inc_text
                     st.session_state.data['phase1']['exclusion'] = exc_text
                     st.session_state['p1_inc'] = inc_text
                     st.session_state['p1_exc'] = exc_text
-                    
+
                     st.session_state['last_criteria_key'] = curr_key
                     st.rerun()
 
