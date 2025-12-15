@@ -2,7 +2,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
-import graphviz
 import urllib.request
 import urllib.parse
 import json
@@ -273,7 +272,6 @@ with st.sidebar:
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password", help="Paste your key from Google AI Studio")
     
     # Default to Auto for best performance
-    # User specified models: gemini 2.5 flash, gemini 2.5 flash lite, gemini-2.5-flash-tts, gemini-robotics-er-1.5-preview
     model_options = ["Auto", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-tts", "gemini-robotics-er-1.5-preview"]
     model_choice = st.selectbox("AI Agent Model", model_options, index=0)
     
@@ -367,11 +365,11 @@ if "auto_run" not in st.session_state:
 # 3. HELPER FUNCTIONS
 # ==========================================
 def styled_info(text):
-    """Custom info box with Pink background and Dark Red text."""
+    """Custom info box with Pink background and Black text."""
     # Convert markdown bold to HTML bold for correct rendering inside div
     formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     st.markdown(f"""
-    <div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
+    <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
         {formatted_text}
     </div>
     """, unsafe_allow_html=True)
@@ -395,15 +393,6 @@ def create_word_docx(content_text):
         doc = Document()
     except NameError:
         return None # Library not loaded
-
-    # Logo removed per user request
-    # if os.path.exists("CarePathIQ_Logo.png"):
-    #     try:
-    #         doc.add_picture("CarePathIQ_Logo.png", width=DocxInches(2.0))
-    #         last_paragraph = doc.paragraphs[-1] 
-    #         last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    #     except Exception:
-    #         pass
 
     doc.add_heading('Clinical Pathway: Beta Testing Guide', 0)
     
@@ -616,17 +605,15 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
     
     # Define fallback hierarchy
-    # If Auto is selected, prioritize Flash models for speed
     if model_choice == "Auto":
         candidates = [
             "gemini-2.5-flash", 
             "gemini-2.5-flash-lite",
-            "gemini-1.5-flash", # Added for speed/stability
+            "gemini-1.5-flash", 
             "gemini-robotics-er-1.5-preview",
             "gemini-2.5-flash-tts"
         ]
     else:
-        # User selected specific model, try that first, then fallbacks
         candidates = [
             model_choice,
             "gemini-2.5-flash",
@@ -646,31 +633,25 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             # Relaxed safety for medical terms
             safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
             
-            # Minimal sleep on retries to keep momentum
+            # Minimal sleep on retries
             if i > 0: time.sleep(0.1) 
             
-            # Enable streaming if container provided
             is_stream = stream_container is not None
             response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
             
             if response:
-                if model_choice == "Auto" and i > 0:
-                    # Optional: Log which model was actually used in Auto mode if not the first
-                    pass 
-                elif model_choice != "Auto" and model_name != model_choice:
+                if model_choice != "Auto" and model_name != model_choice:
                     st.toast(f"Switched to {model_name} (auto-fallback)")
-                break # Success
+                break 
         except Exception as e:
-            # Prioritize keeping 429 errors (Quota Exceeded) over 404s (Not Found)
             e_str = str(e)
             if "429" in e_str:
                 last_error = e
             elif last_error is None or "429" not in str(last_error):
                 last_error = e
-            continue # Try next model
+            continue 
 
     if not response:
-        # Final Hail Mary: Try standard 1.5 Flash directly instead of slow list_models()
         try:
             fallback_model = "gemini-1.5-flash"
             if fallback_model not in candidates:
@@ -691,7 +672,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         elif "404" in error_msg:
             st.error("**Model Not Found**: The selected AI model is not available in your region or API version.")
         elif "API_KEY_INVALID" in error_msg or "400" in error_msg:
-            st.error("API Key Error: The provided Google Gemini API Key is invalid. Please check for typos or extra spaces, or generate a new key at Google AI Studio.")
+            st.error("API Key Error: The provided Google Gemini API Key is invalid.")
         else:
             st.error(f"AI Error: All models failed. Last error: {error_msg}")
         return None
@@ -703,47 +684,27 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
                 if chunk.text:
                     text += chunk.text
                     stream_container.markdown(text + "▌")
-            stream_container.markdown(text) # Final render without cursor
+            stream_container.markdown(text) 
         else:
             text = response.text
             
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
-            # Robust JSON extraction via regex
             match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
             if match:
                 text = match.group()
             
-            # Attempt to fix common JSON errors (like invalid escapes)
             try:
                 return json.loads(text)
             except json.JSONDecodeError:
-                # Fallback: Escape backslashes that aren't already escaped
-                # This is a simple heuristic to fix things like "C:\Path" -> "C:\\Path"
-                # But we must be careful not to double escape valid escapes like \n or \"
                 try:
-                    # Regex to find backslashes that are NOT followed by valid escape chars
-                    # Valid JSON escapes: ", \, /, b, f, n, r, t, uXXXX
-                    # We want to escape \ that is NOT one of these.
-                    # This is complex, so a simpler approach is often to just use a permissive parser or try to strip bad chars.
-                    # Let's try a simple replace of single backslash with double, but this breaks valid escapes.
-                    
-                    # Better approach: Use a raw string cleanup or just try to ignore strictness if possible (not in std lib).
-                    # Let's try to just strip invalid escapes if they are causing issues, or use a library if available (we don't have one).
-                    
-                    # Specific fix for the error "Invalid \escape":
-                    # Often caused by LaTeX like \frac or file paths.
-                    # Let's try to escape backslashes that look like they are part of text.
+                    # Fix escapes
                     cleaned_text = text.replace('\\', '\\\\') 
-                    # But wait, this breaks \n -> \\n which is not a newline anymore.
-                    
-                    # Let's try a different strategy: If standard load fails, try `eval` (dangerous but effective for Python-like dicts)
-                    # ONLY if it looks safe-ish.
                     import ast
                     return ast.literal_eval(text)
                 except:
                     pass
-                raise # Re-raise original error if fallback fails
+                raise 
         return text
     except Exception as e:
         st.error(f"Parsing Error: {e}")
@@ -753,9 +714,7 @@ def search_pubmed(query):
     """Real PubMed API Search with Abstracts."""
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
-        # 1. ESearch to get IDs
-        # Increased retmax to 30 to get more results, sorted by relevance
-        # Added date filter for last 5 years
+        # 1. ESearch
         search_params = {
             'db': 'pubmed', 
             'term': f"{query} AND (\"last 5 years\"[dp])", 
@@ -770,7 +729,7 @@ def search_pubmed(query):
         
         if not id_list: return []
         
-        # 2. EFetch to get details (XML)
+        # 2. EFetch
         ids_str = ','.join(id_list)
         fetch_params = {'db': 'pubmed', 'id': ids_str, 'retmode': 'xml'}
         url = base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)
@@ -781,14 +740,12 @@ def search_pubmed(query):
         # 3. Parse XML
         root = ET.fromstring(xml_data)
         citations = []
-        pmc_map = {} # Map PMC ID to citation index
+        pmc_map = {} 
         
         for article in root.findall('.//PubmedArticle'):
             try:
                 medline = article.find('MedlineCitation')
                 article_data = medline.find('Article')
-                
-                # ID
                 pmid = medline.find('PMID').text
                 
                 # Check for PMC ID
@@ -802,10 +759,8 @@ def search_pubmed(query):
                                 pmc_id = aid.text
                                 break
                 
-                # Title
                 title = article_data.find('ArticleTitle').text
                 
-                # Abstract
                 abstract_text = "No abstract available."
                 abstract = article_data.find('Abstract')
                 if abstract is not None:
@@ -813,7 +768,6 @@ def search_pubmed(query):
                     if abstract_texts:
                         abstract_text = " ".join(abstract_texts)
                 
-                # Authors
                 author_list = article_data.find('AuthorList')
                 first_author = "Unknown"
                 if author_list is not None and len(author_list) > 0:
@@ -821,7 +775,6 @@ def search_pubmed(query):
                     if last_name is not None:
                         first_author = last_name.text
                 
-                # Journal/Source
                 journal = article_data.find('Journal')
                 source = "Journal"
                 if journal is not None:
@@ -829,7 +782,6 @@ def search_pubmed(query):
                     if title_elem is not None:
                         source = title_elem.text
                 
-                # Date
                 pubdate = journal.find('JournalIssue').find('PubDate')
                 year = "No Date"
                 if pubdate is not None:
@@ -837,7 +789,6 @@ def search_pubmed(query):
                     if year_elem is not None:
                         year = year_elem.text
                     else:
-                        # Try MedlineDate
                         medline_date = pubdate.find('MedlineDate')
                         if medline_date is not None:
                             year = medline_date.text[:4]
@@ -848,8 +799,8 @@ def search_pubmed(query):
                     "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
                     "citation": f"{title} by {first_author} ({source}, {year})",
                     "abstract": abstract_text,
-                    "full_text": None, # Placeholder
-                    "grade": "Un-graded" # Placeholder for AI
+                    "full_text": None,
+                    "grade": "Un-graded"
                 }
                 
                 citations.append(citation_obj)
@@ -859,47 +810,33 @@ def search_pubmed(query):
             except Exception as e:
                 continue
         
-        # 4. Fetch Full Text from PMC if available
+        # 4. Fetch Full Text
         if pmc_map:
             try:
-                # Extract numeric IDs for PMC fetch (remove 'PMC' prefix if present)
                 pmc_ids_clean = [pid.replace('PMC', '') for pid in pmc_map.keys()]
                 pmc_ids_str = ','.join(pmc_ids_clean)
-                
                 pmc_url = base_url + "efetch.fcgi?" + urllib.parse.urlencode({'db': 'pmc', 'id': pmc_ids_str, 'retmode': 'xml'})
-                
                 with urllib.request.urlopen(pmc_url) as response:
                     pmc_xml = response.read().decode()
                 
                 pmc_root = ET.fromstring(pmc_xml)
                 
                 for article in pmc_root.findall('.//article'):
-                    # Find the PMC ID in this article to match back
                     current_pmc_id = None
                     for aid in article.findall('.//article-id'):
                         if aid.get('pub-id-type') == 'pmc':
-                            current_pmc_id = "PMC" + aid.text # Standardize to PMC prefix
+                            current_pmc_id = "PMC" + aid.text 
                             break
                     
                     if current_pmc_id and current_pmc_id in pmc_map:
-                        # Extract Body Text
                         body = article.find('body')
                         if body is not None:
-                            # Naive text extraction: get all text from body
-                            # itertext() is useful here
                             full_text = "".join(body.itertext())
-                            # Truncate if excessively long to prevent memory issues (e.g. 50k chars)
                             if len(full_text) > 50000:
                                 full_text = full_text[:50000] + "... [Truncated]"
-                            
                             citations[pmc_map[current_pmc_id]]['full_text'] = full_text
-                            
-            except Exception as e:
-                # Fail silently on full text fetch, keep abstracts
-                print(f"PMC Fetch Error: {e}")
+            except Exception:
                 pass
-                
-        return citations
                 
         return citations
     except Exception as e:
@@ -913,7 +850,6 @@ st.title("CarePathIQ AI Agent")
 st.markdown(f"### Intelligently Build and Deploy Clinical Pathways")
 
 if not gemini_api_key:
-    # DARK BROWN SOLID WELCOME BOX
     st.markdown("""
     <div style="
         background-color: #5D4037; 
@@ -928,7 +864,7 @@ if not gemini_api_key:
     st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
     st.stop()
 
-# --- NAVIGATION HANDLER (Must be before st.radio) ---
+# --- NAVIGATION HANDLER ---
 if 'target_phase' in st.session_state and st.session_state.target_phase:
     st.session_state.current_phase_label = st.session_state.target_phase
     st.session_state.target_phase = None
@@ -952,8 +888,6 @@ if "Phase 1" in phase:
     
     col1, col2 = st.columns([1, 1])
     
-    # --- 1. INITIALIZE WIDGET STATE ---
-    # Helper to sync widget state to data store
     def sync_p1_widgets():
         st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
         st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
@@ -961,12 +895,9 @@ if "Phase 1" in phase:
         st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
         st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
-        
-        # Invalidate Phase 2 so it regenerates based on new Phase 1 data
         st.session_state.auto_run["p2_pico"] = False
         st.session_state.auto_run["p2_query"] = False
 
-    # Initialize keys if missing
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
@@ -974,57 +905,31 @@ if "Phase 1" in phase:
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
-    # INSTRUCTIONAL BANNER
     styled_info("**Workflow Tip:** This form is interactive. The AI agent will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI agent will use your edits to generate the next section and the final Project Charter.")
 
     with col1:
-        # CLINICAL CONDITION
         st.subheader("1. Clinical Focus")
-        cond_input = st.text_input(
-            "Clinical Condition", 
-            placeholder="e.g. Sepsis", 
-            key="p1_cond_input",
-            on_change=sync_p1_widgets
-        )
+        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Sepsis", key="p1_cond_input", on_change=sync_p1_widgets)
+        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
         
-        # CARE SETTING (Moved Up)
-        setting_input = st.text_input(
-            "Care Setting", 
-            placeholder="e.g. Emergency Department",
-            key="p1_setting", 
-            on_change=sync_p1_widgets
-        )
-        
-        # TARGET POPULATION
         st.subheader("2. Target Population")
-        
-        # AUTO-GENERATE CRITERIA (Replaces Button)
-        # Trigger only if both inputs are present and we haven't run for this combo yet
         curr_key = f"{cond_input}|{setting_input}"
         last_key = st.session_state.get('last_criteria_key', '')
         
         if cond_input and setting_input and curr_key != last_key:
-
             with st.spinner("Auto-generating inclusion/exclusion criteria..."):
                 prompt = f"""
-                Act as a Chief Medical Officer. For the clinical pathway on '{cond_input}' in the setting '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria for clinical workflow (NOT for research studies).
-
-                CRITICAL INSTRUCTIONS:
-                - Do NOT use research or study language (e.g., 'study protocol', 'enrollment', 'informed consent', 'randomization', 'investigator').
-                - Focus on real-world clinical criteria for patient selection and pathway entry/exit (e.g., 'Adults age 18+', 'Presenting with flank pain', 'No known allergy to contrast', 'Pregnant patients excluded').
-                - Do NOT automatically exclude patients who are critically ill or have red flag signs; these patients should be included in the pathway with appropriate steps for escalation, stabilization, or urgent management.
-                - Use concise, clinically relevant language that would make sense to a practicing clinician.
-                - Return a JSON object with keys: 'inclusion', 'exclusion'.
+                Act as a Chief Medical Officer. For the clinical pathway on '{cond_input}' in the setting '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria for clinical workflow.
+                Use concise, clinically relevant language.
+                Return JSON with keys: 'inclusion', 'exclusion'.
                 """
                 data = get_gemini_response(prompt, json_mode=True)
                 if data:
                     inc_raw = data.get('inclusion') or data.get('Inclusion') or ''
                     exc_raw = data.get('exclusion') or data.get('Exclusion') or ''
-
                     def fmt_item(x):
                         if isinstance(x, dict): return ": ".join([str(v) for v in x.values() if v])
                         return str(x)
-
                     inc_text = "\n".join([f"- {fmt_item(x)}" for x in inc_raw]) if isinstance(inc_raw, list) else str(inc_raw)
                     exc_text = "\n".join([f"- {fmt_item(x)}" for x in exc_raw]) if isinstance(exc_raw, list) else str(exc_raw)
 
@@ -1032,7 +937,6 @@ if "Phase 1" in phase:
                     st.session_state.data['phase1']['exclusion'] = exc_text
                     st.session_state['p1_inc'] = inc_text
                     st.session_state['p1_exc'] = exc_text
-
                     st.session_state['last_criteria_key'] = curr_key
                     st.rerun()
 
@@ -1040,11 +944,7 @@ if "Phase 1" in phase:
         st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
         
     with col2:
-        # CONTEXT
         st.subheader("3. Clinical Gap / Problem Statement")
-        
-        # AUTO-GENERATE PROBLEM (Replaces Button)
-        # Trigger if Inclusion/Exclusion are present and we haven't run for this combo
         curr_inc = st.session_state.get('p1_inc', '')
         curr_exc = st.session_state.get('p1_exc', '')
         curr_cond = st.session_state.get('p1_cond_input', '')
@@ -1055,12 +955,10 @@ if "Phase 1" in phase:
         
         if curr_inc and curr_exc and curr_cond and curr_prob_key != last_prob_key:
              with st.spinner("Auto-generating problem statement..."):
-                prompt = f"Act as a CMO. For condition '{curr_cond}' in setting '{curr_setting}' with inclusion '{curr_inc}', suggest a 'problem' statement (clinical gap). The statement MUST explicitly reference variation in current management and the need for care standardization. Return JSON with key: 'problem'."
+                prompt = f"Act as a CMO. For condition '{curr_cond}' in setting '{curr_setting}', suggest a 'problem' statement. Return JSON with key: 'problem'."
                 data = get_gemini_response(prompt, json_mode=True)
                 if data:
-                    problem_raw = data.get('problem') or data.get('Problem') or ''
-                    problem_text = str(problem_raw)
-                    
+                    problem_text = str(data.get('problem', ''))
                     st.session_state.data['phase1']['problem'] = problem_text
                     st.session_state['p1_prob'] = problem_text
                     st.session_state['last_prob_key'] = curr_prob_key
@@ -1068,24 +966,18 @@ if "Phase 1" in phase:
 
         st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
         
-        # OBJECTIVES
         st.subheader("4. Goals")
-        
-        # AUTO-GENERATE OBJECTIVES (Replaces Button)
-        # Trigger if Problem is present and we haven't run for this combo
         curr_prob = st.session_state.get('p1_prob', '')
-        
         curr_obj_key = f"{curr_prob}|{curr_cond}"
         last_obj_key = st.session_state.get('last_obj_key', '')
         
         if curr_prob and curr_cond and curr_obj_key != last_obj_key:
              with st.spinner("Auto-generating SMART objectives..."):
-                prompt = f"Act as a CMO. For condition '{curr_cond}' in the '{curr_setting}' setting, addressing problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON with key 'objectives' (list of strings)."
+                prompt = f"Act as a CMO. Suggest 3 SMART 'objectives'. Return JSON with key 'objectives' (list of strings)."
                 data = get_gemini_response(prompt, json_mode=True)
                 if data:
                     objs = data.get('objectives', [])
                     obj_text = "\n".join([f"- {g}" for g in objs]) if isinstance(objs, list) else str(objs)
-                    
                     st.session_state.data['phase1']['objectives'] = obj_text
                     st.session_state['p1_obj'] = obj_text
                     st.session_state['last_obj_key'] = curr_obj_key
@@ -1095,29 +987,15 @@ if "Phase 1" in phase:
 
     st.divider()
 
-    # --- 5. PROJECT SCHEDULE (GANTT CHART) ---
     st.subheader("5. Project Schedule (Gantt Chart)")
-    
-    # Initialize Default Schedule if missing
     if 'schedule' not in st.session_state.data['phase1'] or not st.session_state.data['phase1']['schedule']:
         today = date.today()
-        
-        # Helper for date math
-        def add_weeks(start_d, w):
-            return start_d + timedelta(weeks=w)
-            
-        # Realistic Timeline Calculation
-        # Phase 1: 2 weeks
+        def add_weeks(start_d, w): return start_d + timedelta(weeks=w)
         d1_end = add_weeks(today, 2)
-        # Phase 2: 4 weeks
         d2_end = add_weeks(d1_end, 4)
-        # Phase 3: 12 weeks (3 months) - Analysis/Design
         d3_end = add_weeks(d2_end, 12)
-        # Phase 4: 8 weeks - Improvement/Pilot
         d4_end = add_weeks(d3_end, 8)
-        # Phase 5: 4 weeks - Control
         d5_end = add_weeks(d4_end, 4)
-        # Phase 6: 2 weeks - Close
         d6_end = add_weeks(d5_end, 2)
         
         st.session_state.data['phase1']['schedule'] = [
@@ -1129,19 +1007,15 @@ if "Phase 1" in phase:
             {"Phase": "Close Out & Summary", "Owner": "Project Sponsor", "Start": d5_end, "End": d6_end},
         ]
 
-    # Reset Button
     if st.button("Reset Schedule to Defaults", key="reset_schedule"):
-        st.session_state.data['phase1']['schedule'] = [] # Clear to trigger re-init
+        st.session_state.data['phase1']['schedule'] = []
         st.rerun()
 
-    # Editable Dataframe
     df_schedule = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    
-    # Ensure date columns are datetime objects for the editor
     df_schedule['Start'] = pd.to_datetime(df_schedule['Start']).dt.date
     df_schedule['End'] = pd.to_datetime(df_schedule['End']).dt.date
 
-    styled_info("**Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below. The Gantt chart visualization will update automatically to reflect your changes.")
+    styled_info("**Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below.")
 
     edited_schedule = st.data_editor(
         df_schedule,
@@ -1156,12 +1030,9 @@ if "Phase 1" in phase:
         key="gantt_editor"
     )
     
-    # Save edits back to session state
     st.session_state.data['phase1']['schedule'] = edited_schedule.to_dict('records')
 
-    # Interactive Gantt Chart (Altair)
     if not edited_schedule.empty:
-        # Convert back to datetime for Altair
         chart_data = edited_schedule.copy()
         chart_data['Start'] = pd.to_datetime(chart_data['Start'])
         chart_data['End'] = pd.to_datetime(chart_data['End'])
@@ -1172,21 +1043,13 @@ if "Phase 1" in phase:
             y=alt.Y('Phase', sort=None, title=None),
             color=alt.Color('Owner', legend=alt.Legend(title="Owner")),
             tooltip=['Phase', 'Start', 'End', 'Owner']
-        ).properties(
-            title="Project Timeline",
-            height=300
-        ).interactive()
+        ).properties(title="Project Timeline", height=300).interactive()
         
         st.altair_chart(chart, use_container_width=True)
 
     st.divider()
 
-    # --- GENERATE CHARTER ---
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
-        
-        # 1. CRITICAL: SYNC WIDGET VALUES TO DATA STORE
-        # This forces the app to look at what you *just typed* (the widget state keys)
-        # rather than the old dictionary values.
         st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
         st.session_state.data['phase1']['inclusion'] = st.session_state.p1_inc
         st.session_state.data['phase1']['exclusion'] = st.session_state.p1_exc
@@ -1194,10 +1057,8 @@ if "Phase 1" in phase:
         st.session_state.data['phase1']['problem'] = st.session_state.p1_prob
         st.session_state.data['phase1']['objectives'] = st.session_state.p1_obj
 
-        # Retrieve fresh values
         d = st.session_state.data['phase1']
         
-        # Prepare prompt values (handle empty strings to prevent hallucination)
         p_cond = d['condition'] if d['condition'] else "Not specified"
         p_prob = d['problem'] if d['problem'] else "Not specified"
         p_set = d['setting'] if d['setting'] else "Not specified"
@@ -1210,105 +1071,45 @@ if "Phase 1" in phase:
         else:
             with st.status("AI Agent drafting Project Charter...", expanded=True) as status:
                 st.write("Initializing PMP Agent...")
+                today_str = date.today().strftime("%B %d, %Y")
                 
-                # Get Today's Date for the Prompt
-                today = date.today()
-                today_str = today.strftime("%B %d, %Y")
-                
-                # Format Schedule for Prompt
                 schedule_list = st.session_state.data['phase1']['schedule']
                 schedule_str = ""
                 for item in schedule_list:
-                    s_date = item['Start'].strftime("%B %d, %Y") if isinstance(item['Start'], date) else str(item['Start'])
-                    e_date = item['End'].strftime("%B %d, %Y") if isinstance(item['End'], date) else str(item['End'])
+                    s_date = str(item['Start'])
+                    e_date = str(item['End'])
                     schedule_str += f"- {item['Phase']} (Start: {s_date}, End: {e_date}, Owner: {item['Owner']})\n"
 
-                # Professional Prompt
                 prompt = f"""
-                Act as a certified Project Management Professional (PMP) in Healthcare. 
-                Create a formal **Project Charter** for a Clinical Pathway initiative.
+                Act as a PMP. Create a Project Charter.
+                Data:
+                - Initiative: {p_cond}
+                - Gap: {p_prob}
+                - Setting: {p_set}
+                - In Scope: {p_inc}
+                - Out of Scope: {p_exc}
+                - Objectives: {p_obj}
+                - Schedule: {schedule_str}
                 
-                **Use strictly this data (do not hallucinate criteria I deleted). If a field is 'None', state 'None' or leave blank in the charter:**
-                - **Initiative:** {p_cond}
-                - **Clinical Gap:** {p_prob}
-                - **Care Setting:** {p_set}
-                - **In Scope (Inclusion):** {p_inc}
-                - **Out of Scope (Exclusion):** {p_exc}
-                - **Objectives:** {p_obj}
-                - **Date Created:** {today_str}
-                
-                **Output Format:** HTML Body Only.
-                **Structure:** Use the following best-practice Clinical Pathway Project Charter template as your guide. 
-                Organize the content into a clean, professional HTML layout (using tables for the header, financials, and schedule):
-
-                1. **Project Header**: Project Name, Project Manager, Project Sponsor.
-                2. **Financials & Dates**: Estimated Costs, Expected Savings, Start Date, Completion Date.
-                3. **Project Overview**: 
-                    - Problem or Issue
-                    - Purpose of Project
-                    - Business Case
-                    - Goals / Metrics
-                    - Expected Deliverables
-                4. **Project Scope**: Within Scope vs Outside Scope.
-                5. **Tentative Schedule (Gantt Chart)**: A table representing a Gantt Chart with columns [Key Milestone | Owner | Start Date | End Date | Duration]. You MUST use these specific dates provided by the user:
-                      {schedule_str}
-                6. **Key Performance Indicators (KPIs)**: A table with columns [Metric | Definition | Target | Data Source | Owner]. Include relevant clinical, operational, and financial metrics.
-                
-                **Style Guide:**
-                - Use <h2> headers for sections.
-                - Ensure the tone is professional, concise, and persuasive.
-                - DO NOT use markdown code blocks (```). Just return the HTML.
+                Output HTML Body Only. Use <h2> headers. Professional tone.
                 """
                 
                 st.write("Generating content sections...")
                 charter_content = get_gemini_response(prompt)
-                
-                st.write("Formatting document...")
                 charter_content = charter_content.replace('```html', '').replace('```', '').strip()
                 
-                # Logo removed per user request
-                logo_html = ""
-                # if os.path.exists("CarePathIQ_Logo.png"):
-                #     with open("CarePathIQ_Logo.png", "rb") as img_file:
-                #         b64_logo = base64.b64encode(img_file.read()).decode()
-                #         logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="width:150px; display:block; margin-bottom:20px;">'
-
-                # Professional HTML Wrapper with BLACK FONT enforcement
                 word_html = f"""
                 <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'>
-                <head>
-                    <meta charset="utf-8">
-                    <style>
-                        /* Force Black Text for everything */
-                        body {{ font-family: 'Arial', sans-serif; font-size: 11pt; line-height: 1.5; color: #000000 !important; }}
-                        h1 {{ color: #000000 !important; font-size: 24pt; border-bottom: 2px solid #000000; padding-bottom: 10px; margin-bottom: 20px; }}
-                        h2 {{ color: #000000 !important; font-size: 14pt; margin-top: 25px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }}
-                        p, li, td, th {{ color: #000000 !important; }}
-                        
-                        /* Layout */
-                        table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
-                        td, th {{ border: 1px solid #000000; padding: 8px; vertical-align: top; }}
-                        th {{ background-color: #f2f2f2; font-weight: bold; text-align: left; }}
-                        .footer {{ margin-top: 50px; font-size: 9pt; color: #000000; text-align: center; border-top: 1px solid #000000; padding-top: 10px; }}
-                    </style>
-                </head>
+                <head><meta charset="utf-8"><style>body {{font-family:'Arial';}} h1{{border-bottom:2px solid #000;}} table{{width:100%;border-collapse:collapse;}} td,th{{border:1px solid #000;padding:8px;}} th{{background:#f2f2f2;}}</style></head>
                 <body>
-                    {logo_html}
                     <h1>Project Charter: {d['condition']} Pathway</h1>
                     <p><strong>Date Generated:</strong> {today_str}</p>
                     {charter_content}
-                    <div class="footer">
-                        Generated by CarePathIQ AI Agent | Confidential Internal Document
-                    </div>
-                </body>
-                </html>
+                </body></html>
                 """
                 status.update(label="Charter Generated Successfully!", state="complete", expanded=False)
-                status.update(label="Charter Generated Successfully!", state="complete", expanded=False)
-                
                 st.session_state['charter_doc'] = word_html
     
-    # DOWNLOAD BUTTON
     if 'charter_doc' in st.session_state:
         st.success("Charter Generated Successfully.")
         st.download_button(
@@ -1326,90 +1127,43 @@ if "Phase 1" in phase:
 # ------------------------------------------
 elif "Phase 2" in phase:
     
-    # --- A. AUTO-RUN: PICO & SEARCH GENERATION ---
-    # 1. SYNC PHASE 1 DATA (Fix for manual edits not propagating)
-    # We check if the widget keys exist in session_state (meaning user visited Phase 1)
-    # and update the data dictionary before proceeding.
     if 'p1_cond_input' in st.session_state: st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
-    if 'p1_inc' in st.session_state: st.session_state.data['phase1']['inclusion'] = st.session_state.p1_inc
-    if 'p1_exc' in st.session_state: st.session_state.data['phase1']['exclusion'] = st.session_state.p1_exc
-    if 'p1_setting' in st.session_state: st.session_state.data['phase1']['setting'] = st.session_state.p1_setting
-    if 'p1_prob' in st.session_state: st.session_state.data['phase1']['problem'] = st.session_state.p1_prob
-    if 'p1_obj' in st.session_state: st.session_state.data['phase1']['objectives'] = st.session_state.p1_obj
-
-    p1_cond = st.session_state.data['phase1']['condition']
-    
-    # Only run if condition exists and we haven't run PICO yet
-    # --- A. AUTO-RUN: SEARCH STRATEGY ---
-    # Trigger only if we have a condition and haven't run yet
     p1_cond = st.session_state.data['phase1'].get('condition', '')
     
-    # QUERY GENERATION & AUTO-SEARCH (Directly from Phase 1)
     if p1_cond:
-        # 1. Generate Query if missing
         if not st.session_state.data['phase2'].get('mesh_query'):
             with st.spinner("AI Agent drafting Search Query..."):
-                # Retrieve Phase 1 context
                 setting = st.session_state.data['phase1'].get('setting', '')
-
                 prompt_mesh = f"""
                 Construct a PubMed search query.
-                
-                The query MUST strictly follow this format:
-                "guidelines for managing patients with [Condition] in [Setting]"
-                
-                Use these values:
-                - Condition: {p1_cond}
-                - Setting: {setting}
-                
-                Example: "guidelines for managing patients with Sepsis in Emergency Department"
-                
-                OUTPUT FORMAT:
-                - Return ONLY the raw query string.
-                - Do NOT use markdown blocks.
+                Format: "guidelines for managing patients with {p1_cond} in {setting}"
+                OUTPUT FORMAT: Return ONLY the raw query string.
                 """
                 raw_query = get_gemini_response(prompt_mesh)
-                
-                # Clean the query string to prevent broken links
                 if raw_query:
-                    clean_query = raw_query.replace('```', '').replace('\n', ' ').strip()
-                    st.session_state.data['phase2']['mesh_query'] = clean_query
+                    st.session_state.data['phase2']['mesh_query'] = raw_query.replace('```', '').replace('\n', ' ').strip()
                     st.rerun()
 
         search_q = st.session_state.data['phase2'].get('mesh_query', '')
 
-        # 2. Auto-Search if evidence is empty and we have a query
-        # We use a flag 'p2_search_done' to prevent infinite loops if no results are found
         if search_q and not st.session_state.data['phase2']['evidence'] and not st.session_state.auto_run.get("p2_search_done", False):
              with st.spinner("Fetching PubMed results..."):
                 results = search_pubmed(search_q)
                 if results:
                     st.session_state.data['phase2']['evidence'].extend(results)
-                    st.session_state.auto_run["p2_grade"] = False # Trigger grade
+                    st.session_state.auto_run["p2_grade"] = False 
                     st.session_state.auto_run["p2_search_done"] = True
                     st.rerun()
                 else:
                     st.warning("No results found.")
-                    st.session_state.auto_run["p2_search_done"] = True # Prevent loop
+                    st.session_state.auto_run["p2_search_done"] = True 
 
-    # --- UI: TOP BAR ---
     search_q = st.session_state.data['phase2'].get('mesh_query', '')
     if search_q:
-        # PubMed Link Button (Safe Logic)
         encoded_query = urllib.parse.quote(search_q.strip())
-        
-        # Add "Last 5 Years" filter
-        today = date.today()
-        five_years_ago = today - timedelta(days=5*365)
-        start_str = five_years_ago.strftime('%Y/%m/%d')
-        end_str = today.strftime('%Y/%m/%d')
-        filter_val = f"dates.{start_str}-{end_str}"
-        encoded_filter = urllib.parse.quote(filter_val)
-        
-        pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}&filter={encoded_filter}"
+        pubmed_url = f"[https://pubmed.ncbi.nlm.nih.gov/?term=](https://pubmed.ncbi.nlm.nih.gov/?term=){encoded_query}"
         st.link_button("Open in PubMed ↗", pubmed_url, type="primary")
 
-    # --- D. AUTO-RUN: GRADE ANALYSIS ---
     evidence_list = st.session_state.data['phase2']['evidence']
     
     if evidence_list and not st.session_state.auto_run["p2_grade"]:
@@ -1417,63 +1171,31 @@ elif "Phase 2" in phase:
             st.write("Preparing citations for analysis...")
             titles = [f"ID {e['id']}: {e['title']}" for e in evidence_list]
             
-            # ENHANCED PROMPT BASED ON GRADE
             prompt = f"""
-            Act as a Clinical Methodologist applying the GRADE framework.
-            Analyze the following citations.
-            
-            For each citation, assign a Grade from these EXACT options: 
-            - "High (A)"
-            - "Moderate (B)"
-            - "Low (C)"
-            - "Very Low (D)"
-            
-            CRITICAL: You must determine the grade based on these specific factors:
-            1. Downgrade for: Risk of Bias, Inconsistency, Indirectness, Imprecision, Publication Bias.
-            2. Upgrade (if observational) for: Large Effect, Dose-Response, Plausible Bias direction.
-            
-            Citations to analyze: {json.dumps(titles)}
-            
-            Return a JSON object where keys are the PubMed IDs and values are objects containing 'grade' and 'rationale'.
-            Example format:
-            {{
-            "12345": {{
-                "grade": "Moderate (B)",
-                "rationale": "Downgraded for imprecision (small sample); Upgraded for large effect size."
-            }}
-            }}
+            Act as a Clinical Methodologist applying GRADE.
+            For each citation: {json.dumps(titles)}
+            Assign a Grade: "High (A)", "Moderate (B)", "Low (C)", "Very Low (D)".
+            Return JSON object: {{ "ID": {{ "grade": "...", "rationale": "..." }} }}
             """
             
-            st.write("Connecting to Gemini AI...")
             grade_data = get_gemini_response(prompt, json_mode=True)
-            
-            st.write("Processing results...")
             if isinstance(grade_data, dict):
                 for e in st.session_state.data['phase2']['evidence']:
                     if e['id'] in grade_data:
                         entry = grade_data[e['id']]
-                        if isinstance(entry, dict):
-                            e['grade'] = entry.get('grade', 'Un-graded')
-                            e['rationale'] = entry.get('rationale', 'No rationale provided.')
-                        else:
-                            e['grade'] = str(entry)
-                            e['rationale'] = "AI generated score."
+                        e['grade'] = entry.get('grade', 'Un-graded')
+                        e['rationale'] = entry.get('rationale', 'AI generated.')
                 
                 st.session_state.auto_run["p2_grade"] = True
                 status.update(label="Evaluation Complete!", state="complete", expanded=False)
                 st.rerun()
 
-    # --- E. EVIDENCE TABLE ---
     if evidence_list:
         st.markdown("### Evidence Table")
         
-        # Filter & Clear
-        all_grades = ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]
-        default_grades = ["High (A)", "Moderate (B)", "Low (C)", "Un-graded"]
-        
         col_filter, col_clear = st.columns([3, 1])
         with col_filter:
-            selected_grades = st.multiselect("Filter by GRADE:", options=all_grades, default=default_grades)
+            selected_grades = st.multiselect("Filter by GRADE:", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"])
         with col_clear:
             if st.button("Clear Evidence List", key="clear_ev"):
                 st.session_state.data['phase2']['evidence'] = []
@@ -1481,59 +1203,28 @@ elif "Phase 2" in phase:
                 st.rerun()
 
         df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
-        
-        # Ensure columns exist
         if 'rationale' not in df.columns: df['rationale'] = ""
         if 'grade' not in df.columns: df['grade'] = "Un-graded"
         
-        # Remove "Supporting Evidence" column from Phase 2 display
-        if 'Supporting Evidence' in df.columns:
-            df = df.drop(columns=['Supporting Evidence'])
-            
-        # Apply Filter
         df_filtered = df[df['grade'].isin(selected_grades)]
-
-        grade_help = """
-        High (A): High confidence in effect estimate.
-        Moderate (B): Moderate confidence; true effect likely close.
-        Low (C): Limited confidence; true effect may differ.
-        Very Low (D): Very little confidence.
-        """
         
         edited_df = st.data_editor(df_filtered, column_config={
             "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
             "id": st.column_config.TextColumn("PMID", width="small", disabled=True),
             "url": st.column_config.LinkColumn("Link", disabled=True),
-            "grade": st.column_config.SelectboxColumn(
-                "GRADE", 
-                options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
-                help=grade_help, 
-                width="small",
-                required=True
-            ),
-            "rationale": st.column_config.TextColumn(
-                "GRADE Rationale",
-                help="Factors: Risk of Bias, Inconsistency, Indirectness, Imprecision",
-                width="large"
-            ),
-            "citation": st.column_config.TextColumn("Citation", disabled=True),
+            "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small", required=True),
+            "rationale": st.column_config.TextColumn("GRADE Rationale", width="large"),
         }, column_order=["id", "title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
         
-        # Save manual edits back to state (Merge Logic)
-        # We must merge edited rows back into the full dataset to avoid losing hidden rows
         edited_map = {str(row['id']): row for row in edited_df.to_dict('records')}
-        
         updated_evidence = []
         for row in st.session_state.data['phase2']['evidence']:
             rid = str(row['id'])
-            if rid in edited_map:
-                updated_evidence.append(edited_map[rid])
-            else:
-                updated_evidence.append(row)
+            if rid in edited_map: updated_evidence.append(edited_map[rid])
+            else: updated_evidence.append(row)
         
         st.session_state.data['phase2']['evidence'] = updated_evidence
         
-        # CSV Download
         csv = edited_df.to_csv(index=False)
         export_widget(csv, "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
 
@@ -1544,92 +1235,25 @@ elif "Phase 2" in phase:
 # ------------------------------------------
 elif "Phase 3" in phase:
     
-    # AUTO-RUN: LOGIC DRAFT
     cond = st.session_state.data['phase1']['condition']
     evidence_list = st.session_state.data['phase2']['evidence']
     nodes_exist = len(st.session_state.data['phase3']['nodes']) > 0
     
     if cond and not nodes_exist and not st.session_state.auto_run["p3_logic"]:
          with st.status("AI Agent drafting decision tree...", expanded=True) as status:
+             titles = [e['title'] for e in evidence_list]
              
-             # Prepare Evidence Context
-             st.write("Analyzing Phase 2 Evidence...")
-             
-             def format_evidence_item(e):
-                 base = f"- ID {e['id']}: {e.get('title','')} (GRADE: {e.get('grade','Un-graded')})"
-                 content = ""
-                 if e.get('full_text'):
-                     content = f"\n  FULL TEXT (Truncated): {e['full_text'][:10000]}...\n"
-                 else:
-                     content = f"\n  ABSTRACT: {e.get('abstract', 'No abstract available.')}\n"
-                 return base + content
-
-             ev_context = "\n".join([format_evidence_item(e) for e in evidence_list])
-             
-             # ENHANCED PROMPT: BROADENED DEFINITIONS
-             st.write("Structuring Clinical Logic...")
              prompt = f"""
              Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
+             Evidence Titles: {json.dumps(titles)}
              
-             CRITICAL INSTRUCTION: Thoroughly read and analyze the evidence provided below. 
-             Where FULL TEXT is available, prioritize it for deep clinical nuance. Otherwise, use the ABSTRACT.
-             Ensure the decision tree is truly evidence-based and informed by the specific findings, recommendations, and guidelines presented in these texts.
-             
-             STRICT TEMPLATE RULES (Match the user's Visual Logic Language):
-             1. **Start**: Entry point (e.g., "Patient presents to ED").
-             2. **Decisions (Red Diamonds)**: Logic checkpoints. 
-                - **CRITICAL**: Integrate **validated clinical risk scores** (e.g., Wells, HEART, CURB-65, PSI, PECARN) wherever evidence supports them.
-                - Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High).
-             3. **Process (Yellow Box)**: High-Yield Clinical Actions. 
-                - **Concise but Detailed**: Use specific parameters but keep it brief.
-                - **Bad**: "Order Imaging", "Give Meds".
-                - **Good**: "CT KUB (Low Dose)", "Tamsulosin 0.4mg daily", "IV Fluids (2L NS)".
-                - **Constraint**: Max 6-8 words per label.
-             4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
-             5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
-             
-             **Multidisciplinary Roles:**
-             - Assign a **SINGLE primary "role"** to each step (e.g., "Triage Nurse", "ED Physician", "Specialist", "Pharmacist", "Admin").
-             - Avoid multiple owners for a single step to ensure clear accountability.
-
-             **Logic Structure Strategy (CRITICAL):**
-             - **Decisions**: Must have clear branches. For Binary: 'Yes'/'No'. For Risk: 'Low'/'Moderate'/'High' (or similar categories). Ensure process steps follow each specific branch.
-             - **Red Flags**: Should be represented as 'Notes' (Blue Wave) attached to relevant steps, OR as 'Decisions' (e.g., "Red flags present?") leading to different outcomes.
-             - **Flow**: Ensure a logical progression from Start to End.
-             
-             **Evidence Mapping:**
-             - For each step, if a specific piece of evidence from the list below supports it, include the "evidence_id" (e.g., "12345").
-             
-             Context Evidence:
-             {ev_context}
-             
-             Return a JSON List of objects: 
-             [{{
-                 "type": "Start" | "Decision" | "Process" | "Note" | "End", 
-                 "label": "Specific Action (e.g. 'CT KUB (Low Dose)')", 
-                 "detail": "Longer clinical detail/criteria",
-                 "role": "Role/Owner of this step",
-                 "evidence_id": "Optional PubMed ID string matching the provided list"
-             }}]
+             Create a logic flow with types: Start, Decision, Process, Note, End.
+             Return JSON List of objects: 
+             [{{ "type": "...", "label": "...", "detail": "...", "role": "...", "evidence_id": "..." }}]
              """
              
-             st.write("Mapping Evidence to Steps...")
              nodes = get_gemini_response(prompt, json_mode=True)
-             
              if isinstance(nodes, list):
-                 # Post-process to format evidence string for dropdown
-                 for n in nodes:
-                     eid = n.get('evidence_id')
-                     if eid:
-                         # Find matching evidence object
-                         match = next((e for e in evidence_list if str(e['id']) == str(eid)), None)
-                         if match:
-                             n['evidence'] = f"PMID: {match['id']}"
-                         else:
-                             n['evidence'] = None
-                     else:
-                         n['evidence'] = None
-
                  st.session_state.data['phase3']['nodes'] = nodes
                  st.session_state.auto_run["p3_logic"] = True
                  status.update(label="Decision Tree Drafted!", state="complete", expanded=False)
@@ -1640,70 +1264,22 @@ elif "Phase 3" in phase:
              st.session_state.data['phase3']['nodes'].append({"type": "Process", "label": "New Step", "detail": ""})
              st.rerun()
 
-    # DYNAMIC EVIDENCE DROPDOWN & EDITOR
     if not st.session_state.data['phase3']['nodes']:
          st.session_state.data['phase3']['nodes'] = [{"type":"Start", "label":"Triage", "detail":""}]
     
     df_nodes = pd.DataFrame(st.session_state.data['phase3']['nodes'])
-    
-    # Ensure columns exist
     if "detail" not in df_nodes.columns: df_nodes["detail"] = ""
     if "role" not in df_nodes.columns: df_nodes["role"] = "Unassigned"
     if "evidence" not in df_nodes.columns: df_nodes["evidence"] = None
 
-    # Prepare Evidence Options
-    evidence_options = []
-    if st.session_state.data['phase2']['evidence']:
-        evidence_options = [f"PMID: {e['id']}" for e in st.session_state.data['phase2']['evidence']]
-    
-    # COLOR-CODED TYPE DROPDOWN
-    type_options = ["Start", "Decision", "Process", "Note", "End"]
-    
     edited_nodes = st.data_editor(df_nodes, column_config={
-        "type": st.column_config.SelectboxColumn(
-            "Node Type", 
-            options=type_options, 
-            required=True,
-            help="Decision=Red Diamond, Process=Yellow Box, Note=Blue Wave, End=Green Oval",
-            width="medium"
-        ),
-        "label": st.column_config.TextColumn(
-            "Label (Flowchart)", 
-            help="Short text shown inside the shape",
-            width="medium"
-        ),
-        "role": st.column_config.TextColumn(
-            "Role / Owner", 
-            help="Who performs this step? (e.g. Nurse, MD, Admin)",
-            width="small"
-        ),
-        "detail": st.column_config.TextColumn(
-            "Clinical Detail / Criteria", 
-            help="Specifics (e.g. 'Serum Cr > 2.0', 'Failed PO trial')",
-            width="large"
-        ),
-        "evidence": st.column_config.SelectboxColumn(
-            "Supporting Evidence",
-            options=evidence_options,
-            help="Link to Phase 2 Evidence",
-            width="small"
-        ),
-        "evidence_id": None # Hide the raw ID column
+        "type": st.column_config.SelectboxColumn("Node Type", options=["Start", "Decision", "Process", "Note", "End"], required=True, width="medium"),
+        "label": st.column_config.TextColumn("Label", width="medium"),
+        "role": st.column_config.TextColumn("Role / Owner", width="small"),
+        "detail": st.column_config.TextColumn("Clinical Detail", width="large"),
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
     
-    # Sync evidence_id with evidence selection to maintain data integrity
-    updated_nodes = edited_nodes.to_dict('records')
-    for n in updated_nodes:
-        if n.get('evidence'):
-            # Extract ID from "PMID: 12345"
-            try:
-                n['evidence_id'] = str(n['evidence']).replace("PMID: ", "")
-            except:
-                pass
-        else:
-            n['evidence_id'] = None
-
-    st.session_state.data['phase3']['nodes'] = updated_nodes
+    st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
 
     render_bottom_navigation()
 
@@ -1713,307 +1289,171 @@ elif "Phase 3" in phase:
 elif "Phase 4" in phase:
     col1, col2 = st.columns([2, 1])
 
-    def phase4_editor():
-        with st.expander("Edit Pathway Data (Nodes & Roles)", expanded=False):
-            st.markdown("""
-<div style="background-color: #5D4037; color: white; padding: 10px 18px; border-radius: 6px; font-weight: bold; font-size: 1.1em; margin-bottom: 10px;">
-    Edit Pathway Data (Nodes & Roles)
-</div>
-<div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
-    Edit the table below to update the flowchart. <b>Gold Standard:</b> Keep labels concise (6-8 words) but clinically specific (e.g., 'CT KUB (Low Dose)' instead of 'CT Scan').
-</div>
-""", unsafe_allow_html=True)
-            # Re-use the editor logic from Phase 3 (simplified)
-            df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
-            if "role" not in df_p4.columns:
-                df_p4["role"] = "Unassigned"
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
-            st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
-            return st.session_state.data['phase3']['nodes']
+    def generate_mermaid_code(nodes, orientation="TD"):
+        code = f"graph {orientation}\n"
+        code += "    %% Node Definitions\n"
+        for i, n in enumerate(nodes):
+            nid = f"N{i}"
+            label = n.get('label', 'Step').replace('"', "'") 
+            ntype = n.get('type', 'Process')
+            if ntype == 'Start':
+                shape = f'({label})'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
+            elif ntype == 'End':
+                shape = f'([{label}])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
+            elif ntype == 'Decision':
+                shape = f'{{{label}}}'
+                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:#000'
+            elif ntype == 'Note':
+                shape = f'>"{label}"]' 
+                style = f'style {nid} fill:#DAE8FC,stroke:#6C8EBF,stroke-width:1px,color:#000,stroke-dasharray: 5 5'
+            else: 
+                shape = f'[{label}]'
+                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:#000'
+            code += f"    {nid}{shape}\n"
+            code += f"    {style}\n"
+            
+        code += "\n    %% Logic Flow\n"
+        for i, n in enumerate(nodes):
+            if i < len(nodes) - 1:
+                curr = f"N{i}"
+                next_n = f"N{i+1}"
+                ntype = n.get('type')
+                if ntype == 'Decision':
+                    code += f"    {curr} -->|Yes| {next_n}\n"
+                    if i + 2 < len(nodes):
+                        skip = f"N{i+2}"
+                        code += f"    {curr} -.->|No| {skip}\n"
+                        code += f"    linkStyle {i*2+1} stroke:red,stroke-width:2px,color:red;\n" 
+                elif ntype == 'Note':
+                    if i > 0:
+                        prev = f"N{i-1}"
+                        code += f"    {curr} -.- {prev}\n"
+                elif nodes[i+1].get('type') == 'Note': pass
+                else: code += f"    {curr} --> {next_n}\n"
+        return code
 
     with col1:
         st.subheader("Clinical Pathway Visualizer")
-        nodes = phase4_editor()
+        
+        with st.expander("✏️ Edit Pathway Data", expanded=False):
+            df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+            if "role" not in df_p4.columns: df_p4["role"] = "Unassigned"
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True,
+                column_config={"type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "Note", "End"], width="small"),
+                               "label": st.column_config.TextColumn("Label", width="medium"),
+                               "detail": st.column_config.TextColumn("Details", width="large")})
+            if not df_p4.equals(edited_p4):
+                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                st.rerun()
+
+        nodes = st.session_state.data['phase3']['nodes']
 
         if nodes:
             try:
-                # --- LAYOUT CONTROLS ---
-                c_view1, c_view2 = st.columns([1, 3])
+                c_view1, c_view2 = st.columns([1, 2])
                 with c_view1:
-                    col1, col2 = st.columns([2, 1])
+                    orientation = st.selectbox("Orientation", ["Vertical (TD)", "Horizontal (LR)"], index=0)
+                    mermaid_orient = "TD" if "Vertical" in orientation else "LR"
+                
+                mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
+                mermaid_base64 = base64.b64encode(mermaid_code.encode("utf-8")).decode("utf-8")
+                image_url = f"[https://mermaid.ink/img/](https://mermaid.ink/img/){mermaid_base64}?bgColor=FFFFFF"
+                
+                with c_view2:
+                    st.write("") 
+                    st.link_button("🔍 Zoom In / Open High-Res Image", image_url, use_container_width=True)
 
-                    # --- HELPER: MERMAID GENERATION ---
-                    def generate_mermaid_code(nodes, orientation="TD"):
-                        """Generates cleaner Mermaid.js syntax for the flowchart."""
-                        code = f"graph {orientation}\n"
-        
-                        # 1. Define Nodes with Styling
-                        # Classes: start, end, decision, process, note
-                        code += "    %% Node Definitions\n"
-        
-                        for i, n in enumerate(nodes):
-                            nid = f"N{i}"
-                            label = n.get('label', 'Step').replace('"', "'") # Sanitize
-                            ntype = n.get('type', 'Process')
+                st.image(image_url, caption="Live Preview (Mermaid.js)", use_container_width=True)
+                
+                with st.expander("View Mermaid Syntax"):
+                    st.code(mermaid_code, language='mermaid')
+
+            except Exception as e:
+                st.error(f"Visualization Error: {e}")
+        else:
+            st.info("No nodes defined. Please go back to Phase 3 or add nodes above.")
+
+    with col2:
+        st.subheader("Nielsen's Heuristics Analysis")
+        nodes_json = json.dumps(nodes)
+        if nodes and not st.session_state.auto_run["p4_heuristics"]:
+             with st.spinner("AI Agent analyzing User Interface Design risks..."):
+                 prompt = f"""
+                 Act as a UX Researcher. Analyze this clinical pathway logic: {nodes_json}
+                 Evaluate it against **Jakob Nielsen's 10 Usability Heuristics**.
+                 For each heuristic, provide:
+                 1. A specific critique.
+                 2. A boolean 'actionable' flag.
+                 Return JSON: {{ "H1": {{ "insight": "...", "actionable": true }}, ... }}
+                 """
+                 risks = get_gemini_response(prompt, json_mode=True)
+                 if isinstance(risks, dict): 
+                     st.session_state.data['phase4']['heuristics_data'] = risks
+                     st.session_state.auto_run["p4_heuristics"] = True
+                     st.rerun()
+
+        risks = st.session_state.data['phase4'].get('heuristics_data', {})
+        if risks:
+            st.markdown("""<div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 15px; font-weight:bold;">UX Recommendations</div>""", unsafe_allow_html=True)
             
-                            # Mermaid Syntax Mappings
-                            if ntype == 'Start':
-                                shape = f'({label})'
-                                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
-                            elif ntype == 'End':
-                                shape = f'([{label}])'
-                                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
-                            elif ntype == 'Decision':
-                                shape = f'{{{label}}}'
-                                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:#000'
-                            elif ntype == 'Note':
-                                shape = f'>"{label}"]' # Tag shape
-                                style = f'style {nid} fill:#DAE8FC,stroke:#6C8EBF,stroke-width:1px,color:#000,stroke-dasharray: 5 5'
-                            else: # Process
-                                shape = f'[{label}]'
-                                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:#000'
+            for k, v in risks.items():
+                if isinstance(v, dict):
+                    insight = v.get('insight', 'No insight.')
+                    is_actionable = v.get('actionable', False)
+                else:
+                    insight = str(v)
+                    is_actionable = True
                 
-                            code += f"    {nid}{shape}\n"
-                            code += f"    {style}\n"
-            
-                        # 2. Define Edges (Simple Linear Logic for Beta)
-                        code += "\n    %% Logic Flow\n"
-                        for i, n in enumerate(nodes):
-                            if i < len(nodes) - 1:
-                                curr = f"N{i}"
-                                next_n = f"N{i+1}"
-                                ntype = n.get('type')
-                
-                                if ntype == 'Decision':
-                                    # Yes Path (Standard)
-                                    code += f"    {curr} -->|Yes| {next_n}\n"
-                                    # No Path (Skip logic simulation)
-                                    if i + 2 < len(nodes):
-                                        skip = f"N{i+2}"
-                                        code += f"    {curr} -.->|No| {skip}\n"
-                                        # Style the No link red
-                                        code += f"    linkStyle {i*2+1} stroke:red,stroke-width:2px,color:red;\n" 
-                                elif ntype == 'Note':
-                                    # Connect Note to previous node if possible
-                                    if i > 0:
-                                        prev = f"N{i-1}"
-                                        code += f"    {curr} -.- {prev}\n"
-                                elif nodes[i+1].get('type') == 'Note':
-                                    pass # Don't connect process to note directly as flow
-                                else:
-                                    code += f"    {curr} --> {next_n}\n"
-
-                        return code
-
-                    with col1:
-                        st.subheader("Clinical Pathway Visualizer")
-        
-                        # --- EDITOR (Cleaned Up) ---
-                        with st.expander("✏️ Edit Pathway Data", expanded=False):
-                            df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
-                            if "role" not in df_p4.columns: df_p4["role"] = "Unassigned"
-            
-                            edited_p4 = st.data_editor(
-                                df_p4, 
-                                num_rows="dynamic", 
-                                key="p4_editor", 
-                                use_container_width=True,
-                                column_config={
-                                    "type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "Note", "End"], width="small"),
-                                    "label": st.column_config.TextColumn("Label", width="medium"),
-                                    "detail": st.column_config.TextColumn("Details", width="large"),
-                                }
-                            )
-                            # Sync edits immediately
-                            if not df_p4.equals(edited_p4):
-                                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
-                                st.rerun()
-
-                        nodes = st.session_state.data['phase3']['nodes']
-
-                        if nodes:
-                            try:
-                                # Layout Controls
-                                c_view1, c_view2 = st.columns([1, 2])
-                                with c_view1:
-                                    orientation = st.selectbox("Orientation", ["Vertical (TD)", "Horizontal (LR)"], index=0)
-                                    mermaid_orient = "TD" if "Vertical" in orientation else "LR"
-                
-                                # Generate Mermaid Code
-                                mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
-                
-                                # Base64 Encode for Mermaid.ink API
-                                mermaid_base64 = base64.b64encode(mermaid_code.encode("utf-8")).decode("utf-8")
-                                image_url = f"https://mermaid.ink/img/{mermaid_base64}?bgColor=FFFFFF"
-                
-                                # --- ZOOM / OPEN BUTTON (Top Position) ---
-                                with c_view2:
-                                    st.write("") # Spacer
-                                    st.link_button("🔍 Zoom In / Open High-Res Image", image_url, use_container_width=True)
-
-                                # Render Image
-                                st.image(image_url, caption="Live Preview (Mermaid.js)", use_container_width=True)
-                
-                                # Raw Code (Hidden by default)
-                                with st.expander("View Mermaid Syntax"):
-                                    st.code(mermaid_code, language='mermaid')
-
-                            except Exception as e:
-                                st.error(f"Visualization Error: {e}")
-                        else:
-                            st.info("No nodes defined. Please go back to Phase 3 or add nodes above.")
-
-                    with col2:
-                        st.subheader("Nielsen's Heuristics Analysis")
-        
-                        # AUTO-RUN: HEURISTICS
-                        nodes_json = json.dumps(nodes)
-                        if nodes and not st.session_state.auto_run["p4_heuristics"]:
-                             with st.spinner("AI Agent analyzing User Interface Design risks..."):
-                                 prompt = f"""
-                                 Act as a UX Researcher. Analyze this clinical pathway logic: {nodes_json}
-                                 Evaluate it against **Jakob Nielsen's 10 Usability Heuristics**.
-                                 For each heuristic, provide:
-                                 1. A specific critique.
-                                 2. A boolean 'actionable' flag.
-                                 Return JSON: {{ "H1": {{ "insight": "...", "actionable": true }}, ... }}
-                                 """
-                                 risks = get_gemini_response(prompt, json_mode=True)
-                                 if isinstance(risks, dict): 
-                                     st.session_state.data['phase4']['heuristics_data'] = risks
-                                     st.session_state.auto_run["p4_heuristics"] = True
-                                     st.rerun()
-
-                        risks = st.session_state.data['phase4'].get('heuristics_data', {})
-                        if risks:
-                            st.markdown("""
-                            <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 15px; font-weight:bold;">
-                                UX Recommendations
-                            </div>
-                            """, unsafe_allow_html=True)
-            
-                            for k, v in risks.items():
-                                # Handle data format
-                                if isinstance(v, dict):
-                                    insight = v.get('insight', 'No insight.')
-                                    is_actionable = v.get('actionable', False)
-                                else:
-                                    insight = str(v)
-                                    is_actionable = True
-                
-                                # Clean Expander - No custom HTML in label to fix color mismatch
-                                with st.expander(f"📌 {k}: {insight[:40]}...", expanded=False):
-                                    # Styled Content Inside
-                                    st.markdown(f"""
-                                    <div style="background-color: #FDF2F5; color: #5D4037; padding: 10px; border-radius: 4px; border-left: 4px solid #9E4244;">
-                                        <strong>Critique:</strong> {insight}
-                                    </div>
-                                    """, unsafe_allow_html=True)
+                with st.expander(f"📌 {k}: {insight[:40]}...", expanded=False):
+                    st.markdown(f"""<div style="background-color: #FDF2F5; color: #5D4037; padding: 10px; border-radius: 4px; border-left: 4px solid #9E4244;"><strong>Critique:</strong> {insight}</div>""", unsafe_allow_html=True)
                     
-                                    if is_actionable:
-                                        applied_key = f"heuristic_applied_{k}"
-                                        if applied_key not in st.session_state: st.session_state[applied_key] = False
+                    if is_actionable:
+                        applied_key = f"heuristic_applied_{k}"
+                        if applied_key not in st.session_state: st.session_state[applied_key] = False
                         
-                                        if not st.session_state[applied_key]:
-                                            if st.button("Fix This", key=f"btn_fix_{k}", use_container_width=True):
-                                                with st.spinner("Applying fix..."):
-                                                    # Save History
-                                                    if 'node_history' not in st.session_state: st.session_state.node_history = []
-                                                    st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                                    
-                                                    # Fix Prompt
-                                                    prompt_fix = f"""
-                                                    Act as a Clinical Decision Scientist.
-                                                    Update this pathway JSON to address the critique: "{insight}"
-                                                    Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
-                                                    Return ONLY valid JSON.
-                                                    """
-                                                    new_nodes = get_gemini_response(prompt_fix, json_mode=True)
-                                                    if new_nodes and isinstance(new_nodes, list):
-                                                        st.session_state.data['phase3']['nodes'] = new_nodes
-                                                        st.session_state[applied_key] = True
-                                                        st.rerun()
-                                        else:
-                                            st.caption("✅ Recommendation Applied")
+                        if not st.session_state[applied_key]:
+                            if st.button("Fix This", key=f"btn_fix_{k}", use_container_width=True):
+                                with st.spinner("Applying fix..."):
+                                    if 'node_history' not in st.session_state: st.session_state.node_history = []
+                                    st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                                    prompt_fix = f"""
+                                    Act as a Clinical Decision Scientist.
+                                    Update this pathway JSON to address the critique: "{insight}"
+                                    Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
+                                    Return ONLY valid JSON.
+                                    """
+                                    new_nodes = get_gemini_response(prompt_fix, json_mode=True)
+                                    if new_nodes and isinstance(new_nodes, list):
+                                        st.session_state.data['phase3']['nodes'] = new_nodes
+                                        st.session_state[applied_key] = True
+                                        st.rerun()
+                        else:
+                            st.caption("✅ Recommendation Applied")
 
-                            # UNDO BUTTON
-                            if 'node_history' in st.session_state and st.session_state.node_history:
-                                if st.button("Undo Last Change", type="secondary", use_container_width=True):
-                                    st.session_state.data['phase3']['nodes'] = st.session_state.node_history.pop()
-                                    st.rerun()
+            if 'node_history' in st.session_state and st.session_state.node_history:
+                if st.button("Undo Last Change", type="secondary", use_container_width=True):
+                    st.session_state.data['phase3']['nodes'] = st.session_state.node_history.pop()
+                    st.rerun()
 
-                            st.divider()
+            st.divider()
             
-                            # MANUAL REFINEMENT
-                            custom_edit = st.text_area("Custom Refinement", placeholder="E.g., 'Add a blood pressure check after triage'", label_visibility="collapsed")
-                            if st.button("Apply Custom Edit", type="primary", use_container_width=True):
-                                if custom_edit:
-                                    with st.spinner("Applying edit..."):
-                                        if 'node_history' not in st.session_state: st.session_state.node_history = []
-                                        st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                        
-                                        prompt_custom = f"""
-                                        Update this pathway JSON based on user request: "{custom_edit}"
-                                        Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
-                                        Return ONLY valid JSON.
-                                        """
-                                        new_nodes = get_gemini_response(prompt_custom, json_mode=True)
-                                        if new_nodes and isinstance(new_nodes, list):
-                                            st.session_state.data['phase3']['nodes'] = new_nodes
-                                            st.rerun()
-
-                    render_bottom_navigation()
-                        
-                        Task: 
-                        1. Analyze the request and describe the specific changes needed (e.g. "Adding a Process node 'Check BP' after node 2").
-                        2. Generate the updated pathway JSON.
-                        
-                        Return a JSON object with keys:
-                        - "description": string (The explanation of changes)
-                        - "nodes": list (The new full list of nodes)
-                        """
-                        result = get_gemini_response(prompt_custom, json_mode=True)
-                        
-                        if result and isinstance(result, dict) and 'nodes' in result:
-                            st.session_state['p4_pending_custom'] = result
-                            st.rerun()
-
-            # Display Pending Changes
-            if 'p4_pending_custom' in st.session_state:
-                pending = st.session_state['p4_pending_custom']
-                
-                st.markdown(f"""
-                <div style="background-color: #E3F2FD; padding: 10px; border-radius: 5px; border: 1px solid #2196F3; margin-bottom: 10px;">
-                    <strong>Proposed Updates:</strong><br>
-                    {pending.get('description', 'Updates generated.')}
-                </div>
-                """, unsafe_allow_html=True)
-                
-                c_yes, c_no = st.columns(2)
-                with c_yes:
-                    if st.button("Apply Changes", type="primary", use_container_width=True, key="btn_apply_custom"):
-                         # Initialize history if needed
-                        if 'node_history' not in st.session_state:
-                            st.session_state.node_history = []
-                        
-                        # Save current state
+            custom_edit = st.text_area("Custom Refinement", placeholder="E.g., 'Add a blood pressure check after triage'", label_visibility="collapsed")
+            if st.button("Apply Custom Edit", type="primary", use_container_width=True):
+                if custom_edit:
+                    with st.spinner("Applying edit..."):
+                        if 'node_history' not in st.session_state: st.session_state.node_history = []
                         st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                        
-                        # Apply
-                        st.session_state.data['phase3']['nodes'] = pending['nodes']
-                        del st.session_state['p4_pending_custom']
-                        st.success("Custom changes applied!")
-                        time.sleep(1)
-                        st.rerun()
-                
-                with c_no:
-                    if st.button("Cancel", use_container_width=True, key="btn_cancel_custom"):
-                        del st.session_state['p4_pending_custom']
-                        st.rerun()
-            
-            if st.button("Rerun Analysis (After Edits)", type="secondary", use_container_width=True):
-                 st.session_state.auto_run["p4_heuristics"] = False
-                 st.rerun()
+                        prompt_custom = f"""
+                        Update this pathway JSON based on user request: "{custom_edit}"
+                        Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
+                        Return ONLY valid JSON.
+                        """
+                        new_nodes = get_gemini_response(prompt_custom, json_mode=True)
+                        if new_nodes and isinstance(new_nodes, list):
+                            st.session_state.data['phase3']['nodes'] = new_nodes
+                            st.rerun()
 
     render_bottom_navigation()
 
@@ -2022,340 +1462,54 @@ elif "Phase 4" in phase:
 # ------------------------------------------
 elif "Phase 5" in phase:
     st.markdown("### Operational Toolkit & Deployment")
-    
-    # --- 1. TARGET AUDIENCE SELECTOR ---
     st.subheader("Target Audience")
     
-    if 'target_audience' not in st.session_state:
-        st.session_state.target_audience = "Multidisciplinary Team"
-
-    # If user changes this, we only invalidate the ASSETS (Docs/Slides), not the EHR
-    new_audience = st.text_input("Define Primary Audience for Beta Testing and Education:", 
-                                   value=st.session_state.target_audience)
+    if 'target_audience' not in st.session_state: st.session_state.target_audience = "Multidisciplinary Team"
+    new_audience = st.text_input("Define Primary Audience:", value=st.session_state.target_audience)
     if new_audience != st.session_state.target_audience:
         st.session_state.target_audience = new_audience
-        st.session_state.auto_run["p5_assets"] = False # Invalidate assets
-        st.rerun()
-
-    st.write("Quick Select:")
-    b1, b2, b3 = st.columns([1, 1, 1])
-    if b1.button("Physicians", use_container_width=True): 
-        st.session_state.target_audience = "Physicians"
-        st.session_state.auto_run["p5_assets"] = False
-        st.rerun()
-    if b2.button("Nurses", use_container_width=True): 
-        st.session_state.target_audience = "Nurses"
-        st.session_state.auto_run["p5_assets"] = False
-        st.rerun()
-    if b3.button("Informaticists", use_container_width=True): 
-        st.session_state.target_audience = "Informaticists"
         st.session_state.auto_run["p5_assets"] = False
         st.rerun()
 
-    st.divider()
+    if "p5_files" not in st.session_state: st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None, "html": None}
 
-    # --- 2. GENERATION LOGIC ---
-    if "p5_files" not in st.session_state:
-        st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None, "html": None}
-
-    # A. ASSETS GENERATION (Dependent on Audience)
     if not st.session_state.auto_run.get("p5_assets", False):
-        with st.status(f"Generating Assets for {st.session_state.target_audience}...", expanded=True) as status:
-            st.write("Initializing asset generation...")
+        with st.status(f"Generating Assets...", expanded=True) as status:
             cond = st.session_state.data['phase1']['condition']
-            prob = st.session_state.data['phase1']['problem']
-            goals = st.session_state.data['phase1']['objectives']
             audience = st.session_state.target_audience
-            nodes = st.session_state.data['phase3']['nodes']
             
-            # --- GENERATE FLOWCHART IMAGE FOR PPT ---
-            st.write("Rendering Flowchart...")
-            flowchart_stream = None
-            if nodes:
-                try:
-                    graph = graphviz.Digraph()
-                    graph.attr(rankdir='TB', splines='ortho')
-                    for i, n in enumerate(nodes):
-                        node_id = str(i)
-                        label = n.get('label', '?')
-                        node_type = n.get('type', 'Process')
-                        if node_type == 'Start':
-                            graph.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4')
-                        elif node_type == 'Decision':
-                            graph.node(node_id, label, shape='diamond', style='filled', fillcolor='#F8CECC')
-                        elif node_type == 'Note':
-                            graph.node(node_id, label, shape='note', style='filled', fillcolor='#DAE8FC')
-                        else:
-                            graph.node(node_id, label, shape='box', style='filled', fillcolor='#FFF2CC')
-                    
-                    # Edges
-                    for i, n in enumerate(nodes):
-                        if i < len(nodes) - 1:
-                            if n.get('type') == 'Decision':
-                                graph.edge(str(i), str(i+1), label="Yes", color="green")
-                                if i+2 < len(nodes): graph.edge(str(i), str(i+2), label="No", color="red")
-                            elif n.get('type') == 'Note':
-                                if i > 0: graph.edge(str(i), str(i-1), style="dotted", dir="back")
-                                graph.edge(str(i-1), str(i+1))
-                            elif nodes[i+1].get('type') == 'Note': pass
-                            else: graph.edge(str(i), str(i+1))
-                    
-                    flowchart_stream = BytesIO(graph.pipe(format='png'))
-                except Exception as e:
-                    print(f"Flowchart generation failed for PPT: {e}")
-
-            # --- WORD DOC (BETA GUIDE) ---
-            st.write("Drafting Beta Testing Guide (Word)...")
+            # DOCX
             prompt_guide = f"""
-            Act as a Clinical Operations Manager. Create a Beta Testing Guide for the '{cond}' pathway.
-            Target User: {audience}.
-            
-            CRITICAL FORMATTING INSTRUCTION:
-            - Do NOT use markdown code blocks (like ```markdown).
-            - Do NOT use markdown headers (like # or ##).
-            - Provide the content as a clean, guided series of checklists and plain text questions.
-            - Use bullet points (-) for lists.
-            
-            Structure:
-            1. Title: Beta Testing Instructions
-            2. Pre-Test Checklist (Bullet points)
-            3. Questions for the End User (Usability, Clarity, Workflow Fit)
-            4. Feedback Submission Instructions
+            Create a Beta Testing Guide for '{cond}' pathway. Target User: {audience}.
+            Structure: Title, Checklist, Questions, Feedback Instructions. No markdown.
             """
             guide_text = get_gemini_response(prompt_guide)
-            if guide_text:
-                # Clean up any residual markdown artifacts just in case
-                clean_text = guide_text.replace("```markdown", "").replace("```", "").strip()
-                st.session_state.p5_files["docx"] = create_word_docx(clean_text)
+            if guide_text: st.session_state.p5_files["docx"] = create_word_docx(guide_text.replace("```", "").strip())
 
-            # --- HTML FORM (INTERACTIVE FEEDBACK) ---
-            st.write("Designing Feedback Form (HTML)...")
-            prompt_form = f"""
-            Act as a UX Researcher. Create 5 specific feedback questions for beta testers of the '{cond}' pathway.
-            Target Audience: {audience}.
-            
-            CRITICAL INSTRUCTION: Refer to the group as 'Team' instead of 'MDT' or 'Multidisciplinary Team' in the questions.
-            
-            Return a JSON Object with a single key "questions" containing a list of strings.
-            Example: {{ "questions": ["Question 1?", "Question 2?"] }}
-            """
-            response_json = get_gemini_response(prompt_form, json_mode=True)
-            
-            questions = []
-            if isinstance(response_json, list):
-                questions = response_json
-            elif isinstance(response_json, dict) and "questions" in response_json:
-                questions = response_json["questions"]
-            
-            if questions:
-                q_html = ""
-                for i, q in enumerate(questions):
-                    q_html += f'<div style="margin-bottom: 15px;"><label style="font-weight:bold; display:block; margin-bottom:5px;">{i+1}. {q}</label><textarea style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;" rows="3"></textarea></div>'
-                
-                html_content = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <title>CarePathIQ Beta Testing Feedback</title>
-                    <style>
-                        body {{ font-family: 'Arial', sans-serif; background-color: #f4f4f9; color: #333; padding: 20px; }}
-                        .container {{ max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-                        .header {{ text-align: center; border-bottom: 2px solid #5D4037; padding-bottom: 20px; margin-bottom: 20px; }}
-                        .logo {{ font-size: 24px; font-weight: bold; color: #5D4037; text-decoration: none; }}
-                        .btn {{ background-color: #5D4037; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }}
-                        .btn:hover {{ background-color: #3E2723; }}
-                        .footer {{ margin-top: 30px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #eee; padding-top: 15px; }}
-                    </style>
-                    <script>
-                        function getFeedbackBody() {{
-                            var body = "BETA TESTING FEEDBACK RESULTS:\\n\\n";
-                            var textareas = document.getElementsByTagName('textarea');
-                            var labels = document.getElementsByTagName('label');
-                            
-                            for (var i = 0; i < textareas.length; i++) {{
-                                if (labels[i]) {{
-                                    body += labels[i].innerText + "\\n" + textareas[i].value + "\\n\\n";
-                                }}
-                            }}
-                            return body;
-                        }}
-                        
-                        function copyToClipboard() {{
-                            var body = getFeedbackBody();
-                            navigator.clipboard.writeText(body).then(function() {{
-                                alert('Feedback copied to clipboard!');
-                            }}, function(err) {{
-                                alert('Could not copy text. Please manually copy the answers.');
-                            }});
-                        }}
-
-                        function downloadWord() {{
-                            var header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
-                                             "xmlns:w='urn:schemas-microsoft-com:office:word' " +
-                                             "xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'>" +
-                                             "<head><meta charset='utf-8'><title>Feedback</title></head><body>";
-                            var footer = "</body></html>";
-                            var body = "<h1>Beta Testing Feedback: {cond}</h1>";
-                            body += "<p><strong>Audience:</strong> {audience}</p><hr>";
-                            
-                            var textareas = document.getElementsByTagName('textarea');
-                            var labels = document.getElementsByTagName('label');
-                            
-                            for (var i = 0; i < textareas.length; i++) {{
-                                if (labels[i]) {{
-                                    body += "<h3>" + labels[i].innerText + "</h3>";
-                                    body += "<p>" + (textareas[i].value || "(No answer)") + "</p>";
-                                }}
-                            }}
-                            
-                            var sourceHTML = header + body + footer;
-                            var source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
-                            var fileDownload = document.createElement("a");
-                            document.body.appendChild(fileDownload);
-                            fileDownload.href = source;
-                            fileDownload.download = 'feedback_responses.doc';
-                            fileDownload.click();
-                            document.body.removeChild(fileDownload);
-                        }}
-                    </script>
-                </head>
-                <body>
-                    <div class="container">
-                        <div class="header">
-                            <div class="logo">CarePathIQ</div>
-                            <p>Clinical Pathway Beta Testing Feedback Form</p>
-                        </div>
-                        
-                        <p><strong>Pathway:</strong> {cond}</p>
-                        <p><strong>Audience:</strong> {audience}</p>
-                        <hr>
-                        
-                        <form onsubmit="event.preventDefault();">
-                            {q_html}
-                            
-                            <div style="display: flex; gap: 10px; flex-direction: column;">
-                                <button type="button" onclick="copyToClipboard()" class="btn" style="background-color: #795548;">Copy Responses to Clipboard</button>
-                                <button type="button" onclick="downloadWord()" class="btn">Download Responses (Word Doc)</button>
-                            </div>
-                        </form>
-                        
-                        <div class="footer">
-                            &copy; 2024 CarePathIQ by Tehreem Rehman. All Rights Reserved.<br>
-                            Confidential Internal Document.
-                        </div>
-                    </div>
-                </body>
-                </html>
-                """
-                st.session_state.p5_files["html"] = html_content
-
-            # --- POWERPOINT (SLIDE DECK) ---
-            st.write("Compiling Slide Deck (PowerPoint)...")
+            # PPTX
             prompt_slides = f"""
-            Act as a Healthcare Executive. Create content for a PowerPoint slide deck for the '{cond}' pathway.
-            Target Audience: {audience}.
-            Context: {prob}
-            
-            CRITICAL FORMATTING:
-            - Provide PLAIN TEXT content only.
-            - Do NOT use markdown (no **, ##, etc.).
-            
-            Return a JSON Object with this structure:
-            {{
-                "title": "Main Presentation Title",
-                "audience": "{audience}",
-                "slides": [
-                    {{"title": "Clinical Gap", "content": "Describe the gap: {prob}"}},
-                    {{"title": "Scope", "content": "..."}},
-                    {{"title": "Objectives", "content": "Goals: {goals}"}},
-                    {{"title": "Pathway", "content": "Please insert the clinical pathway flowchart here."}},
-                    {{"title": "Content Overview", "content": "..."}},
-                    {{"title": "Anticipated Impact", "content": "Focus on: \n1. Value of Advancing Care Standardization.\n2. Improving Health Equity."}}
-                ]
-            }}
+            Create content for a PowerPoint slide deck for '{cond}'. Audience: {audience}.
+            Return JSON: {{ "title": "...", "slides": [ {{ "title": "...", "content": "..." }} ] }}
             """
             slides_json = get_gemini_response(prompt_slides, json_mode=True)
-            if isinstance(slides_json, dict):
-                st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json, flowchart_stream)
+            if isinstance(slides_json, dict): st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
 
             st.session_state.auto_run["p5_assets"] = True
-            status.update(label="All Assets Generated!", state="complete", expanded=False)
+            status.update(label="Assets Generated!", state="complete", expanded=False)
             st.rerun()
 
-    # --- 3. DISPLAY DOWNLOADS ---
-    c1, c2, c3 = st.columns(3)
-
+    c1, c2 = st.columns(2)
     with c1:
-        st.subheader("Beta Testing Guide")
         if st.session_state.p5_files["docx"]:
-            st.download_button(
-                label="Download Guide (.docx)",
-                data=st.session_state.p5_files["docx"],
-                file_name="Beta_Testing_Guide.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                type="primary"
-            )
-
+            st.download_button("Download Guide (.docx)", st.session_state.p5_files["docx"], "Guide.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
     with c2:
-        st.subheader("Clinical Pathway Beta Testing Feedback Form")
-        if st.session_state.p5_files.get("html"):
-            st.download_button(
-                label="Download Form (.html)",
-                data=st.session_state.p5_files["html"],
-                file_name="Beta_Testing_Feedback_Form.html",
-                mime="text/html",
-                type="primary"
-            )
-
-    with c3:
-        st.subheader("Education Deck")
         if st.session_state.p5_files["pptx"]:
-            st.download_button(
-                label="Download Slides (.pptx)",
-                data=st.session_state.p5_files["pptx"],
-                file_name=f"Launch_Deck_{st.session_state.target_audience}.pptx",
-                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                type="primary"
-            )
+            st.download_button("Download Slides (.pptx)", st.session_state.p5_files["pptx"], "Slides.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", type="primary")
 
-    st.divider()
-    
-    if st.button("Regenerate Education Assets (Refresh Audience)", type="primary"):
+    if st.button("Regenerate Assets"):
         st.session_state.auto_run["p5_assets"] = False
         st.rerun()
     
-    # EXECUTIVE SUMMARY
-    if st.button("Generate Executive Summary", use_container_width=True):
-        with st.spinner("Compiling Executive Summary..."):
-            # Gather Context
-            p1 = st.session_state.data['phase1']
-            p2_count = len(st.session_state.data['phase2']['evidence'])
-            p3_nodes = len(st.session_state.data['phase3']['nodes'])
-            
-            prompt = f"""
-            Create a C-Suite Executive Summary for the Clinical Pathway: {p1['condition']}.
-            
-            Sections:
-            1. Problem Statement: {p1['problem']}
-            2. Objectives: {p1['objectives']}
-            3. Evidence Base: {p2_count} citations reviewed and graded.
-            4. Pathway Logic: {p3_nodes} decision nodes and process steps defined.
-            5. Value Proposition: Summarize the rigorous process undertaken (evidence appraisal, logic design, heuristic analysis) to justify the standardization of care and the readiness for pilot testing.
-            
-            Format as a professional briefing document.
-            """
-            summary = get_gemini_response(prompt)
-            st.session_state.data['phase5']['exec_summary'] = summary
-            
-    if st.session_state.data['phase5'].get('exec_summary'):
-        st.markdown("### Executive Summary")
-        st.markdown(st.session_state.data['phase5']['exec_summary'])
-        export_widget(st.session_state.data['phase5']['exec_summary'], "executive_summary.md", label="Download Summary")
-
     render_bottom_navigation()
 
-# ==========================================
-# FOOTER
-# ==========================================
 st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
