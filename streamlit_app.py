@@ -1325,9 +1325,11 @@ elif "Phase 2" in phase:
                 st.warning("No results found.")
                 st.session_state.auto_run["p2_search_done"] = True 
 
-    if search_q:
-        st.markdown(f"<div style='background-color:#e8f0fe; padding:10px; border-radius:5px;'><b>PubMed Query:</b> {search_q} <br><i>(Last 5 years, auto-generated from Phase 1)</i></div>", unsafe_allow_html=True)
-        encoded_query = urllib.parse.quote(search_q.strip())
+    # Only show PubMed query and link if a search has been performed (not on landing)
+    if search_q and (st.session_state.data['phase2']['evidence'] or st.session_state.auto_run.get("p2_search_done", False)):
+        # Add last 5 years filter to the query for PubMed
+        pubmed_query = f"{search_q} AND (\"last 5 years\"[dp])"
+        encoded_query = urllib.parse.quote(pubmed_query.strip())
         pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
         st.link_button("Open in PubMed ↗", pubmed_url, type="primary")
 
