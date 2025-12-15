@@ -523,18 +523,21 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
                 line = line.strip()
                 if not line: continue
                 
+                # STRIP MARKDOWN ARTIFACTS
+                clean_line = line.replace('**', '').replace('##', '').replace('__', '').replace('`', '')
+                
                 p = tf.add_paragraph()
-                p.text = line
+                p.text = clean_line
                 p.font.name = 'Arial'
                 p.font.size = Pt(18)
                 p.font.color.rgb = GREY
                 p.space_after = Pt(10)
                 
                 # Simple Bullet Detection
-                if line.startswith('- ') or line.startswith('* '):
-                    p.text = line[2:]
+                if clean_line.startswith('- ') or clean_line.startswith('* '):
+                    p.text = clean_line[2:]
                     p.level = 1
-                elif line[0].isdigit() and line[1] == '.':
+                elif clean_line[0].isdigit() and clean_line[1] == '.':
                     p.level = 0 # Numbered lists handled as top level for now
                 else:
                     p.level = 0
@@ -2129,10 +2132,19 @@ elif "Phase 5" in phase:
             prompt_form = f"""
             Act as a UX Researcher. Create 5 specific feedback questions for beta testers of the '{cond}' pathway.
             Target Audience: {audience}.
-            Return a JSON list of strings (the questions).
+            
+            Return a JSON Object with a single key "questions" containing a list of strings.
+            Example: {{ "questions": ["Question 1?", "Question 2?"] }}
             """
-            questions = get_gemini_response(prompt_form, json_mode=True)
-            if isinstance(questions, list):
+            response_json = get_gemini_response(prompt_form, json_mode=True)
+            
+            questions = []
+            if isinstance(response_json, list):
+                questions = response_json
+            elif isinstance(response_json, dict) and "questions" in response_json:
+                questions = response_json["questions"]
+            
+            if questions:
                 q_html = ""
                 for i, q in enumerate(questions):
                     q_html += f'<div style="margin-bottom: 15px;"><label style="font-weight:bold; display:block; margin-bottom:5px;">{i+1}. {q}</label><textarea style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;" rows="3"></textarea></div>'
@@ -2242,6 +2254,10 @@ elif "Phase 5" in phase:
             Target Audience: {audience}.
             Context: {prob}
             
+            CRITICAL FORMATTING:
+            - Provide PLAIN TEXT content only.
+            - Do NOT use markdown (no **, ##, etc.).
+            
             Return a JSON Object with this structure:
             {{
                 "title": "Main Presentation Title",
@@ -2250,7 +2266,7 @@ elif "Phase 5" in phase:
                     {{"title": "Clinical Gap", "content": "Describe the gap: {prob}"}},
                     {{"title": "Scope", "content": "..."}},
                     {{"title": "Objectives", "content": "Goals: {goals}"}},
-                    {{"title": "Pathway", "content": "This slide displays the visual flowchart segment (Image inserted automatically)."}},
+                    {{"title": "Pathway", "content": "Please insert the clinical pathway flowchart here."}},
                     {{"title": "Content Overview", "content": "..."}},
                     {{"title": "Anticipated Impact", "content": "Focus on: \n1. Value of Advancing Care Standardization.\n2. Improving Health Equity."}}
                 ]
