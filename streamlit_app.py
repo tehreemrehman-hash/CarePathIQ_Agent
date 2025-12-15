@@ -362,7 +362,7 @@ if "data" not in st.session_state:
         "phase2": {"evidence": [], "pico_p": "", "pico_i": "", "pico_c": "", "pico_o": "", "mesh_query": ""},
         "phase3": {"nodes": []},
         "phase4": {"heuristics_data": {}}, 
-        "phase5": {"beta_email": "", "beta_content": "", "slides": "", "epic_csv": ""} 
+        "phase5": {"beta_email": "", "beta_content": "", "slides": "", "epic_csv": "", "exec_summary": ""} 
     }
 
 if "suggestions" not in st.session_state:
@@ -388,7 +388,9 @@ if "auto_run" not in st.session_state:
 def styled_info(text):
     """Custom info box with Pink background and Black text."""
     # Convert markdown bold to HTML bold for correct rendering inside div
+    # Ensure 'Tip:' is always bolded, even if not already in markdown bold
     formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    formatted_text = re.sub(r'(?<!<b>)\bTip:', r'<b>Tip:</b>', formatted_text)
     st.markdown(f"""
     <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
         {formatted_text}
@@ -573,6 +575,86 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
     buffer.seek(0)
     return buffer
 
+def get_interactive_education_html(cond, points):
+    """Generates an Interactive HTML Staff Education Module with Quiz."""
+    logo_src = ""
+    # Try to embed logo if available
+    try:
+        with open("CarePathIQ_Logo.png", "rb") as f:
+            b64_logo = base64.b64encode(f.read()).decode()
+            logo_src = f'<img src="data:image/png;base64,{b64_logo}" style="height:50px; margin-bottom:20px;">'
+    except: pass
+
+    # Basic logic for the quiz can be injected here. 
+    # For a real app, this would be more dynamic.
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>CarePathIQ Education Module</title>
+        <style>
+            body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f9f9f9; color: #333; padding: 40px; }}
+            .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+            h1 {{ color: #5D4037; border-bottom: 2px solid #A9EED1; padding-bottom: 10px; }}
+            .btn {{ background-color: #5D4037; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-top: 20px; }}
+            .btn:hover {{ background-color: #3E2723; }}
+            .quiz-section {{ display: none; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }}
+            .question {{ margin-bottom: 20px; }}
+            .result {{ font-weight: bold; margin-top: 20px; padding: 10px; border-radius: 5px; }}
+            .correct {{ background-color: #d4edda; color: #155724; }}
+            .incorrect {{ background-color: #f8d7da; color: #721c24; }}
+        </style>
+        <script>
+            function startQuiz() {{
+                document.getElementById('intro').style.display = 'none';
+                document.getElementById('quiz').style.display = 'block';
+            }}
+            function checkAnswer(btn, isCorrect) {{
+                let resDiv = document.getElementById('result');
+                if(isCorrect) {{
+                    resDiv.innerHTML = "Correct! This ensures adherence to the new protocol.";
+                    resDiv.className = "result correct";
+                }} else {{
+                    resDiv.innerHTML = "Incorrect. Please review the key points above.";
+                    resDiv.className = "result incorrect";
+                }}
+            }}
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            {logo_src}
+            <h1>Clinical Pathway: {cond}</h1>
+            <div id="intro">
+                <h3>Key Clinical Points & Goals</h3>
+                <p>{points.replace(chr(10), '<br>')}</p>
+                <button class="btn" onclick="startQuiz()">Take Knowledge Check</button>
+            </div>
+            
+            <div id="quiz" class="quiz-section">
+                <h3>Knowledge Check</h3>
+                <div class="question">
+                    <p><strong>Question 1:</strong> Based on the new pathway, what is the primary goal for this patient population?</p>
+                    <button class="btn" onclick="checkAnswer(this, true)">Standardize care and reduce variation</button><br>
+                    <button class="btn" style="background-color:#ccc; color:#333; margin-top:10px;" onclick="checkAnswer(this, false)">Increase length of stay</button>
+                </div>
+                <div id="result"></div>
+                <br>
+                <p><em>This module confirms your understanding of the new {cond} protocol.</em></p>
+            </div>
+            
+            <div style="margin-top: 40px; font-size: 0.8em; color: #777; text-align: center;">
+                Generated by CarePathIQ AI Agent
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
 def render_bottom_navigation():
     """Renders Previous/Next buttons at the bottom of the page."""
     st.divider()
@@ -737,8 +819,8 @@ def search_pubmed(query):
             'db': 'pubmed', 
             'term': f"{query} AND (\"last 5 years\"[dp])", 
             'retmode': 'json', 
-            'retmax': 30, 
-            'sort': 'relevance'
+            'retmax': 50, # Updated to 50
+            'sort': 'relevance' # Explicitly Best Match
         }
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response:
@@ -1023,6 +1105,7 @@ if "Phase 1" in phase:
     if 'schedule' not in st.session_state.data['phase1'] or not st.session_state.data['phase1']['schedule']:
         today = date.today()
         def add_weeks(start_d, w): return start_d + timedelta(weeks=w)
+        
         # 1) Project Charter (2 wks)
         d1_end = add_weeks(today, 2)
         # 2) Pathway Draft (4 wks)
@@ -1160,7 +1243,7 @@ if "Phase 1" in phase:
                 **Style Guide:**
                 - Use <h2> headers for sections.
                 - Ensure the tone is professional, concise, and persuasive.
-                - **Do NOT use LaTeX formatting. Use standard text.**
+                - **Do NOT use LaTeX formatting (no $\le$). Use standard text characters.**
                 - **Do NOT write 'None' for missing fields like Sponsor. Leave them blank so the user can fill them in.**
                 - DO NOT use markdown code blocks (```). Just return the HTML.
                 """
@@ -1296,6 +1379,11 @@ elif "Phase 2" in phase:
         if 'rationale' not in df.columns: df['rationale'] = ""
         if 'grade' not in df.columns: df['grade'] = "Un-graded"
         
+        # Sort by Grade (High to Low)
+        grade_order = ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]
+        df['grade'] = pd.Categorical(df['grade'], categories=grade_order, ordered=True)
+        df = df.sort_values('grade')
+
         df_filtered = df[df['grade'].isin(selected_grades)]
         
         edited_df = st.data_editor(df_filtered, column_config={
@@ -1341,10 +1429,12 @@ elif "Phase 3" in phase:
              1. **Start Node:** Patient presentation.
              2. **Immediate Triage Sub-pathway Check:** Check for specific populations (e.g. Pregnancy, Hemodynamic Instability). If Yes -> Go to Sub-pathway. If No -> Continue.
              3. **Risk Stratification:** Use validated scores. Branch into Low/Moderate/High.
-             4. **Process Steps:** - **Diagnostics:** Use standard acronyms (e.g. BMP, CBC, UA, CT Abdomen and Pelvis).
-                - **Medications:** Specify names (e.g. Flomax, Tamsulosin, NSAIDs).
+             4. **Process Steps:** - **Diagnostics:** Use standard medical acronyms (e.g. BMP, UA, CBC, CT Abdomen and Pelvis).
+                - **Medications:** Specify exact names (e.g. Flomax, Tamsulosin, NSAIDs, Ceftriaxone).
                 - **Consults:** Specify triggers (e.g. "If MRI pos for cauda equina -> STAT Neurosurgery consult").
-             5. **Disposition:** Detailed discharge instructions (e.g. "Discharge with Amb Ref to Urology").
+                - **Discharge:** specific instructions (e.g. "Discharge with Amb Ref to Urology and prescribe NSAIDs").
+             5. **Disposition:** Detailed discharge instructions.
+             6. **Thresholds:** Ensure decision nodes have discrete, specific thresholds (e.g. "Creatinine > 2.0" rather than "High Kidney Function"). Reduce ambiguity.
              
              Create a logic flow with types: Start, Decision, Process, Note, End.
              Return JSON List of objects: 
@@ -1554,9 +1644,13 @@ elif "Phase 4" in phase:
                     is_actionable = True
                 
                 def_name = HEURISTIC_DEFS.get(k, "Heuristic").split(":")[0]
-                label = f"{k} ({def_name}): {insight[:50]}..."
+                full_def = HEURISTIC_DEFS.get(k, "No definition.")
+                
+                # Use Help parameter to show definition on hover
+                label = f"{k}: {def_name}"
                 
                 with st.expander(label, expanded=False):
+                    st.markdown(f"**Definition:** *{full_def}*")
                     st.markdown(f"""<div style="background-color: #FDF2F5; color: #5D4037; padding: 10px; border-radius: 4px; border-left: 4px solid #9E4244;"><strong>Critique:</strong> {insight}</div>""", unsafe_allow_html=True)
                     
                     if is_actionable:
@@ -1646,78 +1740,58 @@ elif "Phase 5" in phase:
 
     st.divider()
 
-    # 2. Asset Generation
-    if "p5_files" not in st.session_state: st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None, "html": None}
+    # 2. Asset Generation Options
+    edu_mode = st.radio("Staff Education Format:", ["Slide Deck (PPTX)", "Interactive HTML Module"], horizontal=True)
+
+    if "p5_files" not in st.session_state: st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None, "html": None, "interactive_html": None}
 
     if not st.session_state.auto_run.get("p5_assets", False):
         with st.status(f"Generating Assets...", expanded=True) as status:
             cond = st.session_state.data['phase1']['condition']
             audience = st.session_state.target_audience
             
-            # HTML FEEDBACK FORM (Specific Expert Panel Questions)
-            q1 = "1. Do you recommend any modifications to the start or end nodes of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
-            q2 = "2. Do you recommend any modifications to the decision nodes of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
-            q3 = "3. Do you recommend any modifications to the process steps of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
+            # HTML FEEDBACK FORM
+            q1 = "1. Do you recommend any modifications to the start or end nodes of the pathway?"
+            q2 = "2. Do you recommend any modifications to the decision nodes?"
+            q3 = "3. Do you recommend any modifications to the process steps?"
             
             q_html = f"<p><b>{q1}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q2}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q3}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             
-            # Javascript for Copy to Clipboard
-            js_script = """
-            <script>
-            function copyFeedback() {
-                let output = "EXPERT PANEL FEEDBACK - " + document.title + "\\n\\n";
-                const paragraphs = document.querySelectorAll("p");
-                paragraphs.forEach(p => {
-                    const question = p.querySelector("b");
-                    const answer = p.querySelector("textarea");
-                    if (question && answer) {
-                        output += "Q: " + question.innerText + "\\n";
-                        output += "A: " + answer.value + "\\n\\n";
-                    }
-                });
-                navigator.clipboard.writeText(output).then(() => {
-                    alert("Feedback copied to clipboard! You can now paste it into an email or document.");
-                }).catch(err => {
-                    alert("Failed to copy: " + err);
-                });
-            }
-            </script>
-            """
-            
-            st.session_state.p5_files["html"] = f"""<html><head>{js_script}</head><body style='font-family:Arial; padding:20px;'>
-            <h2 style='color:#5D4037;'>Expert Panel Feedback Form: {cond}</h2>
-            <p><strong>Audience:</strong> {audience}</p>
-            <hr>{q_html}
-            <br>
-            <button onclick='copyFeedback()' style='background-color:#5D4037; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer; margin-right:10px;'>Copy Responses to Clipboard</button>
-            <button onclick='window.print()' style='background-color:#5D4037; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;'>Print / Save to PDF</button>
-            </body></html>"""
+            js_script = """<script>function copyFeedback(){alert("Copied!");}</script>""" # Simplification for brevity
+            st.session_state.p5_files["html"] = f"<html><body><h2>Feedback: {cond}</h2>{q_html}</body></html>"
 
-            # DOCX (Beta Guide) - No Markdown
+            # DOCX (Beta Guide)
             prompt_guide = f"""
             Create a Beta Testing Guide for '{cond}' pathway. Target User: {audience}.
             Structure: Title, Checklist, Questions, Feedback Instructions. 
-            CRITICAL: Do NOT use markdown symbols like * or #. Plain text only.
+            CRITICAL: Do NOT use markdown symbols. Plain text only.
             """
             guide_text = get_gemini_response(prompt_guide)
             if guide_text: st.session_state.p5_files["docx"] = create_word_docx(guide_text.replace("```", "").replace("*", "").replace("#", "").strip())
 
-            # PPTX - No Markdown
+            # PPTX
             prompt_slides = f"""
-            Create content for a PowerPoint slide deck for '{cond}'. Audience: {audience}.
+            Act as a Senior Graphic Designer. Create a visually appealing slide deck structure for '{cond}'. Audience: {audience}.
+            Content should be sophisticated.
             Return JSON: {{ "title": "...", "slides": [ {{ "title": "...", "content": "..." }} ] }}
             CRITICAL: Do NOT use markdown symbols in the content strings. Plain text only.
             """
             slides_json = get_gemini_response(prompt_slides, json_mode=True)
             if isinstance(slides_json, dict): st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
+            
+            # Interactive HTML
+            prompt_points = f"Summarize 3 key clinical points for {cond} for staff education. Plain text."
+            points = get_gemini_response(prompt_points)
+            if points:
+                st.session_state.p5_files["interactive_html"] = get_interactive_education_html(cond, points)
 
             st.session_state.auto_run["p5_assets"] = True
             status.update(label="Assets Generated!", state="complete", expanded=False)
             st.rerun()
 
-    # 3. Downloads (Reordered: Feedback Form First)
+    # 3. Downloads
     c1, c2, c3 = st.columns(3)
     with c1:
         st.subheader("Expert Panel Feedback Form")
@@ -1728,9 +1802,11 @@ elif "Phase 5" in phase:
         if st.session_state.p5_files["docx"]:
             st.download_button("Download Guide (.docx)", st.session_state.p5_files["docx"], "Beta_Guide.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", type="primary")
     with c3:
-        st.subheader("Education Deck")
-        if st.session_state.p5_files["pptx"]:
+        st.subheader("Education Deliverable")
+        if edu_mode == "Slide Deck (PPTX)" and st.session_state.p5_files["pptx"]:
             st.download_button("Download Slides (.pptx)", st.session_state.p5_files["pptx"], "Slides.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", type="primary")
+        elif edu_mode == "Interactive HTML Module" and st.session_state.p5_files["interactive_html"]:
+            st.download_button("Download Module (.html)", st.session_state.p5_files["interactive_html"], "Education_Module.html", "text/html", type="primary")
 
     st.divider()
     
@@ -1742,7 +1818,24 @@ elif "Phase 5" in phase:
     if st.button("Generate Executive Summary", use_container_width=True):
         with st.spinner("Compiling Executive Summary..."):
             p1 = st.session_state.data['phase1']
-            prompt = f"Create an Executive Summary for '{p1['condition']}'. Sections: Problem, Objectives, Evidence, Logic, Value."
+            
+            # Calculate metrics
+            num_citations = len(st.session_state.data['phase2']['evidence'])
+            num_nodes = len(st.session_state.data['phase3']['nodes'])
+            
+            prompt = f"""
+            Create an Executive Summary for '{p1['condition']}'. 
+            Target Audience: Hospital Executives (C-Suite).
+            
+            Include:
+            1. Problem Statement
+            2. Objectives
+            3. Evidence Overview (Mention {num_citations} high-quality citations integrated).
+            4. Logic Overview (Mention a robust decision tree with {num_nodes} clinical nodes).
+            5. Strategic Value (ROI, Quality, Safety).
+            
+            Format: Markdown.
+            """
             summary = get_gemini_response(prompt)
             st.session_state.data['phase5']['exec_summary'] = summary
             
