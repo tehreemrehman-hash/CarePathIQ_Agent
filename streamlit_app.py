@@ -351,9 +351,11 @@ if "auto_run" not in st.session_state:
 # ==========================================
 def styled_info(text):
     """Custom info box with Pink background and Dark Red text."""
+    # Convert markdown bold to HTML bold for correct rendering inside div
+    formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     st.markdown(f"""
     <div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
-        {text}
+        {formatted_text}
     </div>
     """, unsafe_allow_html=True)
 
@@ -953,7 +955,7 @@ if "Phase 1" in phase:
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
     # INSTRUCTIONAL BANNER
-    styled_info("💡 **Workflow Tip:** This form is interactive. The AI will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI will use your edits to generate the next section and the final Project Charter.")
+    styled_info("**Workflow Tip:** This form is interactive. The AI will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI will use your edits to generate the next section and the final Project Charter.")
 
     with col1:
         # CLINICAL CONDITION
@@ -1109,7 +1111,7 @@ if "Phase 1" in phase:
     df_schedule['Start'] = pd.to_datetime(df_schedule['Start']).dt.date
     df_schedule['End'] = pd.to_datetime(df_schedule['End']).dt.date
 
-    styled_info("💡 **Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below. The Gantt chart visualization will update automatically to reflect your changes.")
+    styled_info("**Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below. The Gantt chart visualization will update automatically to reflect your changes.")
 
     edited_schedule = st.data_editor(
         df_schedule,
