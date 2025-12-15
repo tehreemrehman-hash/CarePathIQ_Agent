@@ -1326,7 +1326,7 @@ elif "Phase 2" in phase:
                 st.session_state.auto_run["p2_search_done"] = True 
 
     if search_q:
-        st.info(f"<b>PubMed Query:</b> {search_q} <br><i>(Last 5 years, auto-generated from Phase 1)</i>", unsafe_allow_html=True)
+        st.markdown(f"<div style='background-color:#e8f0fe; padding:10px; border-radius:5px;'><b>PubMed Query:</b> {search_q} <br><i>(Last 5 years, auto-generated from Phase 1)</i></div>", unsafe_allow_html=True)
         encoded_query = urllib.parse.quote(search_q.strip())
         pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
         st.link_button("Open in PubMed ↗", pubmed_url, type="primary")
