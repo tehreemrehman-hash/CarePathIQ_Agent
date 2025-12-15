@@ -1720,7 +1720,15 @@ elif "Phase 4" in phase:
         
         # --- DIRECT EDITING (EXPANDER) ---
         with st.expander("✏️ Edit Pathway Data (Nodes & Roles)", expanded=False):
-            styled_info("Edit the table below to update the flowchart. **Gold Standard:** Keep labels concise (6-8 words) but clinically specific (e.g., 'CT KUB (Low Dose)' instead of 'CT Scan').")
+
+                    st.markdown("""
+                    <div style="background-color: #5D4037; color: white; padding: 10px 18px; border-radius: 6px; font-weight: bold; font-size: 1.1em; margin-bottom: 10px;">
+                        Edit Pathway Data (Nodes & Roles)
+                    </div>
+                    <div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
+                        Edit the table below to update the flowchart. <b>Gold Standard:</b> Keep labels concise (6-8 words) but clinically specific (e.g., 'CT KUB (Low Dose)' instead of 'CT Scan').
+                    </div>
+                    """, unsafe_allow_html=True)
             
             # Re-use the editor logic from Phase 3 (simplified)
             df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
@@ -1737,7 +1745,7 @@ elif "Phase 4" in phase:
                 with c_view1:
                     orientation = st.radio(
                         "Layout Orientation",
-                        ["Landscape (Horizontal)", "Portrait (Vertical)"],
+                        ["Portrait (Vertical)", "Landscape (Horizontal)"],
                         index=0,
                         help="Switch between horizontal (Left-to-Right) and vertical (Top-to-Bottom) swimlanes."
                     )
@@ -1806,39 +1814,29 @@ elif "Phase 4" in phase:
                         
                         if curr_type == 'Decision':
                             # YES Path (Green)
-                            graph.edge(curr_id, next_id, label="Yes", color="green", fontcolor="green")
-                            
-                            # NO Path (Red) - Logic to find a jump or End
-                            # For this auto-draft, we connect 'No' to the node AFTER next, or End if none exists
+                            graph.edge(curr_id, next_id, label="Yes", color="green", fontcolor="green", labeldistance="1.2", labelloc="c")
+                            # NO Path (Red)
                             if i + 2 < len(nodes):
                                 no_target_id = str(i + 2)
                             else:
-                                # Create a generic End if needed or link to last
-                                no_target_id = str(len(nodes) - 1) 
-                            
-                            # Avoid self-loops if logic is tight
+                                no_target_id = str(len(nodes) - 1)
                             if no_target_id != next_id:
-                                graph.edge(curr_id, no_target_id, label="No", color="red", fontcolor="red")
-                                
+                                graph.edge(curr_id, no_target_id, label="No", color="red", fontcolor="red", labeldistance="1.2", labelloc="c")
+                            # Risk categories (if present in label)
+                            if 'risk' in n.get('label', '').lower() or 'score' in n.get('label', '').lower():
+                                # Example: Add labels for High/Medium/Low if next 3 nodes exist
+                                if i + 3 < len(nodes):
+                                    graph.edge(curr_id, str(i+1), label="High", color="#B71C1C", fontcolor="#B71C1C", labeldistance="1.2", labelloc="c")
+                                    graph.edge(curr_id, str(i+2), label="Medium", color="#FBC02D", fontcolor="#FBC02D", labeldistance="1.2", labelloc="c")
+                                    graph.edge(curr_id, str(i+3), label="Low", color="#388E3C", fontcolor="#388E3C", labeldistance="1.2", labelloc="c")
                         elif curr_type == 'Note':
-                            # Dotted line to the previous Process/Decision it modifies
-                            # Assuming Note comes AFTER the step it describes in your list
                             if i > 0:
                                 prev_id = str(i - 1)
-                                # Notes are usually attached TO the main flow, so we reverse edge or make it distinct
                                 graph.edge(curr_id, prev_id, style="dotted", arrowtail="none", dir="back", constraint="false")
-                                # Notes usually don't continue the flow themselves, the flow bypasses them
-                                # So we connect i-1 to i+1 directly if i is a Note? 
-                                # For simplicity in this linear list view, we just link Note back to parent.
-                                # To keep flow continuity:
-                                graph.edge(prev_id, next_id) 
-                        
+                                graph.edge(prev_id, next_id)
                         elif nodes[i+1].get('type') == 'Note':
-                            # If next is a note, skip logic handled above
                             pass
-                        
                         else:
-                            # Standard flow
                             graph.edge(curr_id, next_id)
 
                 st.graphviz_chart(graph, use_container_width=True)
@@ -1926,62 +1924,60 @@ elif "Phase 4" in phase:
             
             for k, v in risks.items():
                 def_text = HEURISTIC_DEFS.get(k, "Nielsen's Usability Heuristic")
-                
+                # Track if recommendations have been applied for this heuristic
+                applied_key = f"heuristic_applied_{k}"
+                if applied_key not in st.session_state:
+                    st.session_state[applied_key] = False
                 # Handle both old (string) and new (dict) formats for backward compatibility
                 if isinstance(v, dict):
                     insight = v.get('insight', 'No insight provided.')
                     is_actionable = v.get('actionable', False)
                 else:
                     insight = str(v)
-                    is_actionable = True # Default to showing button if format is old
-                
-                with st.expander(f"{k}: {insight[:50]}...", expanded=False):
+                    is_actionable = True
+                # Collapsed summary styling
+                expander_label = f"<div style='background-color: #fff; color: #5D4037; border: 1px solid #5D4037; border-radius: 5px; padding: 8px 12px; font-weight: bold;'>{k}: {insight[:50]}...</div>"
+                with st.expander(expander_label, expanded=False):
                     st.markdown(f"**Principle:** *{def_text}*")
                     st.divider()
-                    # Custom styling: White background, Dark Brown font
                     st.markdown(f"""
                     <div style="background-color: white; color: #5D4037; padding: 10px; border-radius: 5px; border: 1px solid #5D4037;">
                         {insight}
                     </div>
                     """, unsafe_allow_html=True)
-                    
                     # APPLY RECOMMENDATION BUTTON (Only if actionable)
                     if is_actionable:
-                        if st.button(f"Apply Recommendations ({k})", key=f"btn_fix_{k}"):
-                            with st.spinner("AI Agent applying recommendations..."):
-                                # Initialize history if needed
-                                if 'node_history' not in st.session_state:
-                                    st.session_state.node_history = []
-                                
-                                # Save current state to history
-                                st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                                
-                                # AI Call to modify nodes
-                                curr_nodes = st.session_state.data['phase3']['nodes']
-                                prompt_fix = f"""
-                                Act as a Clinical Decision Scientist.
-                                Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
-                                
-                                Usability Critique to Address: "{insight}"
-                                
-                                Task: Update the pathway JSON to fulfill the critique recommendations.
-                                - You MUST make VISIBLE changes to the 'label' or 'detail' fields, or add/remove nodes.
-                                - Do not just change internal IDs unless necessary.
-                                - Maintain the existing structure and keys.
-                                - Return ONLY the valid JSON list of nodes.
-                                """
-                                new_nodes = get_gemini_response(prompt_fix, json_mode=True)
-                                
-                                if new_nodes and isinstance(new_nodes, list):
-                                    if new_nodes != curr_nodes:
-                                        st.session_state.data['phase3']['nodes'] = new_nodes
-                                        st.toast("Pathway updated successfully! Refreshing...", icon="✅")
-                                        time.sleep(1.5) # Give user time to see the toast
-                                        st.rerun()
+                        if not st.session_state[applied_key]:
+                            if st.button(f"Apply Recommendations ({k})", key=f"btn_fix_{k}"):
+                                with st.spinner("AI Agent applying recommendations..."):
+                                    if 'node_history' not in st.session_state:
+                                        st.session_state.node_history = []
+                                    st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                                    curr_nodes = st.session_state.data['phase3']['nodes']
+                                    prompt_fix = f"""
+                                    Act as a Clinical Decision Scientist.
+                                    Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
+                                    Usability Critique to Address: "{insight}"
+                                    Task: Update the pathway JSON to fulfill the critique recommendations.
+                                    - You MUST make VISIBLE changes to the 'label' or 'detail' fields, or add/remove nodes.
+                                    - Do not just change internal IDs unless necessary.
+                                    - Maintain the existing structure and keys.
+                                    - Return ONLY the valid JSON list of nodes.
+                                    """
+                                    new_nodes = get_gemini_response(prompt_fix, json_mode=True)
+                                    if new_nodes and isinstance(new_nodes, list):
+                                        if new_nodes != curr_nodes:
+                                            st.session_state.data['phase3']['nodes'] = new_nodes
+                                            st.session_state[applied_key] = True
+                                            st.toast("Pathway updated successfully! Refreshing...", icon="✅")
+                                            time.sleep(1.5)
+                                            st.rerun()
+                                        else:
+                                            st.warning("AI suggested no changes for this critique.")
                                     else:
-                                        st.warning("AI suggested no changes for this critique.")
-                                else:
-                                    st.error("Failed to apply changes. Please try again.")
+                                        st.error("Failed to apply changes. Please try again.")
+                        else:
+                            st.button(f"Recommendations Applied ({k})", key=f"btn_applied_{k}", disabled=True)
 
             # UNDO BUTTON
             if 'node_history' in st.session_state and st.session_state.node_history:
