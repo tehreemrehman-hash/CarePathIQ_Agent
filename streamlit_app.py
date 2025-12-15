@@ -349,6 +349,14 @@ if "auto_run" not in st.session_state:
 # ==========================================
 # 3. HELPER FUNCTIONS
 # ==========================================
+def styled_info(text):
+    """Custom info box with Pink background and Dark Red text."""
+    st.markdown(f"""
+    <div style="background-color: #F2B8C6; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
+        {text}
+    </div>
+    """, unsafe_allow_html=True)
+
 def create_pdf_view_link(html_content, label="Open Charter in New Window"):
     """Generates a link to open HTML in new tab, simulating PDF."""
     b64 = base64.b64encode(html_content.encode()).decode()
@@ -657,7 +665,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         error_msg = str(last_error)
         if "429" in error_msg:
             st.error("**Quota Exceeded (Rate Limit)**: You have hit the free tier limit for Gemini API.")
-            st.info("Please wait a minute before trying again, or use a different API key.")
+            styled_info("Please wait a minute before trying again, or use a different API key.")
         elif "404" in error_msg:
             st.error("**Model Not Found**: The selected AI model is not available in your region or API version.")
         elif "API_KEY_INVALID" in error_msg or "400" in error_msg:
@@ -945,7 +953,7 @@ if "Phase 1" in phase:
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
     # INSTRUCTIONAL BANNER
-    st.info("💡 **Workflow Tip:** This form is interactive. The AI will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI will use your edits to generate the next section and the final Project Charter.")
+    styled_info("💡 **Workflow Tip:** This form is interactive. The AI will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI will use your edits to generate the next section and the final Project Charter.")
 
     with col1:
         # CLINICAL CONDITION
@@ -1101,7 +1109,7 @@ if "Phase 1" in phase:
     df_schedule['Start'] = pd.to_datetime(df_schedule['Start']).dt.date
     df_schedule['End'] = pd.to_datetime(df_schedule['End']).dt.date
 
-    st.info("💡 **Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below. The Gantt chart visualization will update automatically to reflect your changes.")
+    styled_info("💡 **Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below. The Gantt chart visualization will update automatically to reflect your changes.")
 
     edited_schedule = st.data_editor(
         df_schedule,
@@ -1665,7 +1673,7 @@ elif "Phase 4" in phase:
         
         # --- DIRECT EDITING (EXPANDER) ---
         with st.expander("✏️ Edit Pathway Data (Nodes & Roles)", expanded=False):
-            st.info("Edit the table below to update the flowchart in real-time. Assign 'Roles' to create swimlanes.")
+            styled_info("Edit the table below to update the flowchart in real-time. Assign 'Roles' to create swimlanes.")
             
             # Re-use the editor logic from Phase 3 (simplified)
             df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
@@ -1804,7 +1812,7 @@ elif "Phase 4" in phase:
                          
             except Exception as e:
                 st.error(f"Graph Visualization Error: {e}")
-                st.info("Tip: Ensure your Phase 3 Logic list is populated.")
+                styled_info("Tip: Ensure your Phase 3 Logic list is populated.")
 
     with col2:
         st.subheader("Nielsen's Heuristics Analysis")
@@ -2238,7 +2246,7 @@ elif "Phase 5" in phase:
 
     with c1:
         st.subheader("Beta Testing Guide")
-        st.info("Format: Word Document (.docx)")
+        styled_info("Format: Word Document (.docx)")
         if st.session_state.p5_files["docx"]:
             st.download_button(
                 label="Download Guide (.docx)",
@@ -2261,7 +2269,7 @@ elif "Phase 5" in phase:
 
     with c3:
         st.subheader("Education Deck")
-        st.info(f"Audience: {st.session_state.target_audience}\nFormat: PowerPoint (.pptx)")
+        styled_info(f"Audience: {st.session_state.target_audience}\nFormat: PowerPoint (.pptx)")
         if st.session_state.p5_files["pptx"]:
             st.download_button(
                 label="Download Slides (.pptx)",
