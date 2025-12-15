@@ -352,7 +352,7 @@ if "auto_run" not in st.session_state:
 def styled_info(text):
     """Custom info box with Pink background and Dark Red text."""
     st.markdown(f"""
-    <div style="background-color: #F2B8C6; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
+    <div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
         {text}
     </div>
     """, unsafe_allow_html=True)
