@@ -141,7 +141,7 @@ st.markdown("""
     div[data-testid="stButton"] > button:active,
     button[kind="primary"]:active,
     button[kind="secondary"]:active {
-        background-color: #3E2723 !important;
+        background-color: #3E2723 !important; 
         border-color: #3E2723 !important;
         color: white !important;
     }
@@ -162,46 +162,46 @@ st.markdown("""
         font-family: 'Arial', sans-serif !important;
     }
     div.stDownloadButton > button:hover {
-        background-color: #3E2723 !important;
+        background-color: #3E2723 !important; 
         color: white !important;
     }
     div.stDownloadButton > button:active {
-        background-color: #3E2723 !important;
+        background-color: #3E2723 !important; 
         color: white !important;
     }
 
     /* 1d. LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
     a[kind="secondary"] {
-        background-color: #5D4037 !important;
+        background-color: #5D4037 !important; 
         border-color: #5D4037 !important;
         color: white !important;
     }
     a[kind="secondary"]:hover {
-        background-color: #3E2723 !important;
+        background-color: #3E2723 !important; 
         border-color: #3E2723 !important;
     }
 
     /* 1e. SIDEBAR BUTTONS (Previous/Next) -> Mint Green (#A9EED1) */
     section[data-testid="stSidebar"] div.stButton > button {
-        background-color: #A9EED1 !important;
+        background-color: #A9EED1 !important; 
         color: #5D4037 !important; /* Dark Brown text */
         border: none !important;
     }
     section[data-testid="stSidebar"] div.stButton > button:hover {
-        background-color: #8FD9BC !important;
+        background-color: #8FD9BC !important; 
         color: #3E2723 !important;
     }
     
     /* 2. RADIO BUTTONS (The Little Circles) */
     /* Unchecked: White background, Brown border */
     div[role="radiogroup"] label > div:first-child {
-        background-color: white !important;
+        background-color: white !important; 
         border-color: #5D4037 !important;
     }
     
     /* Checked: Brown background, Brown border */
     div[role="radiogroup"] label[data-checked="true"] > div:first-child {
-        background-color: #5D4037 !important;
+        background-color: #5D4037 !important; 
         border-color: #5D4037 !important;
     }
     
@@ -229,7 +229,7 @@ st.markdown("""
 
     /* Tooltip Background - Force White */
     div[data-testid="stTooltipContent"] {
-        background-color: white !important;
+        background-color: white !important; 
         color: #333 !important;
         border: 1px solid #ddd !important;
     }
@@ -1238,21 +1238,20 @@ if "Phase 1" in phase:
                 - **Date Created:** {today_str}
                 
                 **Output Format:** HTML Body Only.
-                **Structure:** 
-                Use the following best-practice Clinical Pathway Project Charter template as your guide. 
+                **Structure:** Use the following best-practice Clinical Pathway Project Charter template as your guide. 
                 Organize the content into a clean, professional HTML layout (using tables for the header, financials, and schedule):
 
                 1. **Project Header**: Project Name, Project Manager, Project Sponsor.
                 2. **Financials & Dates**: Estimated Costs, Expected Savings, Start Date, Completion Date.
                 3. **Project Overview**: 
-                   - Problem or Issue
-                   - Purpose of Project
-                   - Business Case
-                   - Goals / Metrics
-                   - Expected Deliverables
+                    - Problem or Issue
+                    - Purpose of Project
+                    - Business Case
+                    - Goals / Metrics
+                    - Expected Deliverables
                 4. **Project Scope**: Within Scope vs Outside Scope.
                 5. **Tentative Schedule (Gantt Chart)**: A table representing a Gantt Chart with columns [Key Milestone | Owner | Start Date | End Date | Duration]. You MUST use these specific dates provided by the user:
-                     {schedule_str}
+                      {schedule_str}
                 6. **Key Performance Indicators (KPIs)**: A table with columns [Metric | Definition | Target | Data Source | Owner]. Include relevant clinical, operational, and financial metrics.
                 
                 **Style Guide:**
@@ -1712,32 +1711,30 @@ elif "Phase 3" in phase:
 # PHASE 4: USER INTERFACE DESIGN
 # ------------------------------------------
 elif "Phase 4" in phase:
-    
     col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Clinical Pathway Visualizer")
-        
-        # --- DIRECT EDITING (EXPANDER) ---
-        with st.expander("✏️ Edit Pathway Data (Nodes & Roles)", expanded=False):
 
-                    st.markdown("""
-                    <div style="background-color: #5D4037; color: white; padding: 10px 18px; border-radius: 6px; font-weight: bold; font-size: 1.1em; margin-bottom: 10px;">
-                        Edit Pathway Data (Nodes & Roles)
-                    </div>
-                    <div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
-                        Edit the table below to update the flowchart. <b>Gold Standard:</b> Keep labels concise (6-8 words) but clinically specific (e.g., 'CT KUB (Low Dose)' instead of 'CT Scan').
-                    </div>
-                    """, unsafe_allow_html=True)
-            
+    def phase4_editor():
+        with st.expander("Edit Pathway Data (Nodes & Roles)", expanded=False):
+            st.markdown("""
+<div style="background-color: #5D4037; color: white; padding: 10px 18px; border-radius: 6px; font-weight: bold; font-size: 1.1em; margin-bottom: 10px;">
+    Edit Pathway Data (Nodes & Roles)
+</div>
+<div style="background-color: #FFE6EE; color: #9E4244; padding: 10px; border-radius: 5px; border: 1px solid #9E4244; margin-bottom: 10px;">
+    Edit the table below to update the flowchart. <b>Gold Standard:</b> Keep labels concise (6-8 words) but clinically specific (e.g., 'CT KUB (Low Dose)' instead of 'CT Scan').
+</div>
+""", unsafe_allow_html=True)
             # Re-use the editor logic from Phase 3 (simplified)
             df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
-            if "role" not in df_p4.columns: df_p4["role"] = "Unassigned"
-            
+            if "role" not in df_p4.columns:
+                df_p4["role"] = "Unassigned"
             edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
             st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
-            nodes = st.session_state.data['phase3']['nodes'] # Refresh local var
-        
+            return st.session_state.data['phase3']['nodes']
+
+    with col1:
+        st.subheader("Clinical Pathway Visualizer")
+        nodes = phase4_editor()
+
         if nodes:
             try:
                 # --- LAYOUT CONTROLS ---
@@ -1840,6 +1837,7 @@ elif "Phase 4" in phase:
                             graph.edge(curr_id, next_id)
 
                 st.graphviz_chart(graph, use_container_width=True)
+                
                 # Add Zoom In button to open PNG in new tab
                 try:
                     png_data = graph.pipe(format='png')
@@ -1851,33 +1849,33 @@ elif "Phase 4" in phase:
                 # --- DOWNLOADS ---
                 st.markdown("##### Export Flowchart")
                 c_dl1, c_dl2 = st.columns(2)
+                
                 with c_dl1:
-                     try:
-                         png_data = graph.pipe(format='png')
-                         st.download_button(
-                             label="Download High-Res PNG",
-                             data=png_data,
-                             file_name="clinical_pathway.png",
-                             mime="image/png",
-                             type="primary",
-                             use_container_width=True
-                         )
-                     except Exception as e: 
-                         st.error(f"PNG Error: {e}")
+                    try:
+                        png_data = graph.pipe(format='png')
+                        st.download_button(
+                            label="Download PNG",
+                            data=png_data,
+                            file_name="clinical_pathway.png",
+                            mime="image/png",
+                            use_container_width=True
+                        )
+                    except Exception:
+                        st.error("Could not generate PNG.")
+
                 with c_dl2:
-                     try:
-                         svg_data = graph.pipe(format='svg')
-                         st.download_button(
-                             label="Download SVG (Visio Ready)",
-                             data=svg_data,
-                             file_name="clinical_pathway.svg",
-                             mime="image/svg+xml",
-                             type="primary",
-                             use_container_width=True
-                         )
-                     except Exception as e:
-                         st.error(f"SVG Error: {e}")
-                         
+                    try:
+                        dot_source = graph.source
+                        st.download_button(
+                            label="Download DOT Source",
+                            data=dot_source,
+                            file_name="clinical_pathway.gv",
+                            mime="text/vnd.graphviz",
+                            use_container_width=True
+                        )
+                    except Exception:
+                        st.error("Could not generate DOT.")
+
             except Exception as e:
                 st.error(f"Graph Visualization Error: {e}")
                 styled_info("Tip: Ensure your Phase 3 Logic list is populated.")
@@ -2231,9 +2229,9 @@ elif "Phase 5" in phase:
 
                         function downloadWord() {{
                             var header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
-                                         "xmlns:w='urn:schemas-microsoft-com:office:word' " +
-                                         "xmlns='http://www.w3.org/TR/REC-html40'>" +
-                                         "<head><meta charset='utf-8'><title>Feedback</title></head><body>";
+                                             "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+                                             "xmlns='[http://www.w3.org/TR/REC-html40](http://www.w3.org/TR/REC-html40)'>" +
+                                             "<head><meta charset='utf-8'><title>Feedback</title></head><body>";
                             var footer = "</body></html>";
                             var body = "<h1>Beta Testing Feedback: {cond}</h1>";
                             body += "<p><strong>Audience:</strong> {audience}</p><hr>";
