@@ -242,8 +242,22 @@ st.markdown("""
 
 # --- SIDEBAR: CONFIG ---
 with st.sidebar:
-    # Clickable Logo
-    st.logo("CarePathIQ_Logo.png", link="https://carepathiq.org/")
+    # Clickable Logo (Custom HTML for larger size)
+    try:
+        with open("CarePathIQ_Logo.png", "rb") as f:
+            logo_data = base64.b64encode(f.read()).decode()
+        st.markdown(
+            f"""
+            <div style="text-align: center; margin-bottom: 10px;">
+                <a href="https://carepathiq.org/" target="_blank">
+                    <img src="data:image/png;base64,{logo_data}" width="220" style="max-width: 100%;">
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    except FileNotFoundError:
+        st.warning("Logo not found.")
     
     st.title("AI Agent")
     st.divider()
