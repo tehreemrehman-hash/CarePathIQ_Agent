@@ -242,6 +242,9 @@ st.markdown("""
 
 # --- SIDEBAR: CONFIG ---
 with st.sidebar:
+    # Clickable Logo
+    st.logo("CarePathIQ_Logo.png", link="https://carepathiq.org/")
+    
     st.title("AI Agent")
     st.divider()
     
@@ -2137,6 +2140,8 @@ elif "Phase 5" in phase:
             Act as a UX Researcher. Create 5 specific feedback questions for beta testers of the '{cond}' pathway.
             Target Audience: {audience}.
             
+            CRITICAL INSTRUCTION: Refer to the group as 'Team' instead of 'MDT' or 'Multidisciplinary Team' in the questions.
+            
             Return a JSON Object with a single key "questions" containing a list of strings.
             Example: {{ "questions": ["Question 1?", "Question 2?"] }}
             """
@@ -2289,7 +2294,6 @@ elif "Phase 5" in phase:
 
     with c1:
         st.subheader("Beta Testing Guide")
-        styled_info("Format: Word Document (.docx)")
         if st.session_state.p5_files["docx"]:
             st.download_button(
                 label="Download Guide (.docx)",
@@ -2312,7 +2316,6 @@ elif "Phase 5" in phase:
 
     with c3:
         st.subheader("Education Deck")
-        styled_info(f"Audience: {st.session_state.target_audience}\nFormat: PowerPoint (.pptx)")
         if st.session_state.p5_files["pptx"]:
             st.download_button(
                 label="Download Slides (.pptx)",
