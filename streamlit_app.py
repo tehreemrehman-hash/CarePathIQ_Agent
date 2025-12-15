@@ -1743,7 +1743,7 @@ elif "Phase 4" in phase:
                     )
                 
                 with c_view2:
-                    styled_info("💡 **Viewing Tip:** If the flowchart is too large or small, use the **'Download High-Res PNG'** button below to view the full-size image in your preferred viewer. The chart below is optimized to fit the container width.")
+                    styled_info("**Pro Tip:** For best visibility, click the **'Zoom In'** button below the flowchart to open it in a new tab at full resolution. You can then scroll up/down or side-to-side as needed. The chart below is optimized for quick preview only.")
 
                 rank_dir = 'LR' if "Landscape" in orientation else 'TB'
 
@@ -1842,6 +1842,13 @@ elif "Phase 4" in phase:
                             graph.edge(curr_id, next_id)
 
                 st.graphviz_chart(graph, use_container_width=True)
+                # Add Zoom In button to open PNG in new tab
+                try:
+                    png_data = graph.pipe(format='png')
+                    b64_png = base64.b64encode(png_data).decode()
+                    st.markdown(f'<a href="data:image/png;base64,{b64_png}" target="_blank" style="display:inline-block; margin:10px 0; font-weight:bold; color:#5D4037; background:#FFE6EE; padding:8px 18px; border-radius:6px; border:1px solid #9E4244; text-decoration:none;">Zoom In</a>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Zoom In button error: {e}")
                 
                 # --- DOWNLOADS ---
                 st.markdown("##### Export Flowchart")
