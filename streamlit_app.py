@@ -1368,7 +1368,16 @@ elif "Phase 2" in phase:
     if search_q:
         # PubMed Link Button (Safe Logic)
         encoded_query = urllib.parse.quote(search_q.strip())
-        pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
+        
+        # Add "Last 5 Years" filter
+        today = date.today()
+        five_years_ago = today - timedelta(days=5*365)
+        start_str = five_years_ago.strftime('%Y/%m/%d')
+        end_str = today.strftime('%Y/%m/%d')
+        filter_val = f"dates.{start_str}-{end_str}"
+        encoded_filter = urllib.parse.quote(filter_val)
+        
+        pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}&filter={encoded_filter}"
         st.link_button("Open in PubMed ↗", pubmed_url, type="primary")
 
     # --- D. AUTO-RUN: GRADE ANALYSIS ---
