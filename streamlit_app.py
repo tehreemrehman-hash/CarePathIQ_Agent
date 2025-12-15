@@ -1740,266 +1740,229 @@ elif "Phase 4" in phase:
                 # --- LAYOUT CONTROLS ---
                 c_view1, c_view2 = st.columns([1, 3])
                 with c_view1:
-                    orientation = st.radio(
-                        "Layout Orientation",
-                        ["Portrait (Vertical)", "Landscape (Horizontal)"],
-                        index=0,
-                        help="Switch between horizontal (Left-to-Right) and vertical (Top-to-Bottom) swimlanes."
-                    )
-                
-                with c_view2:
-                    styled_info("**Pro Tip:** For best visibility, click the **'Zoom In'** button below the flowchart to open it in a new tab at full resolution. You can then scroll up/down or side-to-side as needed. The chart below is optimized for quick preview only.")
+                    col1, col2 = st.columns([2, 1])
 
-                rank_dir = 'LR' if "Landscape" in orientation else 'TB'
-
-                # --- ENHANCED GRAPHVIZ LOGIC WITH SWIMLANES ---
-                graph = graphviz.Digraph()
-                # ratio='auto' allows expansion, size=None removes constraints
-                graph.attr(rankdir=rank_dir, splines='ortho', ratio='auto', size='None') 
-                graph.attr('node', fontname='Helvetica', fontsize='10')
+                    # --- HELPER: MERMAID GENERATION ---
+                    def generate_mermaid_code(nodes, orientation="TD"):
+                        """Generates cleaner Mermaid.js syntax for the flowchart."""
+                        code = f"graph {orientation}\n"
+        
+                        # 1. Define Nodes with Styling
+                        # Classes: start, end, decision, process, note
+                        code += "    %% Node Definitions\n"
+        
+                        for i, n in enumerate(nodes):
+                            nid = f"N{i}"
+                            label = n.get('label', 'Step').replace('"', "'") # Sanitize
+                            ntype = n.get('type', 'Process')
+            
+                            # Mermaid Syntax Mappings
+                            if ntype == 'Start':
+                                shape = f'({label})'
+                                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
+                            elif ntype == 'End':
+                                shape = f'([{label}])'
+                                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
+                            elif ntype == 'Decision':
+                                shape = f'{{{label}}}'
+                                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:#000'
+                            elif ntype == 'Note':
+                                shape = f'>"{label}"]' # Tag shape
+                                style = f'style {nid} fill:#DAE8FC,stroke:#6C8EBF,stroke-width:1px,color:#000,stroke-dasharray: 5 5'
+                            else: # Process
+                                shape = f'[{label}]'
+                                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:#000'
                 
-                # Helper to style nodes
-                def add_styled_node(g, idx, n):
-                    node_id = str(idx)
-                    label = n.get('label', '?')
-                    node_type = n.get('type', 'Process')
+                            code += f"    {nid}{shape}\n"
+                            code += f"    {style}\n"
+            
+                        # 2. Define Edges (Simple Linear Logic for Beta)
+                        code += "\n    %% Logic Flow\n"
+                        for i, n in enumerate(nodes):
+                            if i < len(nodes) - 1:
+                                curr = f"N{i}"
+                                next_n = f"N{i+1}"
+                                ntype = n.get('type')
+                
+                                if ntype == 'Decision':
+                                    # Yes Path (Standard)
+                                    code += f"    {curr} -->|Yes| {next_n}\n"
+                                    # No Path (Skip logic simulation)
+                                    if i + 2 < len(nodes):
+                                        skip = f"N{i+2}"
+                                        code += f"    {curr} -.->|No| {skip}\n"
+                                        # Style the No link red
+                                        code += f"    linkStyle {i*2+1} stroke:red,stroke-width:2px,color:red;\n" 
+                                elif ntype == 'Note':
+                                    # Connect Note to previous node if possible
+                                    if i > 0:
+                                        prev = f"N{i-1}"
+                                        code += f"    {curr} -.- {prev}\n"
+                                elif nodes[i+1].get('type') == 'Note':
+                                    pass # Don't connect process to note directly as flow
+                                else:
+                                    code += f"    {curr} --> {next_n}\n"
+
+                        return code
+
+                    with col1:
+                        st.subheader("Clinical Pathway Visualizer")
+        
+                        # --- EDITOR (Cleaned Up) ---
+                        with st.expander("✏️ Edit Pathway Data", expanded=False):
+                            df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+                            if "role" not in df_p4.columns: df_p4["role"] = "Unassigned"
+            
+                            edited_p4 = st.data_editor(
+                                df_p4, 
+                                num_rows="dynamic", 
+                                key="p4_editor", 
+                                use_container_width=True,
+                                column_config={
+                                    "type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "Note", "End"], width="small"),
+                                    "label": st.column_config.TextColumn("Label", width="medium"),
+                                    "detail": st.column_config.TextColumn("Details", width="large"),
+                                }
+                            )
+                            # Sync edits immediately
+                            if not df_p4.equals(edited_p4):
+                                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                                st.rerun()
+
+                        nodes = st.session_state.data['phase3']['nodes']
+
+                        if nodes:
+                            try:
+                                # Layout Controls
+                                c_view1, c_view2 = st.columns([1, 2])
+                                with c_view1:
+                                    orientation = st.selectbox("Orientation", ["Vertical (TD)", "Horizontal (LR)"], index=0)
+                                    mermaid_orient = "TD" if "Vertical" in orientation else "LR"
+                
+                                # Generate Mermaid Code
+                                mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
+                
+                                # Base64 Encode for Mermaid.ink API
+                                mermaid_base64 = base64.b64encode(mermaid_code.encode("utf-8")).decode("utf-8")
+                                image_url = f"https://mermaid.ink/img/{mermaid_base64}?bgColor=FFFFFF"
+                
+                                # --- ZOOM / OPEN BUTTON (Top Position) ---
+                                with c_view2:
+                                    st.write("") # Spacer
+                                    st.link_button("🔍 Zoom In / Open High-Res Image", image_url, use_container_width=True)
+
+                                # Render Image
+                                st.image(image_url, caption="Live Preview (Mermaid.js)", use_container_width=True)
+                
+                                # Raw Code (Hidden by default)
+                                with st.expander("View Mermaid Syntax"):
+                                    st.code(mermaid_code, language='mermaid')
+
+                            except Exception as e:
+                                st.error(f"Visualization Error: {e}")
+                        else:
+                            st.info("No nodes defined. Please go back to Phase 3 or add nodes above.")
+
+                    with col2:
+                        st.subheader("Nielsen's Heuristics Analysis")
+        
+                        # AUTO-RUN: HEURISTICS
+                        nodes_json = json.dumps(nodes)
+                        if nodes and not st.session_state.auto_run["p4_heuristics"]:
+                             with st.spinner("AI Agent analyzing User Interface Design risks..."):
+                                 prompt = f"""
+                                 Act as a UX Researcher. Analyze this clinical pathway logic: {nodes_json}
+                                 Evaluate it against **Jakob Nielsen's 10 Usability Heuristics**.
+                                 For each heuristic, provide:
+                                 1. A specific critique.
+                                 2. A boolean 'actionable' flag.
+                                 Return JSON: {{ "H1": {{ "insight": "...", "actionable": true }}, ... }}
+                                 """
+                                 risks = get_gemini_response(prompt, json_mode=True)
+                                 if isinstance(risks, dict): 
+                                     st.session_state.data['phase4']['heuristics_data'] = risks
+                                     st.session_state.auto_run["p4_heuristics"] = True
+                                     st.rerun()
+
+                        risks = st.session_state.data['phase4'].get('heuristics_data', {})
+                        if risks:
+                            st.markdown("""
+                            <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 15px; font-weight:bold;">
+                                UX Recommendations
+                            </div>
+                            """, unsafe_allow_html=True)
+            
+                            for k, v in risks.items():
+                                # Handle data format
+                                if isinstance(v, dict):
+                                    insight = v.get('insight', 'No insight.')
+                                    is_actionable = v.get('actionable', False)
+                                else:
+                                    insight = str(v)
+                                    is_actionable = True
+                
+                                # Clean Expander - No custom HTML in label to fix color mismatch
+                                with st.expander(f"📌 {k}: {insight[:40]}...", expanded=False):
+                                    # Styled Content Inside
+                                    st.markdown(f"""
+                                    <div style="background-color: #FDF2F5; color: #5D4037; padding: 10px; border-radius: 4px; border-left: 4px solid #9E4244;">
+                                        <strong>Critique:</strong> {insight}
+                                    </div>
+                                    """, unsafe_allow_html=True)
                     
-                    if node_type == 'Start':
-                        g.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
-                    elif node_type == 'End':
-                        g.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
-                    elif node_type == 'Decision':
-                        g.node(node_id, label, shape='diamond', style='filled', fillcolor='#F8CECC', color='#B85450')
-                    elif node_type == 'Note':
-                        g.node(node_id, label, shape='note', style='filled', fillcolor='#DAE8FC', color='#6C8EBF')
-                    else: # Process
-                        g.node(node_id, label, shape='box', style='filled', fillcolor='#FFF2CC', color='#D6B656')
-
-                # Group nodes by Role for Swimlanes
-                roles = sorted(list(set([n.get('role', 'Unassigned') for n in nodes])))
-                
-                # Create Swimlanes (Subgraphs) if multiple roles exist
-                # Note: Graphviz clusters require 'cluster_' prefix
-                if len(roles) > 1:
-                    for r in roles:
-                        # Clean role name for graphviz ID (alphanumeric only)
-                        safe_role = "".join(c for c in r if c.isalnum())
-                        if not safe_role: safe_role = "default"
+                                    if is_actionable:
+                                        applied_key = f"heuristic_applied_{k}"
+                                        if applied_key not in st.session_state: st.session_state[applied_key] = False
                         
-                        with graph.subgraph(name=f'cluster_{safe_role}') as c:
-                            c.attr(label=r, style='filled', color='#f8f9fa')
-                            for i, n in enumerate(nodes):
-                                if n.get('role', 'Unassigned') == r:
-                                    add_styled_node(c, i, n)
-                else:
-                    # No swimlanes needed
-                    for i, n in enumerate(nodes):
-                        add_styled_node(graph, i, n)
-
-                # 2. Define Edges with Logic
-                # This simple logic assumes a linear list where:
-                # - 'Decision' nodes branch: 
-                #     - 'Yes' goes to the immediate next node (i+1)
-                #     - 'No' attempts to skip to a logical end or later step (simulated here as i+2 or End)
-                # - 'Note' nodes connect to their parent with a dotted line
-                
-                for i, n in enumerate(nodes):
-                    if i < len(nodes) - 1:
-                        curr_id = str(i)
-                        next_id = str(i + 1)
-                        curr_type = n.get('type')
-                        
-                        if curr_type == 'Decision':
-                            # YES Path (Green)
-                            graph.edge(curr_id, next_id, label="Yes", color="green", fontcolor="green", labeldistance="1.2", labelloc="c")
-                            # NO Path (Red)
-                            if i + 2 < len(nodes):
-                                no_target_id = str(i + 2)
-                            else:
-                                no_target_id = str(len(nodes) - 1)
-                            if no_target_id != next_id:
-                                graph.edge(curr_id, no_target_id, label="No", color="red", fontcolor="red", labeldistance="1.2", labelloc="c")
-                            # Risk categories (if present in label)
-                            if 'risk' in n.get('label', '').lower() or 'score' in n.get('label', '').lower():
-                                # Example: Add labels for High/Medium/Low if next 3 nodes exist
-                                if i + 3 < len(nodes):
-                                    graph.edge(curr_id, str(i+1), label="High", color="#B71C1C", fontcolor="#B71C1C", labeldistance="1.2", labelloc="c")
-                                    graph.edge(curr_id, str(i+2), label="Medium", color="#FBC02D", fontcolor="#FBC02D", labeldistance="1.2", labelloc="c")
-                                    graph.edge(curr_id, str(i+3), label="Low", color="#388E3C", fontcolor="#388E3C", labeldistance="1.2", labelloc="c")
-                        elif curr_type == 'Note':
-                            if i > 0:
-                                prev_id = str(i - 1)
-                                graph.edge(curr_id, prev_id, style="dotted", arrowtail="none", dir="back", constraint="false")
-                                graph.edge(prev_id, next_id)
-                        elif nodes[i+1].get('type') == 'Note':
-                            pass
-                        else:
-                            graph.edge(curr_id, next_id)
-
-                st.graphviz_chart(graph, use_container_width=True)
-                
-                # Add Zoom In button to open PNG in new tab
-                try:
-                    png_data = graph.pipe(format='png')
-                    b64_png = base64.b64encode(png_data).decode()
-                    st.markdown(f'<a href="data:image/png;base64,{b64_png}" target="_blank" style="display:inline-block; margin:10px 0; font-weight:bold; color:#5D4037; background:#FFE6EE; padding:8px 18px; border-radius:6px; border:1px solid #9E4244; text-decoration:none;">Zoom In</a>', unsafe_allow_html=True)
-                except Exception as e:
-                    st.error(f"Zoom In button error: {e}")
-                
-                # --- DOWNLOADS ---
-                st.markdown("##### Export Flowchart")
-                c_dl1, c_dl2 = st.columns(2)
-                
-                with c_dl1:
-                    try:
-                        png_data = graph.pipe(format='png')
-                        st.download_button(
-                            label="Download PNG",
-                            data=png_data,
-                            file_name="clinical_pathway.png",
-                            mime="image/png",
-                            use_container_width=True
-                        )
-                    except Exception:
-                        st.error("Could not generate PNG.")
-
-                with c_dl2:
-                    try:
-                        dot_source = graph.source
-                        st.download_button(
-                            label="Download DOT Source",
-                            data=dot_source,
-                            file_name="clinical_pathway.gv",
-                            mime="text/vnd.graphviz",
-                            use_container_width=True
-                        )
-                    except Exception:
-                        st.error("Could not generate DOT.")
-
-            except Exception as e:
-                st.error(f"Graph Visualization Error: {e}")
-                styled_info("Tip: Ensure your Phase 3 Logic list is populated.")
-
-    with col2:
-        st.subheader("Nielsen's Heuristics Analysis")
-        
-        nodes = st.session_state.data['phase3']['nodes']
-        if not nodes:
-            st.warning("No pathway logic defined in Phase 3.")
-        
-        # AUTO-RUN: HEURISTICS
-        nodes_json = json.dumps(nodes)
-        if nodes and not st.session_state.auto_run["p4_heuristics"]:
-             with st.spinner("AI Agent analyzing User Interface Design risks..."):
-                 
-                 prompt = f"""
-                 Act as a UX Researcher specializing in Clinical Decision Support. 
-                 Analyze this clinical pathway logic: {nodes_json}
-                 
-                 Evaluate it against **Jakob Nielsen's 10 Usability Heuristics** (nngroup.com).
-                 For each heuristic, provide:
-                 1. A specific critique or suggestion.
-                 2. A boolean flag 'actionable' indicating if this suggestion requires a direct change to the node structure (e.g. changing labels, adding nodes, reordering).
-                 
-                 Return a JSON object where keys are H1-H10 and values are objects: 
-                 {{ "H1": {{ "insight": "...", "actionable": true }}, ... }}
-                 """
-                 
-                 risks = get_gemini_response(prompt, json_mode=True)
-                 
-                 if isinstance(risks, dict): 
-                     st.session_state.data['phase4']['heuristics_data'] = risks
-                     st.session_state.auto_run["p4_heuristics"] = True
-                     st.rerun()
-
-        risks = st.session_state.data['phase4'].get('heuristics_data', {})
-        if risks:
-            st.markdown("""
-            <div style="background-color: #5D4037; padding: 10px; border-radius: 5px; color: white; margin-bottom: 15px;">
-                Review these insights to improve your pathway's usability.
-            </div>
-            """, unsafe_allow_html=True)
-            
-            for k, v in risks.items():
-                def_text = HEURISTIC_DEFS.get(k, "Nielsen's Usability Heuristic")
-                # Track if recommendations have been applied for this heuristic
-                applied_key = f"heuristic_applied_{k}"
-                if applied_key not in st.session_state:
-                    st.session_state[applied_key] = False
-                # Handle both old (string) and new (dict) formats for backward compatibility
-                if isinstance(v, dict):
-                    insight = v.get('insight', 'No insight provided.')
-                    is_actionable = v.get('actionable', False)
-                else:
-                    insight = str(v)
-                    is_actionable = True
-                # Collapsed summary styling
-                expander_label = f"<div style='background-color: #fff; color: #5D4037; border: 1px solid #5D4037; border-radius: 5px; padding: 8px 12px; font-weight: bold;'>{k}: {insight[:50]}...</div>"
-                with st.expander(expander_label, expanded=False):
-                    st.markdown(f"**Principle:** *{def_text}*")
-                    st.divider()
-                    st.markdown(f"""
-                    <div style="background-color: white; color: #5D4037; padding: 10px; border-radius: 5px; border: 1px solid #5D4037;">
-                        {insight}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    # APPLY RECOMMENDATION BUTTON (Only if actionable)
-                    if is_actionable:
-                        if not st.session_state[applied_key]:
-                            if st.button(f"Apply Recommendations ({k})", key=f"btn_fix_{k}"):
-                                with st.spinner("AI Agent applying recommendations..."):
-                                    if 'node_history' not in st.session_state:
-                                        st.session_state.node_history = []
-                                    st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
-                                    curr_nodes = st.session_state.data['phase3']['nodes']
-                                    prompt_fix = f"""
-                                    Act as a Clinical Decision Scientist.
-                                    Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
-                                    Usability Critique to Address: "{insight}"
-                                    Task: Update the pathway JSON to fulfill the critique recommendations.
-                                    - You MUST make VISIBLE changes to the 'label' or 'detail' fields, or add/remove nodes.
-                                    - Do not just change internal IDs unless necessary.
-                                    - Maintain the existing structure and keys.
-                                    - Return ONLY the valid JSON list of nodes.
-                                    """
-                                    new_nodes = get_gemini_response(prompt_fix, json_mode=True)
-                                    if new_nodes and isinstance(new_nodes, list):
-                                        if new_nodes != curr_nodes:
-                                            st.session_state.data['phase3']['nodes'] = new_nodes
-                                            st.session_state[applied_key] = True
-                                            st.toast("Pathway updated successfully! Refreshing...", icon="✅")
-                                            time.sleep(1.5)
-                                            st.rerun()
+                                        if not st.session_state[applied_key]:
+                                            if st.button("Fix This", key=f"btn_fix_{k}", use_container_width=True):
+                                                with st.spinner("Applying fix..."):
+                                                    # Save History
+                                                    if 'node_history' not in st.session_state: st.session_state.node_history = []
+                                                    st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
+                                    
+                                                    # Fix Prompt
+                                                    prompt_fix = f"""
+                                                    Act as a Clinical Decision Scientist.
+                                                    Update this pathway JSON to address the critique: "{insight}"
+                                                    Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
+                                                    Return ONLY valid JSON.
+                                                    """
+                                                    new_nodes = get_gemini_response(prompt_fix, json_mode=True)
+                                                    if new_nodes and isinstance(new_nodes, list):
+                                                        st.session_state.data['phase3']['nodes'] = new_nodes
+                                                        st.session_state[applied_key] = True
+                                                        st.rerun()
                                         else:
-                                            st.warning("AI suggested no changes for this critique.")
-                                    else:
-                                        st.error("Failed to apply changes. Please try again.")
-                        else:
-                            st.button(f"Recommendations Applied ({k})", key=f"btn_applied_{k}", disabled=True)
+                                            st.caption("✅ Recommendation Applied")
 
-            # UNDO BUTTON
-            if 'node_history' in st.session_state and st.session_state.node_history:
-                if st.button("Undo Last Change", type="secondary", use_container_width=True):
-                    st.session_state.data['phase3']['nodes'] = st.session_state.node_history.pop()
-                    st.rerun()
+                            # UNDO BUTTON
+                            if 'node_history' in st.session_state and st.session_state.node_history:
+                                if st.button("Undo Last Change", type="secondary", use_container_width=True):
+                                    st.session_state.data['phase3']['nodes'] = st.session_state.node_history.pop()
+                                    st.rerun()
 
-            st.divider()
+                            st.divider()
             
-            # MANUAL REFINEMENT
-            st.markdown("#### Custom Refinement")
-            custom_edit = st.text_area("Describe any other changes you want to make:", 
-                                     placeholder="e.g., 'Add a step to check blood pressure after triage'",
-                                     key="p4_custom_edit")
-            
-            if st.button("Preview Changes", type="primary", use_container_width=True):
-                if custom_edit:
-                    with st.spinner("AI Agent analyzing request..."):
-                        curr_nodes = st.session_state.data['phase3']['nodes']
-                        prompt_custom = f"""
-                        Act as a Clinical Decision Scientist.
-                        Current Clinical Pathway (JSON): {json.dumps(curr_nodes)}
+                            # MANUAL REFINEMENT
+                            custom_edit = st.text_area("Custom Refinement", placeholder="E.g., 'Add a blood pressure check after triage'", label_visibility="collapsed")
+                            if st.button("Apply Custom Edit", type="primary", use_container_width=True):
+                                if custom_edit:
+                                    with st.spinner("Applying edit..."):
+                                        if 'node_history' not in st.session_state: st.session_state.node_history = []
+                                        st.session_state.node_history.append(copy.deepcopy(st.session_state.data['phase3']['nodes']))
                         
-                        User Request: "{custom_edit}"
+                                        prompt_custom = f"""
+                                        Update this pathway JSON based on user request: "{custom_edit}"
+                                        Current JSON: {json.dumps(st.session_state.data['phase3']['nodes'])}
+                                        Return ONLY valid JSON.
+                                        """
+                                        new_nodes = get_gemini_response(prompt_custom, json_mode=True)
+                                        if new_nodes and isinstance(new_nodes, list):
+                                            st.session_state.data['phase3']['nodes'] = new_nodes
+                                            st.rerun()
+
+                    render_bottom_navigation()
                         
                         Task: 
                         1. Analyze the request and describe the specific changes needed (e.g. "Adding a Process node 'Check BP' after node 2").
