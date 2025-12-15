@@ -1300,39 +1300,33 @@ if "Phase 1" in phase:
 # ------------------------------------------
 elif "Phase 2" in phase:
     
-    if 'p1_cond_input' in st.session_state: st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
-    p1_cond = st.session_state.data['phase1'].get('condition', '')
-    
-    if p1_cond:
-        if not st.session_state.data['phase2'].get('mesh_query'):
-            with st.spinner("AI Agent drafting Search Query..."):
-                setting = st.session_state.data['phase1'].get('setting', '')
-                prompt_mesh = f"""
-                Construct a PubMed search query.
-                Format: "guidelines for managing patients with {p1_cond} in {setting}"
-                OUTPUT FORMAT: Return ONLY the raw query string.
-                """
-                raw_query = get_gemini_response(prompt_mesh)
-                if raw_query:
-                    st.session_state.data['phase2']['mesh_query'] = raw_query.replace('```', '').replace('\n', ' ').strip()
-                    st.rerun()
+    # Auto-populate PubMed search query using Phase 1 content
+    if 'p1_cond_input' in st.session_state:
+        st.session_state.data['phase1']['condition'] = st.session_state.p1_cond_input
+    p1_cond = st.session_state.data['phase1'].get('condition', '').strip()
+    p1_setting = st.session_state.data['phase1'].get('setting', '').strip()
 
-        search_q = st.session_state.data['phase2'].get('mesh_query', '')
-
-        if search_q and not st.session_state.data['phase2']['evidence'] and not st.session_state.auto_run.get("p2_search_done", False):
-             with st.spinner("Fetching PubMed results..."):
-                results = search_pubmed(search_q)
-                if results:
-                    st.session_state.data['phase2']['evidence'].extend(results)
-                    st.session_state.auto_run["p2_grade"] = False 
-                    st.session_state.auto_run["p2_search_done"] = True
-                    st.rerun()
-                else:
-                    st.warning("No results found.")
-                    st.session_state.auto_run["p2_search_done"] = True 
+    # Build the query: managing patients with [clinical condition] in [care setting] (last 5 years)
+    auto_query = ""
+    if p1_cond and p1_setting:
+        auto_query = f"managing patients with {p1_cond} in {p1_setting}"
+        st.session_state.data['phase2']['mesh_query'] = auto_query
 
     search_q = st.session_state.data['phase2'].get('mesh_query', '')
+    if search_q and not st.session_state.data['phase2']['evidence'] and not st.session_state.auto_run.get("p2_search_done", False):
+        with st.spinner("Fetching PubMed results..."):
+            results = search_pubmed(search_q)
+            if results:
+                st.session_state.data['phase2']['evidence'].extend(results)
+                st.session_state.auto_run["p2_grade"] = False 
+                st.session_state.auto_run["p2_search_done"] = True
+                st.rerun()
+            else:
+                st.warning("No results found.")
+                st.session_state.auto_run["p2_search_done"] = True 
+
     if search_q:
+        st.info(f"<b>PubMed Query:</b> {search_q} <br><i>(Last 5 years, auto-generated from Phase 1)</i>", unsafe_allow_html=True)
         encoded_query = urllib.parse.quote(search_q.strip())
         pubmed_url = f"https://pubmed.ncbi.nlm.nih.gov/?term={encoded_query}"
         st.link_button("Open in PubMed ↗", pubmed_url, type="primary")
