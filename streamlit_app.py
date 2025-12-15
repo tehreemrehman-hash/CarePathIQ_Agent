@@ -1474,13 +1474,33 @@ elif "Phase 3" in phase:
         pmid_list = [str(e['id']) for e in st.session_state.data['phase2']['evidence']]
         evidence_options = [f"PMID: {pmid}" for pmid in pmid_list]
 
-    # Auto-populate Supporting Evidence if blank
-    for idx, row in df_nodes.iterrows():
-        if (not row.get('evidence')) and pmid_list:
-            df_nodes.at[idx, 'evidence'] = f"PMID: {pmid_list[0]}"
-            df_nodes.at[idx, 'evidence_id'] = pmid_list[0]
-        elif row.get('evidence'):
-            df_nodes.at[idx, 'evidence_id'] = str(row['evidence']).replace("PMID: ", "")
+    # Auto-populate Supporting Evidence with the most relevant PMID using AI
+    if pmid_list and st.session_state.data['phase2']['evidence']:
+        evidence_map = {str(e['id']): e for e in st.session_state.data['phase2']['evidence']}
+        for idx, row in df_nodes.iterrows():
+            if not row.get('evidence'):
+                # Use AI to select the most relevant PMID for this node
+                node_label = row.get('label', '')
+                node_detail = row.get('detail', '')
+                titles = [f"PMID: {e['id']} - {e['title']}" for e in st.session_state.data['phase2']['evidence']]
+                prompt = f"""
+                Given the following clinical pathway node:
+                Label: {node_label}
+                Detail: {node_detail}
+                And these evidence options:
+                {json.dumps(titles)}
+                Select the single most relevant PMID (just the number) that best supports this node. If none are relevant, return an empty string.
+                """
+                best_pmid = get_gemini_response(prompt, json_mode=False)
+                best_pmid = str(best_pmid).strip()
+                if best_pmid and best_pmid in pmid_list:
+                    df_nodes.at[idx, 'evidence'] = f"PMID: {best_pmid}"
+                    df_nodes.at[idx, 'evidence_id'] = best_pmid
+                else:
+                    df_nodes.at[idx, 'evidence'] = None
+                    df_nodes.at[idx, 'evidence_id'] = None
+            elif row.get('evidence'):
+                df_nodes.at[idx, 'evidence_id'] = str(row['evidence']).replace("PMID: ", "")
 
     edited_nodes = st.data_editor(df_nodes, column_config={
         "id": st.column_config.TextColumn("ID", width="small", disabled=True),
