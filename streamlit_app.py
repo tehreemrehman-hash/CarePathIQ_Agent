@@ -37,37 +37,36 @@ def calculate_granular_progress():
     if 'data' not in st.session_state: return 0.0
     
     data = st.session_state.data
-    total_points = 0
+    p5_files = st.session_state.get('p5_files', {})
+    
+    # Define Weighted Milestones (Total 11 Points)
+    total_points = 11
     earned_points = 0
     
-    # Phase 1: 6 points (Inputs)
+    # Phase 1: 3 Points (Core Definitions)
     p1 = data.get('phase1', {})
-    for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
-        total_points += 1
-        if p1.get(k): earned_points += 1
+    if p1.get('condition'): earned_points += 1
+    if p1.get('problem'): earned_points += 1
+    if p1.get('objectives'): earned_points += 1
         
-    # Phase 2: 2 points (Query + Evidence)
+    # Phase 2: 2 Points (Search & Evidence)
     p2 = data.get('phase2', {})
-    total_points += 1
     if p2.get('mesh_query'): earned_points += 1
-    total_points += 1
-    if p2.get('evidence'): earned_points += 1
+    if p2.get('evidence') and len(p2['evidence']) > 0: earned_points += 1
     
-    # Phase 3: 3 points (Pathway Nodes - Weighted)
+    # Phase 3: 1 Point (Logic Exists)
     p3 = data.get('phase3', {})
-    total_points += 3
-    if p3.get('nodes'): earned_points += 3
+    if p3.get('nodes') and len(p3['nodes']) > 0: earned_points += 1
     
-    # Phase 4: 2 points (Heuristics Analysis)
+    # Phase 4: 1 Point (Heuristics Run)
     p4 = data.get('phase4', {})
-    total_points += 2
-    if p4.get('heuristics_data'): earned_points += 2
+    if p4.get('heuristics_data'): earned_points += 1
     
-    # Phase 5: 3 points (Assets Generated)
-    p5 = data.get('phase5', {})
-    for k in ['beta_content', 'slides', 'epic_csv']:
-        total_points += 1
-        if p5.get(k): earned_points += 1
+    # Phase 5: 4 Points (Assets Generated)
+    if p5_files.get('docx'): earned_points += 1 # Guide
+    if p5_files.get('html'): earned_points += 1 # Feedback Form
+    if p5_files.get('pptx'): earned_points += 1 # Slides
+    if data.get('phase5', {}).get('exec_summary'): earned_points += 1 # Executive Summary
         
     if total_points == 0: return 0.0
     return min(1.0, earned_points / total_points)
@@ -923,7 +922,7 @@ if "Phase 1" in phase:
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
-    styled_info("**Workflow Tip:** This form is interactive. The AI agent will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI agent will use your edits to generate the next section and the final Project Charter.")
+    styled_info("Tip: This form is interactive. The AI agent will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI agent will use your edits to generate the next section and the final Project Charter.")
 
     with col1:
         st.subheader("1. Clinical Focus")
@@ -1003,6 +1002,7 @@ if "Phase 1" in phase:
                 CRITICAL INSTRUCTIONS:
                 - Focus ONLY on clinical and operational outcomes (e.g., Length of Stay, Mortality, Readmission Rate, Door-to-Needle time, Patient Safety, Compliance with Guidelines).
                 - Do NOT use business or marketing metrics (e.g., no 'leads', 'brand equity', 'sales', 'conversion rates').
+                - **Do NOT use LaTeX formatting (e.g. avoid $\le$). Use standard text characters (e.g. <=, <, >) for inequalities.**
                 - Return JSON with key 'objectives' (list of strings).
                 """
                 data = get_gemini_response(prompt, json_mode=True)
@@ -1022,21 +1022,35 @@ if "Phase 1" in phase:
     if 'schedule' not in st.session_state.data['phase1'] or not st.session_state.data['phase1']['schedule']:
         today = date.today()
         def add_weeks(start_d, w): return start_d + timedelta(weeks=w)
+        # 1) Project Charter (2 wks)
         d1_end = add_weeks(today, 2)
+        # 2) Pathway Draft (4 wks)
         d2_end = add_weeks(d1_end, 4)
-        d3_end = add_weeks(d2_end, 12)
-        d4_end = add_weeks(d3_end, 8)
+        # 3) Expert Panel Feedback (2 wks)
+        d3_end = add_weeks(d2_end, 2)
+        # 4) Iterative Design (2 wks)
+        d4_end = add_weeks(d3_end, 2)
+        # 5) Informatics Build (4 wks)
         d5_end = add_weeks(d4_end, 4)
-        d6_end = add_weeks(d5_end, 2)
+        # 6) Beta Testing (4 wks)
+        d6_end = add_weeks(d5_end, 4)
+        # 7) Go-Live (2 wks)
+        d7_end = add_weeks(d6_end, 2)
+        # 8) Optimization (4 wks)
+        d8_end = add_weeks(d7_end, 4)
+        # 9) Monitoring (Ongoing 12+ wks)
+        d9_end = add_weeks(d8_end, 12)
         
         st.session_state.data['phase1']['schedule'] = [
-            {"Phase": "Form Project Team & Charter", "Owner": "Project Manager", "Start": today, "End": d1_end},
-            {"Phase": "Expert Panel Feedback & Iterative Drafts", "Owner": "Clinical Lead", "Start": d1_end, "End": d2_end},
-            {"Phase": "Definition & Measurement", "Owner": "Project Lead", "Start": d1_end, "End": d2_end},
-            {"Phase": "Analysis (Root Cause & Design)", "Owner": "Clinical Lead", "Start": d2_end, "End": d3_end},
-            {"Phase": "Improvement (Pilot)", "Owner": "Implementation Team", "Start": d3_end, "End": d4_end},
-            {"Phase": "Control Phase", "Owner": "Quality Dept", "Start": d4_end, "End": d5_end},
-            {"Phase": "Close Out & Summary", "Owner": "Project Sponsor", "Start": d5_end, "End": d6_end},
+            {"Phase": "1. Project Charter", "Owner": "Project Manager", "Start": today, "End": d1_end},
+            {"Phase": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1_end, "End": d2_end},
+            {"Phase": "3. Expert Panel Feedback", "Owner": "Expert Panel", "Start": d2_end, "End": d3_end},
+            {"Phase": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3_end, "End": d4_end},
+            {"Phase": "5. Informatics Build & EHR Integration", "Owner": "Informatics Team", "Start": d4_end, "End": d5_end},
+            {"Phase": "6. Beta Testing", "Owner": "Quality Improvement", "Start": d5_end, "End": d6_end},
+            {"Phase": "7. Go-Live and Staff Education", "Owner": "Operations", "Start": d6_end, "End": d7_end},
+            {"Phase": "8. Post Go-Live Optimizations", "Owner": "Clinical Lead", "Start": d7_end, "End": d8_end},
+            {"Phase": "9. Monitoring and Evaluation", "Owner": "Quality Dept", "Start": d8_end, "End": d9_end},
         ]
 
     if st.button("Reset Schedule to Defaults", key="reset_schedule"):
@@ -1047,7 +1061,7 @@ if "Phase 1" in phase:
     df_schedule['Start'] = pd.to_datetime(df_schedule['Start']).dt.date
     df_schedule['End'] = pd.to_datetime(df_schedule['End']).dt.date
 
-    styled_info("**Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below.")
+    styled_info("Tip: You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below.")
 
     edited_schedule = st.data_editor(
         df_schedule,
@@ -1145,6 +1159,8 @@ if "Phase 1" in phase:
                 **Style Guide:**
                 - Use <h2> headers for sections.
                 - Ensure the tone is professional, concise, and persuasive.
+                - **Do NOT use LaTeX formatting. Use standard text.**
+                - **Do NOT write 'None' for missing fields like Sponsor. Leave them blank so the user can fill them in.**
                 - DO NOT use markdown code blocks (```). Just return the HTML.
                 """
                 
@@ -1320,13 +1336,14 @@ elif "Phase 3" in phase:
              Act as a Clinical Decision Scientist. Build a Clinical Pathway for: {cond}.
              Evidence Titles: {json.dumps(titles)}
              
-             CRITICAL LOGIC REQUIREMENT:
-             Adhere to the following "Gold Standard" logic structure:
+             CRITICAL LOGIC REQUIREMENT (Adhere to this specific flow):
              1. **Start Node:** Patient presentation.
-             2. **Immediate Triage Sub-pathway:** Check for specific populations (e.g., Pregnancy, Hemodynamic Instability) immediately. If Yes -> Go to Sub-pathway. If No -> Continue.
-             3. **Risk Stratification:** Use validated scores. Branch into Low, Moderate, High Risk.
-             4. **Process Steps:** Specific ordering of labs/imaging.
-             5. **Disposition:** Admit vs Discharge criteria.
+             2. **Immediate Triage Sub-pathway Check:** Check for specific populations (e.g. Pregnancy, Hemodynamic Instability). If Yes -> Go to Sub-pathway. If No -> Continue.
+             3. **Risk Stratification:** Use validated scores. Branch into Low/Moderate/High.
+             4. **Process Steps:** - **Diagnostics:** Use standard acronyms (e.g. BMP, CBC, UA, CT Abdomen and Pelvis).
+                - **Medications:** Specify names (e.g. Flomax, Tamsulosin, NSAIDs).
+                - **Consults:** Specify triggers (e.g. "If MRI pos for cauda equina -> STAT Neurosurgery consult").
+             5. **Disposition:** Detailed discharge instructions (e.g. "Discharge with Amb Ref to Urology").
              
              Create a logic flow with types: Start, Decision, Process, Note, End.
              Return JSON List of objects: 
@@ -1363,23 +1380,39 @@ elif "Phase 3" in phase:
     if "evidence" not in df_nodes.columns: df_nodes["evidence"] = None
     if "id" not in df_nodes.columns: df_nodes["id"] = ""
 
+    # Prepare Evidence Options (PMID Only)
+    evidence_options = []
+    if st.session_state.data['phase2']['evidence']:
+        evidence_options = [f"PMID: {e['id']}" for e in st.session_state.data['phase2']['evidence']]
+
     edited_nodes = st.data_editor(df_nodes, column_config={
         "id": st.column_config.TextColumn("ID", width="small", disabled=True),
         "type": st.column_config.SelectboxColumn("Node Type", options=["Start", "Decision", "Process", "Note", "End"], required=True, width="medium"),
         "label": st.column_config.TextColumn("Label", width="medium"),
         "role": st.column_config.TextColumn("Role / Owner", width="small"),
         "detail": st.column_config.TextColumn("Clinical Detail", width="large"),
+        "evidence": st.column_config.SelectboxColumn("Supporting Evidence", options=evidence_options, width="medium"),
+        "evidence_id": None # Hidden
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
     
-    # Ensure IDs persist if added manually
+    # Ensure IDs persist if added manually & sync evidence ID
     updated_nodes = edited_nodes.to_dict('records')
     counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
     for n in updated_nodes:
+        # ID Logic
         ntype = n.get('type', 'Process')
         counts[ntype] = counts.get(ntype, 0) + 1
         if not n.get('id'):
             prefix = ntype[0].upper()
             n['id'] = f"{prefix}{counts[ntype]}"
+        # Evidence Logic
+        if n.get('evidence'):
+            try:
+                n['evidence_id'] = str(n['evidence']).replace("PMID: ", "")
+            except:
+                pass
+        else:
+            n['evidence_id'] = None
             
     st.session_state.data['phase3']['nodes'] = updated_nodes
 
@@ -1398,27 +1431,29 @@ elif "Phase 4" in phase:
             nid = f"N{i}"
             # Use specific ID in label if available
             display_id = n.get('id', nid)
-            raw_label = n.get('label', 'Step').replace('"', "'") 
-            full_label = f"{display_id}: {raw_label}"
+            # Sanitize label
+            safe_label = n.get('label', 'Step').replace('"', "'").strip()
+            full_label = f"{display_id}: {safe_label}"
             
             ntype = n.get('type', 'Process')
             if ntype == 'Start':
-                shape = f'({full_label})'
+                shape_open, shape_close = '([', '])'
                 style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
             elif ntype == 'End':
-                shape = f'([{full_label}])'
+                shape_open, shape_close = '([', '])'
                 style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:#000'
             elif ntype == 'Decision':
-                shape = f'{{{full_label}}}'
+                shape_open, shape_close = '{', '}'
                 style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:#000'
             elif ntype == 'Note':
-                shape = f'>"{full_label}"]' 
+                shape_open, shape_close = '>', ']' 
                 style = f'style {nid} fill:#DAE8FC,stroke:#6C8EBF,stroke-width:1px,color:#000,stroke-dasharray: 5 5'
             else: 
-                shape = f'[{full_label}]'
+                shape_open, shape_close = '[', ']'
                 style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:#000'
-            code += f"    {nid}{shape}\n"
-            code += f"    {style}\n"
+            
+            code += f'    {nid}{shape_open}"{full_label}"{shape_close}\n'
+            code += f'    {style}\n'
             
         code += "\n    %% Logic Flow\n"
         for i, n in enumerate(nodes):
@@ -1427,16 +1462,16 @@ elif "Phase 4" in phase:
                 next_n = f"N{i+1}"
                 ntype = n.get('type')
                 if ntype == 'Decision':
-                    code += f"    {curr} -->|Yes| {next_n}\n"
+                    code += f'    {curr} -->|Yes| {next_n}\n'
                     if i + 2 < len(nodes):
                         skip = f"N{i+2}"
-                        code += f"    {curr} -.->|No| {skip}\n"
+                        code += f'    {curr} -.->|No| {skip}\n'
                 elif ntype == 'Note':
                     if i > 0:
                         prev = f"N{i-1}"
-                        code += f"    {curr} -.- {prev}\n"
+                        code += f'    {curr} -.- {prev}\n'
                 elif nodes[i+1].get('type') == 'Note': pass
-                else: code += f"    {curr} --> {next_n}\n"
+                else: code += f'    {curr} --> {next_n}\n'
         return code
 
     with col1:
@@ -1609,6 +1644,9 @@ elif "Phase 5" in phase:
         st.rerun()
 
     st.divider()
+    
+    # Email Setup for Feedback Form
+    email_addr = st.text_input("Enter Email for Feedback Responses (Optional):", placeholder="e.g. feedback@hospital.org")
 
     # 2. Asset Generation
     if "p5_files" not in st.session_state: st.session_state.p5_files = {"docx": None, "pptx": None, "csv": None, "html": None}
@@ -1618,20 +1656,48 @@ elif "Phase 5" in phase:
             cond = st.session_state.data['phase1']['condition']
             audience = st.session_state.target_audience
             
-            # HTML FEEDBACK FORM (Specific Expert Panel Questions)
+            # HTML FEEDBACK FORM
             q1 = "1. Do you recommend any modifications to the start or end nodes of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
             q2 = "2. Do you recommend any modifications to the decision nodes of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
             q3 = "3. Do you recommend any modifications to the process steps of the pathway? If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change."
             
-            q_html = f"<p><b>{q1}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
-            q_html += f"<p><b>{q2}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
-            q_html += f"<p><b>{q3}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
+            q_html = f"<p><b>{q1}</b><br><textarea id='q1' style='width:100%; height:80px;'></textarea></p>"
+            q_html += f"<p><b>{q2}</b><br><textarea id='q2' style='width:100%; height:80px;'></textarea></p>"
+            q_html += f"<p><b>{q3}</b><br><textarea id='q3' style='width:100%; height:80px;'></textarea></p>"
             
-            st.session_state.p5_files["html"] = f"""<html><body style='font-family:Arial; padding:20px;'>
+            # Javascript for Copy/Print/Email
+            js_script = f"""
+            <script>
+            function copyFeedback() {{
+                let output = "EXPERT PANEL FEEDBACK - {cond}\\n\\n";
+                const textareas = document.querySelectorAll("textarea");
+                textareas.forEach((ta, index) => {{
+                    output += "Q" + (index+1) + ": " + ta.previousElementSibling.innerText + "\\n";
+                    output += "A: " + ta.value + "\\n\\n";
+                }});
+                navigator.clipboard.writeText(output).then(() => alert("Copied to clipboard!"));
+            }}
+            function sendEmail() {{
+                let body = "";
+                const textareas = document.querySelectorAll("textarea");
+                textareas.forEach((ta, index) => {{
+                    body += "Q" + (index+1) + ": " + ta.value + "%0D%0A%0D%0A";
+                }});
+                window.location.href = "mailto:{email_addr}?subject=Feedback: {cond}&body=" + body;
+            }}
+            </script>
+            """
+            
+            btn_email = f"<button onclick='sendEmail()' style='background-color:#5D4037; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer; margin-right:10px;'>Send via Email</button>" if email_addr else ""
+            
+            st.session_state.p5_files["html"] = f"""<html><head>{js_script}</head><body style='font-family:Arial; padding:20px;'>
             <h2 style='color:#5D4037;'>Expert Panel Feedback Form: {cond}</h2>
             <p><strong>Audience:</strong> {audience}</p>
             <hr>{q_html}
-            <br><button onclick='window.print()'>Print / Save to PDF</button>
+            <br>
+            <button onclick='copyFeedback()' style='background-color:#5D4037; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer; margin-right:10px;'>Copy to Clipboard</button>
+            {btn_email}
+            <button onclick='window.print()' style='background-color:#5D4037; color:white; padding:10px; border:none; border-radius:5px; cursor:pointer;'>Print / Save PDF</button>
             </body></html>"""
 
             # DOCX (Beta Guide) - No Markdown
@@ -1681,7 +1747,27 @@ elif "Phase 5" in phase:
     if st.button("Generate Executive Summary", use_container_width=True):
         with st.spinner("Compiling Executive Summary..."):
             p1 = st.session_state.data['phase1']
-            prompt = f"Create an Executive Summary for '{p1['condition']}'. Sections: Problem, Objectives, Evidence, Logic, Value."
+            
+            # Metric Calculation
+            evidence_count = len(st.session_state.data['phase2']['evidence'])
+            node_count = len(st.session_state.data['phase3']['nodes'])
+            
+            prompt = f"""
+            Create an C-Suite Executive Summary for the '{p1['condition']}' Clinical Pathway.
+            
+            **Audience:** Hospital Executives (CEO, CMO, CFO). Tone: Strategic, rigorous, high-value.
+            
+            **Key Metrics to Highlight:**
+            - **Evidence Base:** Rigorous review of {evidence_count} peer-reviewed citations.
+            - **Clinical Logic:** Comprehensive algorithm with {node_count} decision nodes.
+            
+            **Structure:**
+            1. **Strategic Imperative:** Why this matters (Problem: {p1['problem']}).
+            2. **Objectives:** What we will achieve ({p1['objectives']}).
+            3. **Rigor & Quality:** Mention the evidence base ({evidence_count} citations) and robust logic design ({node_count} nodes).
+            4. **Operational Readiness:** Plan for beta testing and deployment.
+            5. **Value Proposition:** Conclusion on ROI and patient safety.
+            """
             summary = get_gemini_response(prompt)
             st.session_state.data['phase5']['exec_summary'] = summary
             
