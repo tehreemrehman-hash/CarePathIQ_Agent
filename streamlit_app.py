@@ -11,10 +11,11 @@ import time
 import base64
 from io import BytesIO
 import datetime
-from datetime import date
+from datetime import date, timedelta
 import os
 import copy
 import xml.etree.ElementTree as ET
+import altair as alt
 
 # --- GRAPHVIZ PATH FIX ---
 # Ensure the system path includes the location of the 'dot' executable
@@ -555,17 +556,30 @@ def render_bottom_navigation():
         
     col1, col2, col3 = st.columns([1, 2, 1])
     
+    # Callback to update phase safely
+    def set_phase(new_phase):
+        st.session_state.current_phase_label = new_phase
+
     with col1:
         if curr_idx > 0:
-            if st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key="bottom_prev", use_container_width=True):
-                st.session_state.current_phase_label = PHASES[curr_idx-1]
-                st.rerun()
+            st.button(
+                f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", 
+                key=f"bottom_prev_{curr_idx}", 
+                use_container_width=True,
+                on_click=set_phase,
+                args=(PHASES[curr_idx-1],)
+            )
                 
     with col3:
         if curr_idx < len(PHASES) - 1:
-            if st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key="bottom_next", type="primary", use_container_width=True):
-                st.session_state.current_phase_label = PHASES[curr_idx+1]
-                st.rerun()
+            st.button(
+                f"Next: {PHASES[curr_idx+1].split(':')[0]} →", 
+                key=f"bottom_next_{curr_idx}", 
+                type="primary", 
+                use_container_width=True,
+                on_click=set_phase,
+                args=(PHASES[curr_idx+1],)
+            )
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     """Robust AI caller with JSON cleaner, multi-model fallback, and streaming."""
@@ -925,6 +939,9 @@ if "Phase 1" in phase:
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
     
+    # INSTRUCTIONAL BANNER
+    st.info("💡 **Workflow Tip:** This form is interactive. The AI will auto-draft sections (Criteria, Problem, Goals) as you type. You can **manually edit** any text area to refine the content, and the AI will use your edits to generate the next section and the final Project Charter.")
+
     with col1:
         # CLINICAL CONDITION
         st.subheader("1. Clinical Focus")
@@ -1033,6 +1050,92 @@ if "Phase 1" in phase:
 
     st.divider()
 
+    # --- 5. PROJECT SCHEDULE (GANTT CHART) ---
+    st.subheader("5. Project Schedule (Gantt Chart)")
+    
+    # Initialize Default Schedule if missing
+    if 'schedule' not in st.session_state.data['phase1'] or not st.session_state.data['phase1']['schedule']:
+        today = date.today()
+        
+        # Helper for date math
+        def add_weeks(start_d, w):
+            return start_d + timedelta(weeks=w)
+            
+        # Realistic Timeline Calculation
+        # Phase 1: 2 weeks
+        d1_end = add_weeks(today, 2)
+        # Phase 2: 4 weeks
+        d2_end = add_weeks(d1_end, 4)
+        # Phase 3: 12 weeks (3 months) - Analysis/Design
+        d3_end = add_weeks(d2_end, 12)
+        # Phase 4: 8 weeks - Improvement/Pilot
+        d4_end = add_weeks(d3_end, 8)
+        # Phase 5: 4 weeks - Control
+        d5_end = add_weeks(d4_end, 4)
+        # Phase 6: 2 weeks - Close
+        d6_end = add_weeks(d5_end, 2)
+        
+        st.session_state.data['phase1']['schedule'] = [
+            {"Phase": "Form Project Team & Charter", "Owner": "Project Manager", "Start": today, "End": d1_end},
+            {"Phase": "Definition & Measurement", "Owner": "Project Lead", "Start": d1_end, "End": d2_end},
+            {"Phase": "Analysis (Root Cause & Design)", "Owner": "Clinical Lead", "Start": d2_end, "End": d3_end},
+            {"Phase": "Improvement (Pilot)", "Owner": "Implementation Team", "Start": d3_end, "End": d4_end},
+            {"Phase": "Control Phase", "Owner": "Quality Dept", "Start": d4_end, "End": d5_end},
+            {"Phase": "Close Out & Summary", "Owner": "Project Sponsor", "Start": d5_end, "End": d6_end},
+        ]
+
+    # Reset Button
+    if st.button("Reset Schedule to Defaults", key="reset_schedule"):
+        st.session_state.data['phase1']['schedule'] = [] # Clear to trigger re-init
+        st.rerun()
+
+    # Editable Dataframe
+    df_schedule = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+    
+    # Ensure date columns are datetime objects for the editor
+    df_schedule['Start'] = pd.to_datetime(df_schedule['Start']).dt.date
+    df_schedule['End'] = pd.to_datetime(df_schedule['End']).dt.date
+
+    st.info("💡 **Tip:** You can edit the **Start Date**, **End Date**, and **Owner** directly in the table below. The Gantt chart visualization will update automatically to reflect your changes.")
+
+    edited_schedule = st.data_editor(
+        df_schedule,
+        column_config={
+            "Phase": st.column_config.TextColumn("Phase", width="medium", disabled=True),
+            "Owner": st.column_config.TextColumn("Owner", width="small"),
+            "Start": st.column_config.DateColumn("Start Date", format="YYYY-MM-DD"),
+            "End": st.column_config.DateColumn("End Date", format="YYYY-MM-DD"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        key="gantt_editor"
+    )
+    
+    # Save edits back to session state
+    st.session_state.data['phase1']['schedule'] = edited_schedule.to_dict('records')
+
+    # Interactive Gantt Chart (Altair)
+    if not edited_schedule.empty:
+        # Convert back to datetime for Altair
+        chart_data = edited_schedule.copy()
+        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
+        chart_data['End'] = pd.to_datetime(chart_data['End'])
+        
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X('Start', title='Date'),
+            x2='End',
+            y=alt.Y('Phase', sort=None, title=None),
+            color=alt.Color('Owner', legend=alt.Legend(title="Owner")),
+            tooltip=['Phase', 'Start', 'End', 'Owner']
+        ).properties(
+            title="Project Timeline",
+            height=300
+        ).interactive()
+        
+        st.altair_chart(chart, use_container_width=True)
+
+    st.divider()
+
     # --- GENERATE CHARTER ---
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
         
@@ -1064,7 +1167,16 @@ if "Phase 1" in phase:
                 st.write("Initializing PMP Agent...")
                 
                 # Get Today's Date for the Prompt
-                today_str = date.today().strftime("%B %d, %Y")
+                today = date.today()
+                today_str = today.strftime("%B %d, %Y")
+                
+                # Format Schedule for Prompt
+                schedule_list = st.session_state.data['phase1']['schedule']
+                schedule_str = ""
+                for item in schedule_list:
+                    s_date = item['Start'].strftime("%B %d, %Y") if isinstance(item['Start'], date) else str(item['Start'])
+                    e_date = item['End'].strftime("%B %d, %Y") if isinstance(item['End'], date) else str(item['End'])
+                    schedule_str += f"- {item['Phase']} (Start: {s_date}, End: {e_date}, Owner: {item['Owner']})\n"
 
                 # Professional Prompt
                 prompt = f"""
@@ -1094,15 +1206,8 @@ if "Phase 1" in phase:
                    - Goals / Metrics
                    - Expected Deliverables
                 4. **Project Scope**: Within Scope vs Outside Scope.
-                5. **Tentative Schedule (Gantt Chart)**: A table representing a Gantt Chart with columns [Key Milestone | Owner | Start Date | End Date | Duration]. Include these standard phases:
-                     - Form Project Team and Conduct Preliminary Review
-                     - Finalize Project Plan and Project Charter
-                     - Conduct Definition Phase
-                     - Conduct Measurement Phase
-                     - Conduct Analysis Phase
-                     - Conduct Improvement Phase
-                     - Conduct Control Phase
-                     - Close Out Project and Write Summary Report
+                5. **Tentative Schedule (Gantt Chart)**: A table representing a Gantt Chart with columns [Key Milestone | Owner | Start Date | End Date | Duration]. You MUST use these specific dates provided by the user:
+                     {schedule_str}
                 6. **Key Performance Indicators (KPIs)**: A table with columns [Metric | Definition | Target | Data Source | Owner]. Include relevant clinical, operational, and financial metrics.
                 
                 **Style Guide:**
@@ -1344,7 +1449,7 @@ elif "Phase 2" in phase:
         
         edited_df = st.data_editor(df_filtered, column_config={
             "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
-            "id": None,
+            "id": st.column_config.TextColumn("PMID", width="small", disabled=True),
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn(
                 "GRADE", 
@@ -1359,7 +1464,7 @@ elif "Phase 2" in phase:
                 width="large"
             ),
             "citation": st.column_config.TextColumn("Citation", disabled=True),
-        }, column_order=["title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
+        }, column_order=["id", "title", "grade", "rationale", "url"], hide_index=True, key="ev_editor")
         
         # Save manual edits back to state (Merge Logic)
         # We must merge edited rows back into the full dataset to avoid losing hidden rows
@@ -1424,6 +1529,10 @@ elif "Phase 3" in phase:
              4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
              5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
              
+             **Multidisciplinary Roles:**
+             - Assign a **SINGLE primary "role"** to each step (e.g., "Triage Nurse", "ED Physician", "Specialist", "Pharmacist", "Admin").
+             - Avoid multiple owners for a single step to ensure clear accountability.
+
              **Logic Structure Strategy (CRITICAL):**
              - **Decisions**: Must have clear branches. For Binary: 'Yes'/'No'. For Risk: 'Low'/'Moderate'/'High' (or similar categories). Ensure process steps follow each specific branch.
              - **Red Flags**: Should be represented as 'Notes' (Blue Wave) attached to relevant steps, OR as 'Decisions' (e.g., "Red flags present?") leading to different outcomes.
@@ -1438,8 +1547,9 @@ elif "Phase 3" in phase:
              Return a JSON List of objects: 
              [{{
                  "type": "Start" | "Decision" | "Process" | "Note" | "End", 
-                 "label": "Short Text (Max 6 words)", 
+                 "label": "Action Verb + Noun (Max 6 words)", 
                  "detail": "Longer clinical detail/criteria",
+                 "role": "Role/Owner of this step",
                  "evidence_id": "Optional PubMed ID string matching the provided list"
              }}]
              """
@@ -1479,6 +1589,7 @@ elif "Phase 3" in phase:
     
     # Ensure columns exist
     if "detail" not in df_nodes.columns: df_nodes["detail"] = ""
+    if "role" not in df_nodes.columns: df_nodes["role"] = "Unassigned"
     if "evidence" not in df_nodes.columns: df_nodes["evidence"] = None
 
     # Prepare Evidence Options
@@ -1502,6 +1613,11 @@ elif "Phase 3" in phase:
             help="Short text shown inside the shape",
             width="medium"
         ),
+        "role": st.column_config.TextColumn(
+            "Role / Owner", 
+            help="Who performs this step? (e.g. Nurse, MD, Admin)",
+            width="small"
+        ),
         "detail": st.column_config.TextColumn(
             "Clinical Detail / Criteria", 
             help="Specifics (e.g. 'Serum Cr > 2.0', 'Failed PO trial')",
@@ -1516,7 +1632,19 @@ elif "Phase 3" in phase:
         "evidence_id": None # Hide the raw ID column
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
     
-    st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
+    # Sync evidence_id with evidence selection to maintain data integrity
+    updated_nodes = edited_nodes.to_dict('records')
+    for n in updated_nodes:
+        if n.get('evidence'):
+            # Extract ID from "PMID: 12345"
+            try:
+                n['evidence_id'] = str(n['evidence']).replace("PMID: ", "")
+            except:
+                pass
+        else:
+            n['evidence_id'] = None
+
+    st.session_state.data['phase3']['nodes'] = updated_nodes
 
     render_bottom_navigation()
 
@@ -1530,31 +1658,62 @@ elif "Phase 4" in phase:
     with col1:
         st.subheader("Clinical Pathway Visualizer")
         
-        nodes = st.session_state.data['phase3']['nodes']
+        # --- DIRECT EDITING (EXPANDER) ---
+        with st.expander("✏️ Edit Pathway Data (Nodes & Roles)", expanded=False):
+            st.info("Edit the table below to update the flowchart in real-time. Assign 'Roles' to create swimlanes.")
+            
+            # Re-use the editor logic from Phase 3 (simplified)
+            df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+            if "role" not in df_p4.columns: df_p4["role"] = "Unassigned"
+            
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+            nodes = st.session_state.data['phase3']['nodes'] # Refresh local var
+        
         if nodes:
             try:
-                # --- ENHANCED GRAPHVIZ LOGIC FOR YES/NO BRANCHING ---
+                # --- ENHANCED GRAPHVIZ LOGIC WITH SWIMLANES ---
                 graph = graphviz.Digraph()
-                graph.attr(rankdir='TB', splines='ortho') # Orthogonal lines for professional look
+                graph.attr(rankdir='LR', splines='ortho') # Horizontal Swimlanes
                 graph.attr('node', fontname='Helvetica', fontsize='10')
                 
-                # 1. Define Nodes with specific shapes/colors matching your template
-                for i, n in enumerate(nodes):
-                    node_id = str(i)
+                # Helper to style nodes
+                def add_styled_node(g, idx, n):
+                    node_id = str(idx)
                     label = n.get('label', '?')
                     node_type = n.get('type', 'Process')
                     
                     if node_type == 'Start':
-                        graph.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
+                        g.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
                     elif node_type == 'End':
-                        graph.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
+                        g.node(node_id, label, shape='oval', style='filled', fillcolor='#D5E8D4', color='#82B366')
                     elif node_type == 'Decision':
-                        graph.node(node_id, label, shape='diamond', style='filled', fillcolor='#F8CECC', color='#B85450')
+                        g.node(node_id, label, shape='diamond', style='filled', fillcolor='#F8CECC', color='#B85450')
                     elif node_type == 'Note':
-                        # Note shape (folder-like or note)
-                        graph.node(node_id, label, shape='note', style='filled', fillcolor='#DAE8FC', color='#6C8EBF')
+                        g.node(node_id, label, shape='note', style='filled', fillcolor='#DAE8FC', color='#6C8EBF')
                     else: # Process
-                        graph.node(node_id, label, shape='box', style='filled', fillcolor='#FFF2CC', color='#D6B656')
+                        g.node(node_id, label, shape='box', style='filled', fillcolor='#FFF2CC', color='#D6B656')
+
+                # Group nodes by Role for Swimlanes
+                roles = sorted(list(set([n.get('role', 'Unassigned') for n in nodes])))
+                
+                # Create Swimlanes (Subgraphs) if multiple roles exist
+                # Note: Graphviz clusters require 'cluster_' prefix
+                if len(roles) > 1:
+                    for r in roles:
+                        # Clean role name for graphviz ID (alphanumeric only)
+                        safe_role = "".join(c for c in r if c.isalnum())
+                        if not safe_role: safe_role = "default"
+                        
+                        with graph.subgraph(name=f'cluster_{safe_role}') as c:
+                            c.attr(label=r, style='filled', color='#f8f9fa')
+                            for i, n in enumerate(nodes):
+                                if n.get('role', 'Unassigned') == r:
+                                    add_styled_node(c, i, n)
+                else:
+                    # No swimlanes needed
+                    for i, n in enumerate(nodes):
+                        add_styled_node(graph, i, n)
 
                 # 2. Define Edges with Logic
                 # This simple logic assumes a linear list where:
