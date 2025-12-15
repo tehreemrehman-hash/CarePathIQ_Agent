@@ -1469,8 +1469,18 @@ elif "Phase 3" in phase:
 
     # Prepare Evidence Options (PMID Only)
     evidence_options = []
+    pmid_list = []
     if st.session_state.data['phase2']['evidence']:
-        evidence_options = [f"PMID: {e['id']}" for e in st.session_state.data['phase2']['evidence']]
+        pmid_list = [str(e['id']) for e in st.session_state.data['phase2']['evidence']]
+        evidence_options = [f"PMID: {pmid}" for pmid in pmid_list]
+
+    # Auto-populate Supporting Evidence if blank
+    for idx, row in df_nodes.iterrows():
+        if (not row.get('evidence')) and pmid_list:
+            df_nodes.at[idx, 'evidence'] = f"PMID: {pmid_list[0]}"
+            df_nodes.at[idx, 'evidence_id'] = pmid_list[0]
+        elif row.get('evidence'):
+            df_nodes.at[idx, 'evidence_id'] = str(row['evidence']).replace("PMID: ", "")
 
     edited_nodes = st.data_editor(df_nodes, column_config={
         "id": st.column_config.TextColumn("ID", width="small", disabled=True),
@@ -1481,7 +1491,7 @@ elif "Phase 3" in phase:
         "evidence": st.column_config.SelectboxColumn("Supporting Evidence", options=evidence_options, width="medium"),
         "evidence_id": None # Hidden
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
-    
+
     # Ensure IDs persist if added manually & sync evidence ID
     updated_nodes = edited_nodes.to_dict('records')
     counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
