@@ -1552,7 +1552,11 @@ elif "Phase 3" in phase:
              STRICT TEMPLATE RULES (Match the user's Visual Logic Language):
              1. **Start**: Entry point (e.g., "Patient presents to ED").
              2. **Decisions (Red Diamonds)**: Logic checkpoints. Can be Binary (Yes/No) OR Risk Stratification (Low/Moderate/High) based on validated scores (e.g., Wells Score, HEART Score).
-             3. **Process (Yellow Box)**: Specific, clinically actionable steps. Avoid generic terms like "Order imaging" or "Administer meds". Instead use specific orders like "Order CT Head w/o Contrast" or "Administer Aspirin 324mg". Use imperative verbs.
+             3. **Process (Yellow Box)**: High-Yield Clinical Actions. 
+                - **Concise but Detailed**: Use specific parameters but keep it brief.
+                - **Bad**: "Order Imaging", "Give Meds".
+                - **Good**: "CT KUB (Low Dose)", "Tamsulosin 0.4mg daily", "IV Fluids (2L NS)".
+                - **Constraint**: Max 6-8 words per label.
              4. **Notes (Blue Wave)**: Use these for **Red Flags** (exclusion criteria/safety checks) OR **Clarifications** (clinical context/dosage info).
              5. **End (Green Oval)**: The logical conclusion of a branch. This is often a final disposition (Discharge, Admit), but can be any terminal step appropriate for the logic.
              
@@ -1574,7 +1578,7 @@ elif "Phase 3" in phase:
              Return a JSON List of objects: 
              [{{
                  "type": "Start" | "Decision" | "Process" | "Note" | "End", 
-                 "label": "Specific Clinical Action (e.g., 'Order CT Head', not 'Imaging')", 
+                 "label": "Specific Action (e.g. 'CT KUB (Low Dose)')", 
                  "detail": "Longer clinical detail/criteria",
                  "role": "Role/Owner of this step",
                  "evidence_id": "Optional PubMed ID string matching the provided list"
@@ -1687,7 +1691,7 @@ elif "Phase 4" in phase:
         
         # --- DIRECT EDITING (EXPANDER) ---
         with st.expander("✏️ Edit Pathway Data (Nodes & Roles)", expanded=False):
-            styled_info("Edit the table below to update the flowchart in real-time. Assign 'Roles' to create swimlanes.")
+            styled_info("Edit the table below to update the flowchart. **Gold Standard:** Keep labels concise (6-8 words) but clinically specific (e.g., 'CT KUB (Low Dose)' instead of 'CT Scan').")
             
             # Re-use the editor logic from Phase 3 (simplified)
             df_p4 = pd.DataFrame(st.session_state.data['phase3']['nodes'])
