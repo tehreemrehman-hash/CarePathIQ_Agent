@@ -1685,9 +1685,21 @@ elif "Phase 4" in phase:
         
         if nodes:
             try:
+                # --- LAYOUT CONTROLS ---
+                c_view1, c_view2 = st.columns([1, 3])
+                with c_view1:
+                    orientation = st.radio(
+                        "Layout Orientation",
+                        ["Landscape (Horizontal)", "Portrait (Vertical)"],
+                        index=0,
+                        help="Switch between horizontal (Left-to-Right) and vertical (Top-to-Bottom) swimlanes."
+                    )
+                
+                rank_dir = 'LR' if "Landscape" in orientation else 'TB'
+
                 # --- ENHANCED GRAPHVIZ LOGIC WITH SWIMLANES ---
                 graph = graphviz.Digraph()
-                graph.attr(rankdir='LR', splines='ortho') # Horizontal Swimlanes
+                graph.attr(rankdir=rank_dir, splines='ortho') 
                 graph.attr('node', fontname='Helvetica', fontsize='10')
                 
                 # Helper to style nodes
@@ -1778,7 +1790,7 @@ elif "Phase 4" in phase:
                             # Standard flow
                             graph.edge(curr_id, next_id)
 
-                st.graphviz_chart(graph)
+                st.graphviz_chart(graph, use_container_width=True)
                 
                 # --- DOWNLOADS ---
                 st.markdown("##### Export Flowchart")
