@@ -1,4 +1,3 @@
-from weasyprint import HTML
 import streamlit as st
 import streamlit.components.v1 as components
 import google.generativeai as genai
@@ -385,11 +384,6 @@ if "auto_run" not in st.session_state:
 
 # ==========================================
 # 3. HELPER FUNCTIONS
-def html_to_pdf_bytes(html_content):
-    """Convert HTML string to PDF bytes using WeasyPrint."""
-    pdf_bytes = HTML(string=html_content).write_pdf()
-    return pdf_bytes
-# ==========================================
 def styled_info(text):
     """Custom info box with Pink background and Black text."""
     # Convert markdown bold to HTML bold for correct rendering inside div
