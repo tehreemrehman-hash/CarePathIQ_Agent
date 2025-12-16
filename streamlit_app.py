@@ -769,26 +769,13 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
                 last_error = e
             elif last_error is None or "429" not in str(last_error):
                 last_error = e
-            continue 
-
-    if not response:
-        try:
-            fallback_model = "gemini-1.5-flash"
-            if fallback_model not in candidates:
-                model = genai.GenerativeModel(fallback_model)
-                safety = [{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}]
-                is_stream = stream_container is not None
-                response = model.generate_content(prompt, safety_settings=safety, stream=is_stream)
-                if response:
-                    st.toast(f"Recovered with: {fallback_model}")
-        except Exception as e:
-            last_error = f"{last_error} | Final fallback failed: {e}"
+            continue
 
     if not response:
         error_msg = str(last_error)
         if "429" in error_msg:
             st.error("**Quota Exceeded (Rate Limit)**: You have hit the free tier limit for Gemini API.")
-            styled_info("Please wait a minute before trying again, or use a different API key.")
+            styled_info("<b>IMPORTANT:</b> Google enforces strict rate limits and quotas on all Gemini API keys, even new ones. If you see this message, you must wait before trying again, or use a different API key. <br><br><b>Each user must use their own Gemini API key.</b> If you continue to see this error with a new key, it is likely that Google's quota for your account or region has been reached. <br><br>For more information, see <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a>.")
         elif "404" in error_msg:
             st.error("**Model Not Found**: The selected AI model is not available in your region or API version.")
         elif "API_KEY_INVALID" in error_msg or "400" in error_msg:
@@ -1420,10 +1407,9 @@ elif "Phase 2" in phase:
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small", required=True),
             "rationale": st.column_config.TextColumn("GRADE Rationale", width="large"),
-            "abstract": st.column_config.TextColumn("Abstract", width="large", disabled=True),
             "citation": st.column_config.TextColumn("Citation", width="large", disabled=True),
         }
-        column_order = ["id", "title", "grade", "rationale", "abstract", "citation", "url"]
+        column_order = ["id", "title", "grade", "rationale", "citation", "url"]
         if "year" in df.columns:
             column_config["year"] = st.column_config.TextColumn("Year", width="small", disabled=True)
             column_order.insert(2, "year")
