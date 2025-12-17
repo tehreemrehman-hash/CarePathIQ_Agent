@@ -1360,13 +1360,16 @@ elif "Phase 2" in phase:
 
     if evidence_list:
         st.markdown("### Evidence Table")
-        # Debug output removed
-        col_filter, col_clear = st.columns([3, 1])
+        col_filter, col_clear, col_regrade = st.columns([3, 1, 2])
         with col_filter:
             selected_grades = st.multiselect("Filter by GRADE:", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"])
         with col_clear:
             if st.button("Clear Evidence List", key="clear_ev"):
                 st.session_state.data['phase2']['evidence'] = []
+                st.session_state.auto_run["p2_grade"] = False
+                st.rerun()
+        with col_regrade:
+            if st.button("Regrade All Evidence", key="regrade_ev"):
                 st.session_state.auto_run["p2_grade"] = False
                 st.rerun()
 
