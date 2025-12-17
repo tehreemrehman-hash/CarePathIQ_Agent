@@ -1558,6 +1558,7 @@ elif "Phase 3" in phase:
     updated_nodes = []
     counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
     required_fields = ["id", "type", "label", "detail", "role", "evidence", "evidence_id", "branches"]
+    import math
     for n in edited_nodes.to_dict('records'):
         ntype = n.get('type', 'Process')
         counts[ntype] = counts.get(ntype, 0) + 1
@@ -1572,19 +1573,26 @@ elif "Phase 3" in phase:
                 n['evidence_id'] = None
         else:
             n['evidence_id'] = None
-        # Ensure branches is always a list for Decision nodes
-        if ntype.lower() == 'decision':
-            if not isinstance(n.get('branches'), list):
-                n['branches'] = []
-        else:
-            n['branches'] = []
-        # Ensure all required fields exist
+        # Robustly coerce branches to a list
+        branches = n.get('branches', [])
+        if not isinstance(branches, list) or (isinstance(branches, float) and math.isnan(branches)):
+            branches = []
+        n['branches'] = branches
+        # Ensure all required fields exist and are strings (except branches/evidence/evidence_id)
         for field in required_fields:
             if field not in n:
                 if field == 'branches':
                     n[field] = []
+                elif field in ['evidence', 'evidence_id']:
+                    n[field] = None
                 else:
-                    n[field] = "" if field != 'evidence' and field != 'evidence_id' else None
+                    n[field] = ""
+            elif field not in ['branches', 'evidence', 'evidence_id']:
+                # Coerce to string if not already
+                if n[field] is None or (isinstance(n[field], float) and math.isnan(n[field])):
+                    n[field] = ""
+                else:
+                    n[field] = str(n[field])
         updated_nodes.append(n)
     st.session_state.data['phase3']['nodes'] = updated_nodes
 
