@@ -1577,11 +1577,14 @@ elif "Phase 3" in phase:
     for n in updated_nodes:
         if n.get('type', '').lower() == 'decision' and 'branches' in n and n['branches']:
             for branch in n['branches']:
-                label = branch.get('label', '').strip().lower()
-                # List of generic terms to flag
-                generic_terms = ["yes", "no", "high", "low", "medium", "positive", "negative", "present", "absent"]
-                if label in generic_terms or len(label) < 6:
-                    st.warning(f"Branch label '{branch.get('label','')}' in node '{n.get('label','')}' is too generic. Please use explicit, action-oriented labels (e.g., 'Order BMP and UA').")
+                if isinstance(branch, dict):
+                    label = branch.get('label', '').strip().lower()
+                    # List of generic terms to flag
+                    generic_terms = ["yes", "no", "high", "low", "medium", "positive", "negative", "present", "absent"]
+                    if label in generic_terms or len(label) < 6:
+                        st.warning(f"Branch label '{branch.get('label','')}' in node '{n.get('label','')}' is too generic. Please use explicit, action-oriented labels (e.g., 'Order BMP and UA').")
+                else:
+                    continue  # Skip non-dict branches
 
     render_bottom_navigation()
 
