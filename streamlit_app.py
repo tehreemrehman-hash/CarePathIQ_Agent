@@ -1360,7 +1360,7 @@ elif "Phase 2" in phase:
 
     if evidence_list:
         st.markdown("### Evidence Table")
-        st.write("**[DEBUG] Evidence List:**", evidence_list)
+        # Debug output removed
         col_filter, col_clear = st.columns([3, 1])
         with col_filter:
             selected_grades = st.multiselect("Filter by GRADE:", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"])
@@ -1378,7 +1378,7 @@ elif "Phase 2" in phase:
                 e['rationale'] = 'No rationale provided.'
 
         df = pd.DataFrame(st.session_state.data['phase2']['evidence'])
-        st.write("**[DEBUG] DataFrame shape:**", df.shape)
+        # Debug output removed
         if 'rationale' not in df.columns: df['rationale'] = "No rationale provided."
         if 'grade' not in df.columns: df['grade'] = "Un-graded"
 
