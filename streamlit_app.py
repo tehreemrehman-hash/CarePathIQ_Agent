@@ -1551,15 +1551,14 @@ elif "Phase 3" in phase:
         "label": st.column_config.TextColumn("Label", width="medium"),
         "role": st.column_config.TextColumn("Role / Owner", width="small"),
         "detail": st.column_config.TextColumn("Clinical Detail", width="large"),
-        "evidence": st.column_config.SelectboxColumn("Supporting Evidence", options=evidence_options, width="medium"),
-        "evidence_id": None # Hidden
+        "evidence": st.column_config.SelectboxColumn("Supporting Evidence", options=evidence_options, width="medium")
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
 
-    # Ensure IDs persist if added manually & sync evidence ID
-    updated_nodes = edited_nodes.to_dict('records')
+    # Ensure IDs persist if added manually & sync evidence ID, and all required fields exist
+    updated_nodes = []
     counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
-    for n in updated_nodes:
-        # ID Logic
+    required_fields = ["id", "type", "label", "detail", "role", "evidence", "evidence_id", "branches"]
+    for n in edited_nodes.to_dict('records'):
         ntype = n.get('type', 'Process')
         counts[ntype] = counts.get(ntype, 0) + 1
         if not n.get('id'):
@@ -1570,10 +1569,23 @@ elif "Phase 3" in phase:
             try:
                 n['evidence_id'] = str(n['evidence']).replace("PMID: ", "")
             except:
-                pass
+                n['evidence_id'] = None
         else:
             n['evidence_id'] = None
-            
+        # Ensure branches is always a list for Decision nodes
+        if ntype.lower() == 'decision':
+            if not isinstance(n.get('branches'), list):
+                n['branches'] = []
+        else:
+            n['branches'] = []
+        # Ensure all required fields exist
+        for field in required_fields:
+            if field not in n:
+                if field == 'branches':
+                    n[field] = []
+                else:
+                    n[field] = "" if field != 'evidence' and field != 'evidence_id' else None
+        updated_nodes.append(n)
     st.session_state.data['phase3']['nodes'] = updated_nodes
 
     # After editing nodes in Phase 3, check for explicit branch labels
@@ -1598,6 +1610,17 @@ elif "Phase 4" in phase:
     col1, col2 = st.columns([2, 1])
 
     def generate_mermaid_code(nodes, orientation="TD"):
+        # Validate nodes for required fields and types
+        if not isinstance(nodes, list) or not nodes:
+            return "flowchart TD\n%% No nodes to display"
+        for n in nodes:
+            if not isinstance(n, dict):
+                return "flowchart TD\n%% Invalid node structure"
+            for field in ["id", "type", "label", "detail", "role", "branches"]:
+                if field not in n:
+                    return "flowchart TD\n%% Missing required node fields"
+            if n.get('type', '').lower() == 'decision' and not isinstance(n.get('branches'), list):
+                return "flowchart TD\n%% Invalid branches structure"
         # Group nodes by owner/role for swimlanes
         from collections import defaultdict
         swimlanes = defaultdict(list)
