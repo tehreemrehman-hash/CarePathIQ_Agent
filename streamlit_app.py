@@ -1927,11 +1927,17 @@ elif "Phase 5" in phase:
             slides_json = get_gemini_response(prompt_slides, json_mode=True)
             if isinstance(slides_json, dict): st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
 
-            # INTERACTIVE HTML EDUCATION MODULE
-            prompt_points = f"Summarize 3 key clinical points for {cond} for staff education. Plain text."
-            points = get_gemini_response(prompt_points)
-            if points:
-                st.session_state.p5_files["interactive_html"] = get_interactive_education_html(cond, points)
+            # STAFF EDUCATION MODULE WITH QUIZ
+            prompt_staff_edu = f"""
+            Create a Staff Education Module for '{cond}'.
+            Include:
+            1. 3-5 key clinical points (bulleted).
+            2. A 3-question multiple choice quiz (with answers and explanations).
+            Output as clean HTML with a copy-to-clipboard button for the whole module.
+            """
+            staff_edu_html = get_gemini_response(prompt_staff_edu)
+            if staff_edu_html:
+                st.session_state.p5_files["staff_edu_html"] = staff_edu_html
 
             st.session_state.auto_run["p5_assets"] = True
             status.update(label="Assets Generated!", state="complete", expanded=False)
@@ -1943,20 +1949,14 @@ elif "Phase 5" in phase:
         st.subheader("Expert Panel Feedback Form")
         if st.session_state.p5_files.get("html"):
             st.download_button("Download Form (HTML)", st.session_state.p5_files["html"], "Expert_Panel_Feedback.html", "text/html", type="primary")
-            st.markdown('<button onclick="navigator.clipboard.writeText(document.querySelector(\'.stApp\').innerText);alert(\'Copied!\')">Copy All to Clipboard</button>', unsafe_allow_html=True)
-            st.markdown('<button onclick="window.print()">Print as PDF</button>', unsafe_allow_html=True)
     with c2:
         st.subheader("Beta Testing Guide")
         if st.session_state.p5_files.get("beta_html"):
             st.download_button("Download Guide (HTML)", st.session_state.p5_files["beta_html"], "Beta_Guide.html", "text/html", type="primary")
-            st.markdown('<button onclick="navigator.clipboard.writeText(document.querySelector(\'.stApp\').innerText);alert(\'Copied!\')">Copy All to Clipboard</button>', unsafe_allow_html=True)
-            st.markdown('<button onclick="window.print()">Print as PDF</button>', unsafe_allow_html=True)
     with c3:
-        st.subheader("Education Deliverable")
-        if st.session_state.p5_files.get("interactive_html"):
-            st.download_button("Download Module (HTML)", st.session_state.p5_files["interactive_html"], "Education_Module.html", "text/html", type="primary")
-            st.markdown('<button onclick="navigator.clipboard.writeText(document.querySelector(\'.stApp\').innerText);alert(\'Copied!\')">Copy All to Clipboard</button>', unsafe_allow_html=True)
-            st.markdown('<button onclick="window.print()">Print as PDF</button>', unsafe_allow_html=True)
+        st.subheader("Staff Education Module")
+        if st.session_state.p5_files.get("staff_edu_html"):
+            st.download_button("Download Module (HTML)", st.session_state.p5_files["staff_edu_html"], "Staff_Education_Module.html", "text/html", type="primary")
 
     st.divider()
     
