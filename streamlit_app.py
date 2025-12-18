@@ -2030,12 +2030,7 @@ elif "Phase 5" in phase:
             </html>
             """
             return html
-            5. Strategic Value (ROI, Quality, Safety).
-            
-            Format: Markdown.
-            """
-            summary = get_gemini_response(prompt)
-            st.session_state.data['phase5']['exec_summary'] = summary
+            # ...existing code...
             
     if st.session_state.data['phase5'].get('exec_summary'):
         st.markdown("### Executive Summary")
