@@ -1618,16 +1618,21 @@ elif "Phase 4" in phase:
     col1, col2 = st.columns([2, 1])
 
     def generate_mermaid_code(nodes, orientation="TD"):
-        # Validate nodes for required fields and types
+        # Final validation for all nodes before Mermaid code generation
+        import math
         if not isinstance(nodes, list) or not nodes:
+            st.warning("No nodes to display for Mermaid diagram.")
             return "flowchart TD\n%% No nodes to display"
-        for n in nodes:
+        for idx, n in enumerate(nodes):
             if not isinstance(n, dict):
+                st.warning(f"Node {idx+1} is not a valid dictionary. Mermaid diagram will not render.")
                 return "flowchart TD\n%% Invalid node structure"
             for field in ["id", "type", "label", "detail", "role", "branches"]:
-                if field not in n:
+                if field not in n or n[field] is None or (isinstance(n[field], float) and math.isnan(n[field])):
+                    st.warning(f"Node {idx+1} is missing required field '{field}'. Mermaid diagram will not render.")
                     return "flowchart TD\n%% Missing required node fields"
             if n.get('type', '').lower() == 'decision' and not isinstance(n.get('branches'), list):
+                st.warning(f"Node {idx+1} has invalid branches structure. Mermaid diagram will not render.")
                 return "flowchart TD\n%% Invalid branches structure"
         # Group nodes by owner/role for swimlanes
         from collections import defaultdict
