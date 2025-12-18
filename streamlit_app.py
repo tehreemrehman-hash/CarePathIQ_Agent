@@ -1344,7 +1344,18 @@ elif "Phase 2" in phase:
                 st.error(f"AI grading failed due to an unexpected error: {ex}")
                 st.session_state.auto_run["p2_grade"] = True
                 st.stop()
+            st.info(f"[DEBUG] Gemini AI response: {grade_data}")
+            st.info(f"[DEBUG] Evidence IDs: {[e['id'] for e in st.session_state.data['phase2']['evidence']]}")
             error_flag = False
+            def norm_key(val):
+                if val is None:
+                    return ""
+                s = str(val).strip().lower()
+                s = s.replace("pmid:", "").replace("id", "").replace(":", "").strip()
+                return s
+            # Normalize AI response keys
+            norm_grade_data = {norm_key(k): v for k, v in (grade_data.items() if isinstance(grade_data, dict) else {})}
+            debug_map = {}
             if not isinstance(grade_data, dict) or not grade_data:
                 st.error("AI could not assign GRADE or rationale. This may be due to API quota, network issues, or an invalid response. Please try again, check your API key/quota, or assign grades manually.")
                 for e in st.session_state.data['phase2']['evidence']:
@@ -1352,15 +1363,18 @@ elif "Phase 2" in phase:
                     e['rationale'] = 'No rationale provided.'
                 error_flag = True
             else:
-                # Map grades/rationales to evidence by ID, robustly
+                # Map grades/rationales to evidence by normalized ID
                 for e in st.session_state.data['phase2']['evidence']:
-                    entry = grade_data.get(str(e['id'])) or grade_data.get(e['id'])
+                    evid_key = norm_key(e.get('id'))
+                    entry = norm_grade_data.get(evid_key)
+                    debug_map[evid_key] = entry
                     if entry and isinstance(entry, dict):
                         e['grade'] = entry.get('grade', 'Un-graded')
                         e['rationale'] = entry.get('rationale', 'AI generated.')
                     else:
                         e['grade'] = 'Un-graded'
                         e['rationale'] = 'No rationale provided.'
+            st.info(f"[DEBUG] Evidence-to-GRADE mapping: {debug_map}")
             st.session_state.auto_run["p2_grade"] = True
             if not error_flag:
                 status.update(label="Evaluation Complete!", state="complete", expanded=False)
@@ -1417,12 +1431,28 @@ elif "Phase 2" in phase:
 
         edited_df = st.data_editor(df_filtered, column_config=column_config, column_order=column_order, hide_index=True, key="ev_editor")
 
-        edited_map = {str(row['id']): row for row in edited_df.to_dict('records')}
+        # Normalize IDs and improve mapping robustness
+        def normalize_id(val):
+            if val is None:
+                return ""
+            s = str(val).strip()
+            if s.lower().startswith("pmid: "):
+                s = s[6:].strip()
+            return s
+
+        edited_map = {normalize_id(row['id']): row for row in edited_df.to_dict('records')}
         updated_evidence = []
+        debug_missing = []
         for row in st.session_state.data['phase2']['evidence']:
-            rid = str(row['id'])
-            if rid in edited_map: updated_evidence.append(edited_map[rid])
-            else: updated_evidence.append(row)
+            rid = normalize_id(row.get('id'))
+            if rid in edited_map:
+                updated_evidence.append(edited_map[rid])
+            else:
+                updated_evidence.append(row)
+                debug_missing.append(rid)
+
+        if debug_missing:
+            st.info(f"[DEBUG] Evidence IDs not mapped in table update: {debug_missing}")
 
         st.session_state.data['phase2']['evidence'] = updated_evidence
 
@@ -1550,46 +1580,14 @@ elif "Phase 3" in phase:
     }, num_rows="dynamic", hide_index=True, use_container_width=True, key="p3_editor")
 
     # Ensure IDs persist if added manually & sync evidence ID, and all required fields exist
-    updated_nodes = []
-    counts = {"Decision": 0, "Process": 0, "Start": 0, "End": 0, "Note": 0}
-    required_fields = ["id", "type", "label", "detail", "role", "evidence", "evidence_id", "branches"]
-    import math
-    for n in edited_nodes.to_dict('records'):
-        ntype = n.get('type', 'Process')
-        counts[ntype] = counts.get(ntype, 0) + 1
-        if not n.get('id'):
-            prefix = ntype[0].upper()
-            n['id'] = f"{prefix}{counts[ntype]}"
-        # Evidence Logic
-        if n.get('evidence'):
-            try:
-                n['evidence_id'] = str(n['evidence']).replace("PMID: ", "")
-            except:
-                n['evidence_id'] = None
-        else:
-            n['evidence_id'] = None
-        # Harden: always ensure branches is a list
-        if 'branches' not in n or n['branches'] is None or (isinstance(n['branches'], float) and math.isnan(n['branches'])):
-            n['branches'] = []
-        elif not isinstance(n['branches'], list):
-            n['branches'] = [n['branches']] if n['branches'] else []
-        # Ensure all required fields exist and are correct type
-        for field in required_fields:
-            if field not in n:
-                if field == 'branches':
-                    n[field] = []
-                elif field in ['evidence', 'evidence_id']:
-                    n[field] = None
-                else:
-                    n[field] = ""
-            elif field not in ['branches', 'evidence', 'evidence_id']:
-                # Coerce to string if not already
-                if n[field] is None or (isinstance(n[field], float) and math.isnan(n[field])):
-                    n[field] = ""
-                else:
-                    n[field] = str(n[field])
-        updated_nodes.append(n)
-    st.session_state.data['phase3']['nodes'] = updated_nodes
+    # Efficient node update: only update session state if changes were made
+    edited_records = edited_nodes.to_dict('records')
+    nodes_raw = st.session_state.data['phase3']['nodes']
+    if edited_records != nodes_raw:
+        updated_nodes = harden_nodes(edited_records)
+        st.session_state.data['phase3']['nodes'] = updated_nodes
+    else:
+        updated_nodes = nodes_raw
 
     # After editing nodes in Phase 3, check for explicit branch labels
     for n in updated_nodes:
@@ -1906,14 +1904,22 @@ elif "Phase 5" in phase:
             q1 = f"1. Do you recommend any modifications to the start or end nodes of the pathway?{instr}"
             q2 = f"2. Do you recommend any modifications to the decision nodes?{instr}"
             q3 = f"3. Do you recommend any modifications to the process steps?{instr}"
-            logo_html = '<img src="https://carepathiq.com/logo.png" alt="CarePathIQ Logo" style="height:40px;">'
-            copyright_html = '<div style="font-size:12px;color:#888;margin-top:20px;">CarePathIQ © 2024 | Confidential Internal Document</div>'
+            # Use local logo if available, else fallback to copyright only
+            logo_html = ""
+            copyright_html = '<div style="font-size:12px;color:#888;margin-top:20px;">CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0</div>'
+            try:
+                if "CarePathIQ_Logo.png" in os.listdir():
+                    with open("CarePathIQ_Logo.png", "rb") as f:
+                        b64_logo = base64.b64encode(f.read()).decode()
+                        logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="height:40px; margin-bottom:10px;">'
+            except Exception:
+                logo_html = ""
             audience_html = f'<div style="font-size:14px;color:#444;margin-bottom:10px;"><b>Target Audience:</b> {audience}</div>'
             q_html = f"<p><b>{q1}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q2}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q3}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
-            feedback_html = f"<html><body>{logo_html}{audience_html}<h2>Feedback: {cond}</h2>{q_html}<br><button onclick=\"navigator.clipboard.writeText(document.body.innerText);alert('Copied!')\">Copy All to Clipboard</button>{copyright_html}</body></html>"
-            feedback_pdf_html = f"<html><body>{logo_html}{audience_html}<h2>Feedback: {cond}</h2>{q_html}{copyright_html}</body></html>"
+            feedback_html = f"<html><body>{logo_html if logo_html else ''}{audience_html}<h2>Feedback: {cond}</h2>{q_html}<br><button onclick=\"navigator.clipboard.writeText(document.body.innerText);alert('Copied!')\">Copy All to Clipboard</button>{copyright_html}</body></html>"
+            feedback_pdf_html = f"<html><body>{logo_html if logo_html else ''}{audience_html}<h2>Feedback: {cond}</h2>{q_html}{copyright_html}</body></html>"
             st.session_state.p5_files["html"] = feedback_html
             st.session_state.p5_files["feedback_pdf_html"] = feedback_pdf_html
 
@@ -1925,6 +1931,10 @@ elif "Phase 5" in phase:
             """
             guide_html = get_gemini_response(prompt_guide)
             if guide_html:
+                # Insert logo/copyright if possible
+                if logo_html:
+                    guide_html = guide_html.replace('<body>', f'<body>{logo_html}', 1)
+                guide_html += copyright_html
                 st.session_state.p5_files["beta_html"] = guide_html
                 st.session_state.p5_files["beta_pdf_html"] = guide_html
 
@@ -1949,6 +1959,10 @@ elif "Phase 5" in phase:
             """
             staff_edu_html = get_gemini_response(prompt_staff_edu)
             if staff_edu_html:
+                # Insert logo/copyright if possible
+                if logo_html:
+                    staff_edu_html = staff_edu_html.replace('<body>', f'<body>{logo_html}', 1)
+                staff_edu_html += copyright_html
                 st.session_state.p5_files["staff_edu_html"] = staff_edu_html
 
             st.session_state.auto_run["p5_assets"] = True
