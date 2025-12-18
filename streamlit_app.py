@@ -2029,7 +2029,7 @@ elif "Phase 5" in phase:
             </body>
             </html>
             """
-            return html
+            # ...existing code...
             # ...existing code...
             
     if st.session_state.data['phase5'].get('exec_summary'):
