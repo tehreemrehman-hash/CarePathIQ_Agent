@@ -1568,12 +1568,12 @@ elif "Phase 3" in phase:
                 n['evidence_id'] = None
         else:
             n['evidence_id'] = None
-        # Robustly coerce branches to a list
-        branches = n.get('branches', [])
-        if not isinstance(branches, list) or (isinstance(branches, float) and math.isnan(branches)):
-            branches = []
-        n['branches'] = branches
-        # Ensure all required fields exist and are strings (except branches/evidence/evidence_id)
+        # Harden: always ensure branches is a list
+        if 'branches' not in n or n['branches'] is None or (isinstance(n['branches'], float) and math.isnan(n['branches'])):
+            n['branches'] = []
+        elif not isinstance(n['branches'], list):
+            n['branches'] = [n['branches']] if n['branches'] else []
+        # Ensure all required fields exist and are correct type
         for field in required_fields:
             if field not in n:
                 if field == 'branches':
