@@ -1397,28 +1397,15 @@ elif "Phase 2" in phase:
             if col not in df.columns:
                 df[col] = ""
         # Optionally add year/author if present in evidence
-        if any("year" in e for e in st.session_state.data['phase2']['evidence']):
-            if "year" not in df.columns:
-                df["year"] = ""
-        if any("first_author" in e for e in st.session_state.data['phase2']['evidence']):
-            if "first_author" not in df.columns:
-                df["first_author"] = ""
-
+        # Remove year, first_author, and citation columns from evidence table
         column_config = {
             "title": st.column_config.TextColumn("Title", width="medium", disabled=True),
             "id": st.column_config.TextColumn("PMID", width="small", disabled=True),
             "url": st.column_config.LinkColumn("Link", disabled=True),
             "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small", required=True),
             "rationale": st.column_config.TextColumn("GRADE Rationale", width="large"),
-            "citation": st.column_config.TextColumn("Citation", width="large", disabled=True),
         }
-        column_order = ["id", "title", "grade", "rationale", "citation", "url"]
-        if "year" in df.columns:
-            column_config["year"] = st.column_config.TextColumn("Year", width="small", disabled=True)
-            column_order.insert(2, "year")
-        if "first_author" in df.columns:
-            column_config["first_author"] = st.column_config.TextColumn("First Author", width="small", disabled=True)
-            column_order.insert(3, "first_author")
+        column_order = ["id", "title", "grade", "rationale", "url"]
 
         edited_df = st.data_editor(df_filtered, column_config=column_config, column_order=column_order, hide_index=True, key="ev_editor")
 
