@@ -1901,7 +1901,7 @@ elif "Phase 5" in phase:
             cond = st.session_state.data['phase1']['condition']
             audience = st.session_state.target_audience
 
-            # HTML FEEDBACK FORM (with italicized instructions)
+            status.update(label="Step 1: Generating Expert Panel Feedback Form...", state="running", expanded=True)
             instr = "<br><i>If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change.</i>"
             q1 = f"1. Do you recommend any modifications to the start or end nodes of the pathway?{instr}"
             q2 = f"2. Do you recommend any modifications to the decision nodes?{instr}"
@@ -1914,7 +1914,7 @@ elif "Phase 5" in phase:
             st.session_state.p5_files["html"] = feedback_html
             st.session_state.p5_files["feedback_pdf_html"] = feedback_pdf_html
 
-            # BETA TESTING GUIDE (HTML, not docx)
+            status.update(label="Step 2: Generating Beta Testing Guide...", state="running", expanded=True)
             prompt_guide = f"""
             Create a Beta Testing Guide for '{cond}' pathway. Target User: {audience}.
             Structure: Title, Checklist, Questions, Feedback Instructions. 
@@ -1925,7 +1925,7 @@ elif "Phase 5" in phase:
                 st.session_state.p5_files["beta_html"] = guide_html
                 st.session_state.p5_files["beta_pdf_html"] = guide_html
 
-            # SLIDE DECK (PPTX)
+            status.update(label="Step 3: Generating Slide Deck...", state="running", expanded=True)
             prompt_slides = f"""
             Act as a Senior Graphic Designer. Create a visually appealing slide deck structure for '{cond}'. Audience: {audience}.
             Content should be sophisticated.
@@ -1935,7 +1935,7 @@ elif "Phase 5" in phase:
             slides_json = get_gemini_response(prompt_slides, json_mode=True)
             if isinstance(slides_json, dict): st.session_state.p5_files["pptx"] = create_ppt_presentation(slides_json)
 
-            # STAFF EDUCATION MODULE WITH QUIZ
+            status.update(label="Step 4: Generating Staff Education Module...", state="running", expanded=True)
             prompt_staff_edu = f"""
             Create a Staff Education Module for '{cond}'.
             Include:
