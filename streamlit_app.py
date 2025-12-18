@@ -1338,16 +1338,24 @@ elif "Phase 2" in phase:
             Assign a Grade: \"High (A)\", \"Moderate (B)\", \"Low (C)\", \"Very Low (D)\".
             Return JSON object: {{ \"ID\": {{ \"grade\": \"...\", \"rationale\": \"...\" }} }}
             """
-            grade_data = get_gemini_response(prompt, json_mode=True)
+            try:
+                grade_data = get_gemini_response(prompt, json_mode=True)
+            except Exception as ex:
+                st.error(f"AI grading failed due to an unexpected error: {ex}")
+                st.session_state.auto_run["p2_grade"] = True
+                st.stop()
             error_flag = False
             if not isinstance(grade_data, dict) or not grade_data:
-                st.warning("AI could not assign GRADE or rationale. Please review and assign manually.")
+                st.error("AI could not assign GRADE or rationale. This may be due to API quota, network issues, or an invalid response. Please try again, check your API key/quota, or assign grades manually.")
+                for e in st.session_state.data['phase2']['evidence']:
+                    e['grade'] = 'Un-graded'
+                    e['rationale'] = 'No rationale provided.'
                 error_flag = True
             else:
                 # Map grades/rationales to evidence by ID, robustly
                 for e in st.session_state.data['phase2']['evidence']:
                     entry = grade_data.get(str(e['id'])) or grade_data.get(e['id'])
-                    if entry:
+                    if entry and isinstance(entry, dict):
                         e['grade'] = entry.get('grade', 'Un-graded')
                         e['rationale'] = entry.get('rationale', 'AI generated.')
                     else:
