@@ -1902,15 +1902,18 @@ elif "Phase 5" in phase:
             audience = st.session_state.target_audience
 
             status.update(label="Step 1: Generating Expert Panel Feedback Form...", state="running", expanded=True)
-            instr = "<br><i>If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change.</i>"
+            instr = f"<br><i>If so, please list their numbers below and the recommended modifications with either an evidence-based or resource requirement justification for the change.</i>"
             q1 = f"1. Do you recommend any modifications to the start or end nodes of the pathway?{instr}"
             q2 = f"2. Do you recommend any modifications to the decision nodes?{instr}"
             q3 = f"3. Do you recommend any modifications to the process steps?{instr}"
+            logo_html = '<img src="https://carepathiq.com/logo.png" alt="CarePathIQ Logo" style="height:40px;">'
+            copyright_html = '<div style="font-size:12px;color:#888;margin-top:20px;">CarePathIQ © 2024 | Confidential Internal Document</div>'
+            audience_html = f'<div style="font-size:14px;color:#444;margin-bottom:10px;"><b>Target Audience:</b> {audience}</div>'
             q_html = f"<p><b>{q1}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q2}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q3}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
-            feedback_html = f"<html><body><h2>Feedback: {cond}</h2>{q_html}<br><button onclick=\"navigator.clipboard.writeText(document.body.innerText);alert('Copied!')\">Copy All to Clipboard</button></body></html>"
-            feedback_pdf_html = f"<html><body><h2>Feedback: {cond}</h2>{q_html}</body></html>"
+            feedback_html = f"<html><body>{logo_html}{audience_html}<h2>Feedback: {cond}</h2>{q_html}<br><button onclick=\"navigator.clipboard.writeText(document.body.innerText);alert('Copied!')\">Copy All to Clipboard</button>{copyright_html}</body></html>"
+            feedback_pdf_html = f"<html><body>{logo_html}{audience_html}<h2>Feedback: {cond}</h2>{q_html}{copyright_html}</body></html>"
             st.session_state.p5_files["html"] = feedback_html
             st.session_state.p5_files["feedback_pdf_html"] = feedback_pdf_html
 
@@ -1937,11 +1940,12 @@ elif "Phase 5" in phase:
 
             status.update(label="Step 4: Generating Staff Education Module...", state="running", expanded=True)
             prompt_staff_edu = f"""
-            Create a Staff Education Module for '{cond}'.
+            Create a Staff Education Module for '{cond}'. Target Audience: {audience}.
             Include:
             1. 3-5 key clinical points (bulleted).
-            2. A 3-question multiple choice quiz (with answers and explanations).
-            Output as clean HTML with a copy-to-clipboard button for the whole module.
+            2. A 5-question multiple choice quiz (with answers and explanations).
+            3. At the end, provide a form for the user to enter their name and download a certificate of completion (HTML certificate, styled, with their name, date, module title, and CarePathIQ logo/copyright).
+            Output as clean HTML with a copy-to-clipboard button for the whole module, and include the CarePathIQ logo and copyright at the top and bottom.
             """
             staff_edu_html = get_gemini_response(prompt_staff_edu)
             if staff_edu_html:
