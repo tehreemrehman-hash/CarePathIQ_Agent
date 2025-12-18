@@ -1454,6 +1454,8 @@ elif "Phase 2" in phase:
         if debug_missing:
             st.info(f"[DEBUG] Evidence IDs not mapped in table update: {debug_missing}")
 
+
+
         st.session_state.data['phase2']['evidence'] = updated_evidence
 
         csv = edited_df.to_csv(index=False)
@@ -1911,15 +1913,28 @@ elif "Phase 5" in phase:
                 if "CarePathIQ_Logo.png" in os.listdir():
                     with open("CarePathIQ_Logo.png", "rb") as f:
                         b64_logo = base64.b64encode(f.read()).decode()
-                        logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="height:40px; margin-bottom:10px;">'
+                        logo_html = f'<img src="data:image/png;base64,{b64_logo}" style="height:80px; margin-bottom:20px;">'
             except Exception:
                 logo_html = ""
             audience_html = f'<div style="font-size:14px;color:#444;margin-bottom:10px;"><b>Target Audience:</b> {audience}</div>'
             q_html = f"<p><b>{q1}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q2}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
             q_html += f"<p><b>{q3}</b><br><textarea style='width:100%; height:80px;'></textarea></p>"
-            feedback_html = f"<html><body>{logo_html if logo_html else ''}{audience_html}<h2>Feedback: {cond}</h2>{q_html}<br><button onclick=\"navigator.clipboard.writeText(document.body.innerText);alert('Copied!')\">Copy All to Clipboard</button>{copyright_html}</body></html>"
-            feedback_pdf_html = f"<html><body>{logo_html if logo_html else ''}{audience_html}<h2>Feedback: {cond}</h2>{q_html}{copyright_html}</body></html>"
+            # Feedback form using Formsubmit.co
+            feedback_form = f'''
+            <form action="https://formsubmit.co/YOUR_EMAIL@example.com" method="POST" style="margin-bottom:24px;">
+                <label for="email">Your Email:</label><br>
+                <input type="email" name="email" required style="width:100%;margin-bottom:10px;"><br>
+                <label for="feedback">General Feedback:</label><br>
+                <textarea name="feedback" required style="width:100%;height:80px;margin-bottom:10px;"></textarea><br>
+                <input type="hidden" name="_autoresponse" value="Thank you for your feedback! We have received your response.">
+                <input type="hidden" name="_next" value="https://carepathiq.org/thankyou.html">
+                <button type="submit">Send Feedback</button>
+                <p style="font-size:0.9em;color:#888;">Your email will only be used to send you a copy of your feedback. Powered by Formsubmit.co.</p>
+            </form>
+            '''
+            feedback_html = f"<html><body>{logo_html if logo_html else ''}{audience_html}<h2>Feedback: {cond}</h2>{q_html}{feedback_form}<button onclick=\"navigator.clipboard.writeText(document.body.innerText);alert('Copied!')\">Copy All to Clipboard</button>{copyright_html}</body></html>"
+            feedback_pdf_html = f"<html><body>{logo_html if logo_html else ''}{audience_html}<h2>Feedback: {cond}</h2>{q_html}{feedback_form}{copyright_html}</body></html>"
             st.session_state.p5_files["html"] = feedback_html
             st.session_state.p5_files["feedback_pdf_html"] = feedback_pdf_html
 
@@ -1958,56 +1973,61 @@ elif "Phase 5" in phase:
             Output as clean HTML with a copy-to-clipboard button for the whole module, and include the CarePathIQ logo and copyright at the top and bottom.
             """
             staff_edu_html = get_gemini_response(prompt_staff_edu)
-            if staff_edu_html:
-                # Insert logo/copyright if possible
-                if logo_html:
-                    staff_edu_html = staff_edu_html.replace('<body>', f'<body>{logo_html}', 1)
-                staff_edu_html += copyright_html
-                st.session_state.p5_files["staff_edu_html"] = staff_edu_html
-
-            st.session_state.auto_run["p5_assets"] = True
-            status.update(label="Assets Generated!", state="complete", expanded=False)
-            st.rerun()
-
-    # 3. HTML Deliverables
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.subheader("Expert Panel Feedback Form")
-        if st.session_state.p5_files.get("html"):
-            st.download_button("Download Form (HTML)", st.session_state.p5_files["html"], "Expert_Panel_Feedback.html", "text/html", type="primary")
-    with c2:
-        st.subheader("Beta Testing Guide")
-        if st.session_state.p5_files.get("beta_html"):
-            st.download_button("Download Guide (HTML)", st.session_state.p5_files["beta_html"], "Beta_Guide.html", "text/html", type="primary")
-    with c3:
-        st.subheader("Staff Education Module")
-        if st.session_state.p5_files.get("staff_edu_html"):
-            st.download_button("Download Module (HTML)", st.session_state.p5_files["staff_edu_html"], "Staff_Education_Module.html", "text/html", type="primary")
-
-    st.divider()
-    
-    if st.button("Regenerate Assets"):
-        st.session_state.auto_run["p5_assets"] = False
-        st.rerun()
-    
-    # 4. Executive Summary
-    if st.button("Generate Executive Summary", use_container_width=True):
-        with st.spinner("Compiling Executive Summary..."):
-            p1 = st.session_state.data['phase1']
-            
-            # Calculate metrics
-            num_citations = len(st.session_state.data['phase2']['evidence'])
-            num_nodes = len(st.session_state.data['phase3']['nodes'])
-            
-            prompt = f"""
-            Create an Executive Summary for '{p1['condition']}'. 
-            Target Audience: Hospital Executives (C-Suite).
-            
-            Include:
-            1. Problem Statement
-            2. Objectives
-            3. Evidence Overview (Mention {num_citations} high-quality citations integrated).
-            4. Logic Overview (Mention a robust decision tree with {num_nodes} clinical nodes).
+            html = f"""
+            <html>
+            <head>
+                <title>CarePathIQ Staff Education</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; background: #f8f9fa; }}
+                    .edu-container {{ background: #fff; max-width: 700px; margin: 40px auto; border-radius: 12px; box-shadow: 0 2px 8px #ccc; padding: 32px; }}
+                    h1 {{ color: #2a4d69; }}
+                    .question {{ margin-bottom: 24px; }}
+                    .btn {{ background: #2a4d69; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; margin-top: 8px; cursor: pointer; }}
+                    .btn:hover {{ background: #1e3552; }}
+                    .print-btn {{ background: #388e3c; color: #fff; border: none; border-radius: 4px; padding: 8px 16px; margin-top: 16px; cursor: pointer; }}
+                </style>
+                <script>
+                    function printCertificate() {{ window.print(); }}
+                </script>
+            </head>
+            <body>
+                <div class='edu-container'>
+                    {logo_src if logo_src else ''}
+                    <h1>Staff Education Module: {cond}</h1>
+                    <h3>Audience: {audience}</h3>
+                    <div style='margin-bottom: 24px; color: #555;'>{branding}</div>
+                    <div class='question'>
+                        <p><strong>1. What is the main objective of this pathway?</strong></p>
+                        <button class='btn' onclick='checkAnswer(this, true)'>[Correct answer]</button><br>
+                        <button class='btn' style='background-color:#ccc; color:#333; margin-top:10px;' onclick='checkAnswer(this, false)'>[Incorrect answer]</button>
+                    </div>
+                    <div class='question'>
+                        <p><strong>2. Which of the following is an inclusion criterion?</strong></p>
+                        <button class='btn' onclick='checkAnswer(this, true)'>[Correct inclusion]</button><br>
+                        <button class='btn' style='background-color:#ccc; color:#333; margin-top:10px;' onclick='checkAnswer(this, false)'>[Incorrect inclusion]</button>
+                    </div>
+                    <div class='question'>
+                        <p><strong>3. Which of the following is an exclusion criterion?</strong></p>
+                        <button class='btn' onclick='checkAnswer(this, true)'>[Correct exclusion]</button><br>
+                        <button class='btn' style='background-color:#ccc; color:#333; margin-top:10px;' onclick='checkAnswer(this, false)'>[Incorrect exclusion]</button>
+                    </div>
+                    <div class='question'>
+                        <p><strong>4. What is your role in this pathway?</strong></p>
+                        <button class='btn' onclick='checkAnswer(this, true)'>[Correct role-based answer]</button><br>
+                        <button class='btn' style='background-color:#ccc; color:#333; margin-top:10px;' onclick='checkAnswer(this, false)'>[Incorrect role-based answer]</button>
+                    </div>
+                    <div id='result'></div>
+                    <br>
+                    <p><em>This module confirms your understanding of the new {cond} protocol.</em></p>
+                    <button class='print-btn' onclick='printCertificate()'>Print Certificate</button>
+                </div>
+                <div style='margin-top: 40px; font-size: 0.8em; color: #777; text-align: center;'>
+                    {'Generated by CarePathIQ AI Agent' if logo_src else 'CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0'}
+                </div>
+            </body>
+            </html>
+            """
+            return html
             5. Strategic Value (ROI, Quality, Safety).
             
             Format: Markdown.
