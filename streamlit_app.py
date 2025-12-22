@@ -15,25 +15,23 @@ import os
 import copy
 import xml.etree.ElementTree as ET
 import altair as alt
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
 
 # --- LIBRARY HANDLING ---
+# Safely import libraries to prevent app crash if requirements.txt is missing
 try:
     from docx import Document
     from docx.shared import Inches as DocxInches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from pptx import Presentation
-    from pptx.util import Inches, Pt
-    from pptx.dml.color import RGBColor
-    from pptx.enum.text import PP_ALIGN
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
 except ImportError:
-    st.error("Missing Libraries: Please run `pip install python-docx python-pptx matplotlib`")
+    st.error("Missing Libraries: Please add `python-docx` and `matplotlib` to your requirements.txt file.")
     Document = None
-    Presentation = None
+    plt = None
+    mdates = None
 
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
@@ -226,6 +224,8 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
 
 def generate_gantt_image(schedule):
     if not schedule: return None
+    # Safety check if matplotlib is not installed
+    if plt is None or mdates is None: return None
     try:
         df = pd.DataFrame(schedule)
         df['Start'] = pd.to_datetime(df['Start'])
@@ -335,45 +335,6 @@ def create_exec_summary_docx(summary_text, condition):
     p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
-
-def create_ppt_presentation(slides_data, flowchart_img=None):
-    if Presentation is None: return None
-    try:
-        prs = Presentation()
-        BROWN = RGBColor(93, 64, 55); WHITE = RGBColor(255, 255, 255); GREY = RGBColor(80, 80, 80)
-        def add_footer(slide):
-            left = Inches(0.5); top = Inches(7.1); width = Inches(9); height = Inches(0.3)
-            txBox = slide.shapes.add_textbox(left, top, width, height)
-            p = txBox.text_frame.paragraphs[0]
-            p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
-            p.font.size = Pt(9); p.font.color.rgb = GREY; p.alignment = PP_ALIGN.CENTER
-        slide = prs.slides.add_slide(prs.slide_layouts[6])
-        fill = slide.background.fill; fill.solid(); fill.fore_color.rgb = BROWN
-        tbox = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(2))
-        p = tbox.text_frame.paragraphs[0]
-        p.text = slides_data.get('title', 'Presentation')
-        p.font.size = Pt(44); p.font.color.rgb = WHITE; p.font.bold = True; p.alignment = PP_ALIGN.CENTER
-        add_footer(slide)
-        for s_info in slides_data.get('slides', []):
-            slide = prs.slides.add_slide(prs.slide_layouts[6])
-            shape = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(1.2))
-            shape.fill.solid(); shape.fill.fore_color.rgb = BROWN; shape.line.fill.background()
-            tbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
-            p = tbox.text_frame.paragraphs[0]
-            p.text = s_info.get('title', '')
-            p.font.size = Pt(32); p.font.color.rgb = WHITE; p.font.bold = True
-            cbox = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.0))
-            tf = cbox.text_frame; tf.word_wrap = True
-            content = s_info.get('content', '')
-            for line in content.split('\n'):
-                if line.strip():
-                    p = tf.add_paragraph()
-                    p.text = line.replace('**','').strip()
-                    p.font.size = Pt(18); p.font.color.rgb = GREY
-            add_footer(slide)
-        buffer = BytesIO(); prs.save(buffer); buffer.seek(0)
-        return buffer
-    except Exception as e: st.error(f"PPT Error: {e}"); return None
 
 def harden_nodes(nodes_list):
     if not isinstance(nodes_list, list): return []
