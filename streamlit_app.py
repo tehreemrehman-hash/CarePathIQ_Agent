@@ -26,7 +26,7 @@ try:
     from docx import Document
     from docx.shared import Inches as DocxInches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    # PPTX imports removed as requested
+    # PPTX removed
 except ImportError:
     st.error("Missing Libraries: Please run `pip install python-docx matplotlib`")
     Document = None
@@ -229,18 +229,13 @@ def generate_gantt_image(schedule):
         df['Start'] = pd.to_datetime(df['Start'])
         df['End'] = pd.to_datetime(df['End'])
         df['Duration'] = (df['End'] - df['Start']).dt.days
-        
         fig, ax = plt.subplots(figsize=(8, 4))
         y_pos = range(len(df))
-        
-        # CORRECTED: Use 'Stage' instead of 'Phase' for labels
         ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#00695C', alpha=0.8)
         ax.set_yticks(y_pos)
-        
-        # CORRECTED: Use 'Stage' column for labels
+        # Corrected column name for Gantt visual labels
         labels = df['Stage'].tolist() if 'Stage' in df.columns else df['Phase'].tolist()
         ax.set_yticklabels(labels, fontsize=9)
-        
         ax.invert_yaxis()
         ax.xaxis_date()
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
@@ -261,7 +256,6 @@ def create_word_docx(data):
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
     ihi = data.get('ihi_content', {})
     
-    # Charter Structure
     doc.add_heading('What are we trying to accomplish?', level=1)
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
@@ -302,7 +296,6 @@ def create_word_docx(data):
     doc.add_paragraph(ihi.get('barriers', ''))
     
     doc.add_heading('Boundaries', level=2)
-    # CORRECTED: Fallback for boundaries capitalization
     doc.add_paragraph(ihi.get('boundaries', ihi.get('Boundaries', '')))
     
     doc.add_heading('Project Timeline', level=1)
@@ -478,14 +471,14 @@ def render_bottom_navigation():
         with col1:
             if current_idx > 0:
                 prev_phase = PHASES[current_idx - 1]
-                if st.button(f"← {prev_phase}", key="bottom_prev", width="stretch"):
+                if st.button(f"← {prev_phase.split(':')[0]}", key="bottom_prev", width="stretch"):
                     change_phase(prev_phase)
                     st.rerun()
                     
         with col3:
             if current_idx < len(PHASES) - 1:
                 next_phase = PHASES[current_idx + 1]
-                if st.button(f"{next_phase} →", key="bottom_next", width="stretch"):
+                if st.button(f"{next_phase.split(':')[0]} →", key="bottom_next", width="stretch"):
                     change_phase(next_phase)
                     st.rerun()
 
@@ -939,5 +932,3 @@ elif "Phase 5" in phase:
     render_bottom_navigation()
 
 st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
-
-```
