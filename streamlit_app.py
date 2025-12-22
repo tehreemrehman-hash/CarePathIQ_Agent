@@ -45,9 +45,8 @@ st.set_page_config(
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* HIDE HEADER LINKS (Aggressive) */
+    /* HIDE HEADER LINKS */
     [data-testid="stHeaderAction"] { display: none !important; }
-    a.anchor-link { display: none !important; }
     
     /* BUTTONS */
     div.stButton > button, 
@@ -268,7 +267,7 @@ def create_word_docx(data):
             row_cells[2].text = str(item.get('Start', ''))
             row_cells[3].text = str(item.get('End', ''))
     section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.text = "Adapted from IHI QI Project Charter: https://www.ihi.org/library/tools/qi-project-charter\nCarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
 
@@ -430,6 +429,9 @@ def search_pubmed(query):
             # --- YEAR PARSING ---
             year_node = article.find('.//PubDate/Year')
             year = year_node.text if year_node is not None else "N/A"
+            
+            # --- JOURNAL PARSING ---
+            journal = medline.find('Article/Journal/Title').text if medline.find('Article/Journal/Title') is not None else "N/A"
 
             abs_node = medline.find('Article/Abstract')
             abstract_text = " ".join([e.text for e in abs_node.findall('AbstractText') if e.text]) if abs_node is not None else "No abstract."
@@ -439,6 +441,7 @@ def search_pubmed(query):
                 "title": title, 
                 "authors": authors_str,
                 "year": year,
+                "journal": journal,
                 "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", 
                 "abstract": abstract_text, 
                 "grade": "Un-graded", 
@@ -517,7 +520,43 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    # 1. Sync Logic (Manual)
+    # 1. TRIGGER FUNCTION
+    def trigger_p1_draft():
+        # Only trigger if both fields have text
+        c = st.session_state.p1_cond_input
+        s = st.session_state.p1_setting
+        if c and s:
+            # Generate ALL CONTENT in one go (Consolidated)
+            prompt = f"""
+            Act as a Chief Medical Officer. For '{c}' in '{s}', generate a single JSON object with these 4 keys:
+            1. "inclusion": Detailed inclusion criteria (formatted as a numbered list).
+            2. "exclusion": Detailed exclusion criteria (formatted as a numbered list).
+            3. "problem": A problem statement referencing care variation.
+            4. "objectives": 3 SMART objectives (formatted as a numbered list).
+            """
+            data = get_gemini_response(prompt, json_mode=True)
+            if data:
+                st.session_state.data['phase1']['inclusion'] = str(data.get('inclusion', ''))
+                st.session_state.data['phase1']['exclusion'] = str(data.get('exclusion', ''))
+                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                st.session_state.data['phase1']['objectives'] = str(data.get('objectives', ''))
+                
+                # Force update keys
+                st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
+                st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
+                st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
+                st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+
+    # 2. SYNC FUNCTION (General)
+    def sync_p1_widgets():
+        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
+        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
+        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
+        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
+        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
+        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
+
+    # Initialize State Keys if missing
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
@@ -529,66 +568,24 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
-        # Removed on_change to allow Enter key to work naturally
-        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input")
-        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting")
+        # SPECIFIC TRIGGER ON CARE SETTING CHANGE via on_change
+        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
+        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=trigger_p1_draft)
         
-        # Save to state immediately
-        st.session_state.data['phase1']['condition'] = cond_input
-        st.session_state.data['phase1']['setting'] = setting_input
-
         st.subheader("2. Target Population")
-        curr_key = f"{cond_input}|{setting_input}"
-        last_key = st.session_state.get('last_criteria_key', '')
-        
-        # TRIGGER LOGIC: If inputs exist and differ from last generation run
-        if cond_input and setting_input and curr_key != last_key:
-            with st.status("🤖 Auto-generating Content...", expanded=True) as status:
-                # 1. Consolidated Prompt for ALL fields
-                master_prompt = f"""
-                Act as a Chief Medical Officer. For '{cond_input}' in '{setting_input}', generate a single JSON object with these 4 keys:
-                1. "inclusion": Detailed inclusion criteria.
-                2. "exclusion": Detailed exclusion criteria.
-                3. "problem": A problem statement referencing care variation.
-                4. "objectives": 3 SMART objectives.
-                """
-                status.write("Drafting Criteria, Problem, and Goals...")
-                data = get_gemini_response(master_prompt, json_mode=True)
-                
-                if data:
-                    # Update State
-                    st.session_state.data['phase1']['inclusion'] = str(data.get('inclusion', ''))
-                    st.session_state.data['phase1']['exclusion'] = str(data.get('exclusion', ''))
-                    st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                    st.session_state.data['phase1']['objectives'] = str(data.get('objectives', ''))
-                    
-                    # Update Session Keys for Widgets
-                    st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
-                    st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
-                    st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
-                    st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
-                    
-                    st.session_state['last_criteria_key'] = curr_key
-                    status.update(label="Drafting Complete!", state="complete", expanded=False)
-                    st.rerun()
-        
-        inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
-        exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
-        st.session_state.data['phase1']['inclusion'] = inc_val
-        st.session_state.data['phase1']['exclusion'] = exc_val
+        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
+        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
-        prob_val = st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", label_visibility="collapsed")
-        st.session_state.data['phase1']['problem'] = prob_val
+        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
         
         st.subheader("4. Goals")
-        obj_val = st.text_area("Project Goals", height=150, key="p1_obj", label_visibility="collapsed")
-        st.session_state.data['phase1']['objectives'] = obj_val
+        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
 
     # Manual Trigger Button (Fail-safe)
     if st.button("Regenerate Draft"):
-         st.session_state['last_criteria_key'] = "" 
+         trigger_p1_draft()
          st.rerun()
 
     st.divider()
@@ -624,10 +621,11 @@ if "Phase 1" in phase:
             st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
+        sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
-            with st.status("Generating IHI Charter...", expanded=True) as status:
+            with st.status("Generating Project Charter...", expanded=True) as status:
                 p_ihi = f"Act as QI Advisor (IHI Model). Draft Charter for {d['condition']}. Problem: {d['problem']}. Scope: {d['inclusion']}. Return JSON: project_description, rationale, expected_outcomes, aim_statement, outcome_measures, process_measures, balancing_measures, initial_activities, change_ideas, stakeholders, barriers, boundaries."
                 res = get_gemini_response(p_ihi, json_mode=True)
                 if res:
@@ -635,7 +633,7 @@ if "Phase 1" in phase:
                     doc = create_word_docx(st.session_state.data['phase1'])
                     if doc:
                         status.update(label="Ready!", state="complete")
-                        st.download_button("Download Project Charter (.docx)", doc, f"IHI_Charter_{d['condition']}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        st.download_button("Download Project Charter (.docx)", doc, f"Project_Charter_{d['condition']}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     render_bottom_navigation()
 
 # --- PHASE 2 ---
@@ -655,6 +653,9 @@ elif "Phase 2" in phase:
 
     if st.session_state.data['phase2']['evidence']:
         st.markdown("### Evidence Table")
+        
+        styled_info("<b>Tip:</b> GRADE (Grading of Recommendations, Assessment, Development and Evaluations) is a framework for rating the quality of evidence (High, Moderate, Low, Very Low) and strength of recommendations.")
+
         col_filter, col_clear, col_regrade = st.columns([3, 1, 2])
         with col_filter:
             selected_grades = st.multiselect("Filter by GRADE:", ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)"])
@@ -691,11 +692,12 @@ elif "Phase 2" in phase:
             column_config={
                 "id": st.column_config.TextColumn("PMID", disabled=True),
                 "title": st.column_config.TextColumn("Title", width="medium"),
+                "year": st.column_config.TextColumn("Year", width="small"),
+                "journal": st.column_config.TextColumn("Journal", width="small"),
                 "url": st.column_config.LinkColumn("Link"), 
                 "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]),
                 "rationale": st.column_config.TextColumn("Rationale", width="large"),
                 "authors": None,
-                "year": None,
                 "abstract": None
             }, 
             hide_index=True, use_container_width=True, key="ev_editor"
