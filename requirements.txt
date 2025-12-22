@@ -4,3 +4,4 @@ pandas
 graphviz
 python-docx
 python-pptx
+matplotlib
