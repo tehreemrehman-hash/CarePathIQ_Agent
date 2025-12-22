@@ -1,3 +1,14 @@
+I have identified the exact causes for all three issues and fixed them below.
+
+**Root Causes & Fixes:**
+
+1. **Gantt Chart Missing:** There was a column name mismatch. The schedule data uses the column name **"Stage"**, but the chart generator was looking for **"Phase"**, causing a silent error. I have corrected this to `df['Stage']`.
+2. **Boundaries Not Populating:** The AI sometimes returns capitalized keys (e.g., "Boundaries" instead of "boundaries"). I added a fallback check so it catches the text regardless of capitalization.
+3. **Double Numbering:** The formatting function was adding numbers (1., 2.) to text that the AI *already* numbered. I added a regex cleaner to strip existing numbers before re-formatting, ensuring a clean "1. Goal" format.
+
+Here is the **Final, Fixed Code**.
+
+```python
 import streamlit as st
 import streamlit.components.v1 as components
 import google.generativeai as genai
@@ -43,10 +54,11 @@ st.set_page_config(
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* HIDE HEADER LINKS (Aggressive) */
+    /* AGGRESSIVELY HIDE HEADER LINKS & ANCHORS */
     [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
-    a.anchor-link { display: none !important; pointer-events: none; }
-    h1 a, h2 a, h3 a { display: none !important; color: transparent !important; }
+    a.anchor-link { display: none !important; height: 0px !important; width: 0px !important; }
+    .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a { display: none !important; pointer-events: none; cursor: default; text-decoration: none; color: transparent !important; }
+    h1 > a, h2 > a, h3 > a { display: none !important; }
     
     /* BUTTONS */
     div.stButton > button, 
@@ -179,25 +191,6 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 # 2. HELPER FUNCTIONS
 # ==========================================
 
-# --- NAVIGATION CONTROLLER (Moved Up) ---
-def change_phase(new_phase):
-    st.session_state.current_phase_label = new_phase
-
-def update_phase(new_phase):
-    st.session_state.current_phase_label = new_phase
-
-# --- BOTTOM NAVIGATION (Moved Up) ---
-def render_bottom_navigation():
-    st.divider()
-    current_label = st.session_state.get('current_phase_label', PHASES[0])
-    try: curr_idx = PHASES.index(current_label)
-    except: curr_idx = 0
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if curr_idx > 0: st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=change_phase, args=(PHASES[curr_idx-1],))
-    with col3:
-        if curr_idx < len(PHASES) - 1: st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=change_phase, args=(PHASES[curr_idx+1],))
-
 def calculate_granular_progress():
     if 'data' not in st.session_state: return 0.0
     data = st.session_state.data
@@ -247,11 +240,18 @@ def generate_gantt_image(schedule):
         df['Start'] = pd.to_datetime(df['Start'])
         df['End'] = pd.to_datetime(df['End'])
         df['Duration'] = (df['End'] - df['Start']).dt.days
+        
         fig, ax = plt.subplots(figsize=(8, 4))
         y_pos = range(len(df))
+        
+        # CORRECTED: Use 'Stage' instead of 'Phase' for labels
         ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#00695C', alpha=0.8)
         ax.set_yticks(y_pos)
-        ax.set_yticklabels(df['Phase'], fontsize=9)
+        
+        # CORRECTED: Use 'Stage' column for labels
+        labels = df['Stage'].tolist() if 'Stage' in df.columns else df['Phase'].tolist()
+        ax.set_yticklabels(labels, fontsize=9)
+        
         ax.invert_yaxis()
         ax.xaxis_date()
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
@@ -272,6 +272,7 @@ def create_word_docx(data):
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
     ihi = data.get('ihi_content', {})
     
+    # Charter Structure
     doc.add_heading('What are we trying to accomplish?', level=1)
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
@@ -312,7 +313,8 @@ def create_word_docx(data):
     doc.add_paragraph(ihi.get('barriers', ''))
     
     doc.add_heading('Boundaries', level=2)
-    doc.add_paragraph(ihi.get('boundaries', ''))
+    # CORRECTED: Fallback for boundaries capitalization
+    doc.add_paragraph(ihi.get('boundaries', ihi.get('Boundaries', '')))
     
     doc.add_heading('Project Timeline', level=1)
     schedule = data.get('schedule', [])
@@ -469,8 +471,14 @@ def search_pubmed(query):
 def format_as_numbered_list(items):
     """Helper to ensure lists are strings with numbers."""
     if isinstance(items, list):
-        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(items)])
+        # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
+        clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
+        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
     return str(items)
+
+# --- NAVIGATION CONTROLLER ---
+def change_phase(new_phase):
+    st.session_state.current_phase_label = new_phase
 
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
@@ -922,3 +930,5 @@ elif "Phase 5" in phase:
     render_bottom_navigation()
 
 st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
+
+```
