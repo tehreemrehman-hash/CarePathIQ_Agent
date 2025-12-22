@@ -45,6 +45,9 @@ st.set_page_config(
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
+    /* HIDE HEADER LINKS */
+    [data-testid="stHeaderAction"] { display: none !important; }
+    
     /* BUTTONS */
     div.stButton > button, 
     div[data-testid="stButton"] > button,
@@ -170,6 +173,7 @@ HEURISTIC_DEFS = {
     "H7": "Flexibility and efficiency of use", "H8": "Aesthetic and minimalist design",
     "H9": "Help users recognize, diagnose, and recover from errors", "H10": "Help and documentation"
 }
+PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
 
 # ==========================================
 # 2. HELPER FUNCTIONS
@@ -180,31 +184,24 @@ def calculate_granular_progress():
     data = st.session_state.data
     total_points = 0
     earned_points = 0
-    
-    # Phase 1
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
-    # Phase 2
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
-    # Phase 3
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
-    # Phase 4
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
-    # Phase 5
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
         if p5.get(k): earned_points += 1
-        
     if total_points == 0: return 0.0
     return min(1.0, earned_points / total_points)
 
@@ -269,14 +266,9 @@ def create_word_docx(data):
             row_cells[1].text = str(item.get('Owner', ''))
             row_cells[2].text = str(item.get('Start', ''))
             row_cells[3].text = str(item.get('End', ''))
-    section = doc.sections[0]
-    footer = section.footer
-    p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
+    section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
 
 def create_exec_summary_docx(summary_text, condition):
@@ -289,33 +281,22 @@ def create_exec_summary_docx(summary_text, condition):
             elif line.startswith('##'): doc.add_heading(line.replace('##', '').strip(), level=2)
             elif line.startswith('#'): doc.add_heading(line.replace('#', '').strip(), level=1)
             else: doc.add_paragraph(line.strip().replace('**', ''))
-    section = doc.sections[0]
-    footer = section.footer
-    p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
+    section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
 
 def create_ppt_presentation(slides_data, flowchart_img=None):
     if Presentation is None: return None
     try:
         prs = Presentation()
-        # Theme Colors
-        BROWN = RGBColor(93, 64, 55)
-        WHITE = RGBColor(255, 255, 255)
-        GREY = RGBColor(80, 80, 80)
-
+        BROWN = RGBColor(93, 64, 55); WHITE = RGBColor(255, 255, 255); GREY = RGBColor(80, 80, 80)
         def add_footer(slide):
             left = Inches(0.5); top = Inches(7.1); width = Inches(9); height = Inches(0.3)
             txBox = slide.shapes.add_textbox(left, top, width, height)
             p = txBox.text_frame.paragraphs[0]
             p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
             p.font.size = Pt(9); p.font.color.rgb = GREY; p.alignment = PP_ALIGN.CENTER
-
-        # Title Slide
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         fill = slide.background.fill; fill.solid(); fill.fore_color.rgb = BROWN
         tbox = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(2))
@@ -323,53 +304,37 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
         p.text = slides_data.get('title', 'Presentation')
         p.font.size = Pt(44); p.font.color.rgb = WHITE; p.font.bold = True; p.alignment = PP_ALIGN.CENTER
         add_footer(slide)
-
-        # Content Slides
         for s_info in slides_data.get('slides', []):
             slide = prs.slides.add_slide(prs.slide_layouts[6])
-            # Header
             shape = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(1.2))
             shape.fill.solid(); shape.fill.fore_color.rgb = BROWN; shape.line.fill.background()
             tbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
             p = tbox.text_frame.paragraphs[0]
             p.text = s_info.get('title', '')
             p.font.size = Pt(32); p.font.color.rgb = WHITE; p.font.bold = True
-            # Content
             cbox = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.0))
             tf = cbox.text_frame; tf.word_wrap = True
             content = s_info.get('content', '')
-            # Simple markdown cleanup
             for line in content.split('\n'):
                 if line.strip():
                     p = tf.add_paragraph()
                     p.text = line.replace('**','').strip()
                     p.font.size = Pt(18); p.font.color.rgb = GREY
             add_footer(slide)
-
-        buffer = BytesIO()
-        prs.save(buffer)
-        buffer.seek(0)
+        buffer = BytesIO(); prs.save(buffer); buffer.seek(0)
         return buffer
-    except Exception as e:
-        st.error(f"PPT Generation Error: {e}")
-        return None
+    except Exception as e: st.error(f"PPT Error: {e}"); return None
 
 def harden_nodes(nodes_list):
     if not isinstance(nodes_list, list): return []
     validated = []
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict): continue
-        if 'id' not in node or not node['id']:
-            prefix = node.get('type', 'P')[0].upper()
-            node['id'] = f"{prefix}{i+1}"
+        if 'id' not in node or not node['id']: node['id'] = f"{node.get('type', 'P')[0].upper()}{i+1}"
         if 'type' not in node: node['type'] = 'Process'
         if node['type'] == 'Decision':
             if 'branches' not in node or not isinstance(node['branches'], list):
-                node['branches'] = [{'label': 'Yes', 'target': i+1 if i+1 < len(nodes_list) else None}, {'label': 'No', 'target': i+2 if i+2 < len(nodes_list) else None}]
-            else:
-                for b in node['branches']:
-                    if 'label' not in b: b['label'] = 'Option'
-                    if 'target' not in b: b['target'] = None
+                node['branches'] = [{'label': 'Yes', 'target': i+1}, {'label': 'No', 'target': i+2}]
         validated.append(node)
     return validated
 
@@ -378,57 +343,37 @@ def generate_mermaid_code(nodes, orientation="TD"):
     valid_nodes = harden_nodes(nodes)
     from collections import defaultdict
     swimlanes = defaultdict(list)
-    for i, n in enumerate(valid_nodes):
-        role = n.get('role', 'Unassigned')
-        swimlanes[role].append((i, n))
+    for i, n in enumerate(valid_nodes): swimlanes[n.get('role', 'Unassigned')].append((i, n))
     code = f"flowchart {orientation}\n"
     node_id_map = {}
     for role, n_list in swimlanes.items():
         code += f"    subgraph {role}\n"
         for i, n in n_list:
-            nid = f"N{i}"
-            node_id_map[i] = nid
+            nid = f"N{i}"; node_id_map[i] = nid
             label = n.get('label', 'Step').replace('"', "'")
             detail = n.get('detail', '').replace('"', "'")
             meds = n.get('medications', '')
             if meds: detail += f"\\nMeds: {meds}"
             full_label = f"{label}\\n{detail}" if detail else label
             ntype = n.get('type', 'Process')
-            if ntype == 'Start':
-                shape_s, shape_e = '([', '])'
-                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            elif ntype == 'Decision':
-                shape_s, shape_e = '{', '}'
-                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
-            elif ntype == 'End':
-                shape_s, shape_e = '([', '])'
-                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            else:
-                shape_s, shape_e = '[', ']'
-                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
-            code += f'        {nid}{shape_s}"{full_label}"{shape_e}\n'
-            code += f'        {style}\n'
+            if ntype == 'Start': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
+            elif ntype == 'Decision': shape = '{', '}'; style = 'fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
+            elif ntype == 'End': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
+            else: shape = '[', ']'; style = 'fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
+            code += f'        {nid}{shape[0]}"{full_label}"{shape[1]}\n        style {nid} {style}\n'
         code += "    end\n"
     for i, n in enumerate(valid_nodes):
         nid = node_id_map[i]
-        ntype = n.get('type')
-        if ntype == 'Decision' and 'branches' in n:
+        if n.get('type') == 'Decision' and 'branches' in n:
             for b in n.get('branches', []):
-                t_idx = b.get('target')
-                lbl = b.get('label', 'Yes')
-                if isinstance(t_idx, (int, float)) and 0 <= t_idx < len(valid_nodes):
-                     code += f"    {nid} --|{lbl}| {node_id_map[int(t_idx)]}\n"
-        else:
-            if i + 1 < len(valid_nodes):
-                code += f"    {nid} --> {node_id_map[i+1]}\n"
+                t = b.get('target')
+                if isinstance(t, (int, float)) and 0 <= t < len(valid_nodes): code += f"    {nid} --|{b.get('label', 'Yes')}| {node_id_map[int(t)]}\n"
+        elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
     return code
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
-    if model_choice == "Auto":
-        candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
-    else:
-        candidates = [model_choice, "gemini-1.5-flash"]
+    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
     response = None
     for model_name in candidates:
         try:
@@ -436,20 +381,15 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             is_stream = stream_container is not None
             response = model.generate_content(prompt, stream=is_stream)
             if response: break 
-        except Exception:
-            time.sleep(0.5)
-            continue
-    if not response:
-        st.error("AI Error. Please check API Key.")
-        return None
+        except Exception: time.sleep(0.5); continue
+    if not response: st.error("AI Error. Please check API Key."); return None
     try:
         if stream_container:
             text = ""
             for chunk in response:
                 if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
             stream_container.markdown(text) 
-        else:
-            text = response.text
+        else: text = response.text
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
             match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
@@ -464,33 +404,47 @@ def search_pubmed(query):
     try:
         search_params = {'db': 'pubmed', 'term': f"{query} AND (\"last 5 years\"[dp])", 'retmode': 'json', 'retmax': 20, 'sort': 'relevance'}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
-        with urllib.request.urlopen(url) as response:
-            data = json.loads(response.read().decode())
-            id_list = data.get('esearchresult', {}).get('idlist', [])
+        with urllib.request.urlopen(url) as response: id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
         if not id_list: return []
-        ids_str = ','.join(id_list)
-        fetch_params = {'db': 'pubmed', 'id': ids_str, 'retmode': 'xml'}
-        url = base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)
-        with urllib.request.urlopen(url) as response:
-            xml_data = response.read().decode()
-        root = ET.fromstring(xml_data)
+        fetch_params = {'db': 'pubmed', 'id': ','.join(id_list), 'retmode': 'xml'}
+        with urllib.request.urlopen(base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)) as response: root = ET.fromstring(response.read().decode())
         citations = []
         for article in root.findall('.//PubmedArticle'):
             medline = article.find('MedlineCitation')
             pmid = medline.find('PMID').text
             title = medline.find('Article/ArticleTitle').text
-            abstract_text = "No abstract available."
-            abs_node = medline.find('Article/Abstract')
-            if abs_node is not None:
-                texts = [elem.text for elem in abs_node.findall('AbstractText') if elem.text]
-                if texts: abstract_text = " ".join(texts)
-            citations.append({"id": pmid, "title": title, "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", "abstract": abstract_text, "grade": "Un-graded", "rationale": "Not yet evaluated."})
-        return citations
-    except Exception as e:
-        st.error(f"PubMed Search Error: {e}")
-        return []
+            
+            # --- AUTHOR PARSING ---
+            author_list = article.findall('.//Author')
+            authors_str = "Unknown"
+            if author_list:
+                authors = []
+                for auth in author_list[:3]:
+                    lname = auth.find('LastName')
+                    init = auth.find('Initials')
+                    if lname is not None and init is not None: authors.append(f"{lname.text} {init.text}")
+                authors_str = ", ".join(authors)
+                if len(author_list) > 3: authors_str += ", et al."
+            
+            # --- YEAR PARSING ---
+            year_node = article.find('.//PubDate/Year')
+            year = year_node.text if year_node is not None else "N/A"
 
-PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
+            abs_node = medline.find('Article/Abstract')
+            abstract_text = " ".join([e.text for e in abs_node.findall('AbstractText') if e.text]) if abs_node is not None else "No abstract."
+            
+            citations.append({
+                "id": pmid, 
+                "title": title, 
+                "authors": authors_str,
+                "year": year,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", 
+                "abstract": abstract_text, 
+                "grade": "Un-graded", 
+                "rationale": "Not yet evaluated."
+            })
+        return citations
+    except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
 
 def update_phase(new_phase):
     st.session_state.current_phase_label = new_phase
@@ -519,15 +473,12 @@ with st.sidebar:
 
     st.title("AI Agent")
     st.divider()
-    
     default_key = st.secrets.get("GEMINI_API_KEY", "")
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
-    if gemini_api_key:
-        genai.configure(api_key=gemini_api_key)
-        st.success("AI Connected")
+    if gemini_api_key: genai.configure(api_key=gemini_api_key); st.success("AI Connected")
     st.divider()
     
     if "current_phase_label" not in st.session_state: st.session_state.current_phase_label = PHASES[0]
@@ -535,11 +486,12 @@ with st.sidebar:
     for p in PHASES:
         is_active = (p == st.session_state.current_phase_label)
         st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
-
+    
     st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
     st.divider()
     st.progress(calculate_granular_progress())
 
+# LANDING PAGE LOGIC
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
     st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
@@ -563,14 +515,7 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    def sync_p1_widgets():
-        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
-        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
-        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
-        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
-        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
-        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
-
+    # 1. Sync Logic (Manual)
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
@@ -582,11 +527,17 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
-        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Sepsis", key="p1_cond_input", on_change=sync_p1_widgets)
-        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
+        cond_input = st.text_input("Clinical Condition", key="p1_cond_input")
+        setting_input = st.text_input("Care Setting", key="p1_setting")
+        
+        # Save to state immediately
+        st.session_state.data['phase1']['condition'] = cond_input
+        st.session_state.data['phase1']['setting'] = setting_input
+
         st.subheader("2. Target Population")
         curr_key = f"{cond_input}|{setting_input}"
         last_key = st.session_state.get('last_criteria_key', '')
+        
         if cond_input and setting_input and curr_key != last_key:
             with st.spinner("Auto-generating inclusion/exclusion criteria..."):
                 prompt = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
@@ -598,8 +549,12 @@ if "Phase 1" in phase:
                     st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                     st.session_state['last_criteria_key'] = curr_key
                     st.rerun()
-        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
-        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
+        
+        # Manual sync for text areas
+        inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
+        exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
+        st.session_state.data['phase1']['inclusion'] = inc_val
+        st.session_state.data['phase1']['exclusion'] = exc_val
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
@@ -615,7 +570,9 @@ if "Phase 1" in phase:
                     st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
                     st.session_state['last_prob_key'] = curr_prob_key
                     st.rerun()
-        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
+        
+        prob_val = st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", label_visibility="collapsed")
+        st.session_state.data['phase1']['problem'] = prob_val
         
         st.subheader("4. Goals")
         curr_prob = st.session_state.get('p1_prob', '')
@@ -630,7 +587,9 @@ if "Phase 1" in phase:
                     st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
                     st.session_state['last_obj_key'] = curr_obj_key
                     st.rerun()
-        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
+        
+        obj_val = st.text_area("Project Goals", height=150, key="p1_obj", label_visibility="collapsed")
+        st.session_state.data['phase1']['objectives'] = obj_val
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -665,7 +624,6 @@ if "Phase 1" in phase:
             st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
-        sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
@@ -699,7 +657,7 @@ elif "Phase 2" in phase:
         st.markdown("### Evidence Table")
         col_filter, col_clear, col_regrade = st.columns([3, 1, 2])
         with col_filter:
-            selected_grades = st.multiselect("Filter by GRADE:", ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"])
+            selected_grades = st.multiselect("Filter by GRADE:", ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)"])
         with col_clear:
             if st.button("Clear List"):
                 st.session_state.data['phase2']['evidence'] = []
@@ -726,17 +684,23 @@ elif "Phase 2" in phase:
             search_q = st.session_state.data['phase2']['mesh_query']
             st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(search_q)}", type="secondary")
 
+        styled_info("<b>Tip:</b> The table below shows key details. Download the CSV to see the <b>full abstract, authors, and year</b>.")
+
         edited_ev = st.data_editor(
             df_ev, 
             column_config={
                 "id": st.column_config.TextColumn("PMID", disabled=True),
+                "title": st.column_config.TextColumn("Title", width="medium"),
                 "url": st.column_config.LinkColumn("Link"), 
                 "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]),
-                "rationale": st.column_config.TextColumn("Rationale", width="large")
+                "rationale": st.column_config.TextColumn("Rationale", width="large"),
+                "authors": None,
+                "year": None,
+                "abstract": None
             }, 
             hide_index=True, use_container_width=True, key="ev_editor"
         )
-        export_widget(edited_ev.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download CSV")
+        export_widget(edited_ev.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
     render_bottom_navigation()
 
 # --- PHASE 3 ---
@@ -855,7 +819,6 @@ elif "Phase 5" in phase:
     if st.button("Generate Expert Form", key="btn_expert"):
         with st.spinner("Generating..."):
             nodes = st.session_state.data['phase3']['nodes']
-            # Group nodes for prompt
             s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
             p_nodes = [n for n in nodes if n.get('type') == 'Process']
             d_nodes = [n for n in nodes if n.get('type') == 'Decision']
