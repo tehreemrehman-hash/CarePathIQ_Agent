@@ -184,24 +184,31 @@ def calculate_granular_progress():
     data = st.session_state.data
     total_points = 0
     earned_points = 0
+    
+    # Phase 1
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
+    # Phase 2
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
+    # Phase 3
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
+    # Phase 4
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
+    # Phase 5
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
         if p5.get(k): earned_points += 1
+        
     if total_points == 0: return 0.0
     return min(1.0, earned_points / total_points)
 
@@ -220,83 +227,136 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
     st.download_button(label, final_content, filename, mime_type)
 
 def create_word_docx(data):
+    """Generates the IHI-aligned Project Charter Word Doc."""
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
+    
     ihi = data.get('ihi_content', {})
+    
     doc.add_heading('What are we trying to accomplish?', level=1)
+    
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
-    doc.add_heading('Project Description', level=2)
+    
+    doc.add_heading('Project Description (defines what)', level=2)
     doc.add_paragraph(ihi.get('project_description', ''))
-    doc.add_heading('Rationale', level=2)
+    
+    doc.add_heading('Rationale (defines why)', level=2)
     doc.add_paragraph(ihi.get('rationale', ''))
-    doc.add_heading('Expected Outcomes', level=2)
+    
+    doc.add_heading('Expected Outcomes and Benefits', level=2)
     doc.add_paragraph(ihi.get('expected_outcomes', ''))
+    
     doc.add_heading('Aim Statement', level=2)
     doc.add_paragraph(ihi.get('aim_statement', data.get('objectives', '')))
+
     doc.add_heading('How will we know that a change is an improvement?', level=1)
+    
     doc.add_heading('Outcome Measure(s)', level=2)
-    for m in ihi.get('outcome_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    for m in ihi.get('outcome_measures', []):
+        doc.add_paragraph(f"- {m}", style='List Bullet')
+        
     doc.add_heading('Process Measure(s)', level=2)
-    for m in ihi.get('process_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    for m in ihi.get('process_measures', []):
+        doc.add_paragraph(f"- {m}", style='List Bullet')
+        
     doc.add_heading('Balancing Measure(s)', level=2)
-    for m in ihi.get('balancing_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
-    doc.add_heading('What changes can we make?', level=1)
+    for m in ihi.get('balancing_measures', []):
+        doc.add_paragraph(f"- {m}", style='List Bullet')
+
+    doc.add_heading('What changes can we make that will result in improvement?', level=1)
+    
     doc.add_heading('Initial Activities', level=2)
     doc.add_paragraph(ihi.get('initial_activities', ''))
+    
     doc.add_heading('Change Ideas', level=2)
-    for c in ihi.get('change_ideas', []): doc.add_paragraph(f"- {c}", style='List Bullet')
+    for c in ihi.get('change_ideas', []):
+        doc.add_paragraph(f"- {c}", style='List Bullet')
+        
     doc.add_heading('Key Stakeholders', level=2)
     doc.add_paragraph(ihi.get('stakeholders', ''))
+    
     doc.add_heading('Barriers', level=2)
     doc.add_paragraph(ihi.get('barriers', ''))
+    
     doc.add_heading('Boundaries', level=2)
     doc.add_paragraph(ihi.get('boundaries', ''))
+    
     doc.add_heading('Project Timeline', level=1)
     schedule = data.get('schedule', [])
     if schedule:
         table = doc.add_table(rows=1, cols=4)
         table.style = 'Table Grid'
         hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Stage'; hdr_cells[1].text = 'Owner'; hdr_cells[2].text = 'Start Date'; hdr_cells[3].text = 'End Date'
+        hdr_cells[0].text = 'Stage'
+        hdr_cells[1].text = 'Owner'
+        hdr_cells[2].text = 'Start Date'
+        hdr_cells[3].text = 'End Date'
+        
         for item in schedule:
             row_cells = table.add_row().cells
             row_cells[0].text = str(item.get('Stage', ''))
             row_cells[1].text = str(item.get('Owner', ''))
             row_cells[2].text = str(item.get('Start', ''))
             row_cells[3].text = str(item.get('End', ''))
-    section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
+            
+    section = doc.sections[0]
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
     return buffer
 
 def create_exec_summary_docx(summary_text, condition):
+    """Generates a Word Document for the Executive Summary."""
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Executive Summary: {condition}", 0)
+    
     for line in summary_text.split('\n'):
         if line.strip():
-            if line.startswith('###'): doc.add_heading(line.replace('###', '').strip(), level=3)
-            elif line.startswith('##'): doc.add_heading(line.replace('##', '').strip(), level=2)
-            elif line.startswith('#'): doc.add_heading(line.replace('#', '').strip(), level=1)
-            else: doc.add_paragraph(line.strip().replace('**', ''))
-    section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
+            if line.startswith('###'):
+                doc.add_heading(line.replace('###', '').strip(), level=3)
+            elif line.startswith('##'):
+                doc.add_heading(line.replace('##', '').strip(), level=2)
+            elif line.startswith('#'):
+                doc.add_heading(line.replace('#', '').strip(), level=1)
+            else:
+                doc.add_paragraph(line.strip().replace('**', ''))
+
+    section = doc.sections[0]
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
     return buffer
 
 def create_ppt_presentation(slides_data, flowchart_img=None):
     if Presentation is None: return None
     try:
         prs = Presentation()
-        BROWN = RGBColor(93, 64, 55); WHITE = RGBColor(255, 255, 255); GREY = RGBColor(80, 80, 80)
+        # Theme Colors
+        BROWN = RGBColor(93, 64, 55)
+        WHITE = RGBColor(255, 255, 255)
+        GREY = RGBColor(80, 80, 80)
+
         def add_footer(slide):
             left = Inches(0.5); top = Inches(7.1); width = Inches(9); height = Inches(0.3)
             txBox = slide.shapes.add_textbox(left, top, width, height)
             p = txBox.text_frame.paragraphs[0]
             p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
             p.font.size = Pt(9); p.font.color.rgb = GREY; p.alignment = PP_ALIGN.CENTER
+
+        # Title Slide
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         fill = slide.background.fill; fill.solid(); fill.fore_color.rgb = BROWN
         tbox = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(2))
@@ -304,71 +364,127 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
         p.text = slides_data.get('title', 'Presentation')
         p.font.size = Pt(44); p.font.color.rgb = WHITE; p.font.bold = True; p.alignment = PP_ALIGN.CENTER
         add_footer(slide)
+
+        # Content Slides
         for s_info in slides_data.get('slides', []):
             slide = prs.slides.add_slide(prs.slide_layouts[6])
+            # Header
             shape = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(1.2))
             shape.fill.solid(); shape.fill.fore_color.rgb = BROWN; shape.line.fill.background()
             tbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
             p = tbox.text_frame.paragraphs[0]
             p.text = s_info.get('title', '')
             p.font.size = Pt(32); p.font.color.rgb = WHITE; p.font.bold = True
+            # Content
             cbox = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.0))
             tf = cbox.text_frame; tf.word_wrap = True
             content = s_info.get('content', '')
+            # Simple markdown cleanup
             for line in content.split('\n'):
                 if line.strip():
                     p = tf.add_paragraph()
                     p.text = line.replace('**','').strip()
                     p.font.size = Pt(18); p.font.color.rgb = GREY
             add_footer(slide)
-        buffer = BytesIO(); prs.save(buffer); buffer.seek(0)
+
+        buffer = BytesIO()
+        prs.save(buffer)
+        buffer.seek(0)
         return buffer
-    except Exception as e: st.error(f"PPT Error: {e}"); return None
+    except Exception as e:
+        st.error(f"PPT Generation Error: {e}")
+        return None
 
 def harden_nodes(nodes_list):
+    """Validates and repairs the Decision Tree logic."""
     if not isinstance(nodes_list, list): return []
     validated = []
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict): continue
-        if 'id' not in node or not node['id']: node['id'] = f"{node.get('type', 'P')[0].upper()}{i+1}"
+        if 'id' not in node or not node['id']:
+            prefix = node.get('type', 'P')[0].upper()
+            node['id'] = f"{prefix}{i+1}"
         if 'type' not in node: node['type'] = 'Process'
         if node['type'] == 'Decision':
             if 'branches' not in node or not isinstance(node['branches'], list):
-                node['branches'] = [{'label': 'Yes', 'target': i+1}, {'label': 'No', 'target': i+2}]
+                node['branches'] = [
+                    {'label': 'Yes', 'target': i+1 if i+1 < len(nodes_list) else None},
+                    {'label': 'No', 'target': i+2 if i+2 < len(nodes_list) else None}
+                ]
+            else:
+                for b in node['branches']:
+                    if 'label' not in b: b['label'] = 'Option'
+                    if 'target' not in b: b['target'] = None
         validated.append(node)
     return validated
 
 def generate_mermaid_code(nodes, orientation="TD"):
+    """Generates Mermaid flowchart code."""
     if not nodes: return "flowchart TD\n%% No nodes"
+    
     valid_nodes = harden_nodes(nodes)
+    
+    # 1. Group by Role (Swimlanes)
     from collections import defaultdict
     swimlanes = defaultdict(list)
-    for i, n in enumerate(valid_nodes): swimlanes[n.get('role', 'Unassigned')].append((i, n))
+    for i, n in enumerate(valid_nodes):
+        role = n.get('role', 'Unassigned')
+        swimlanes[role].append((i, n))
+    
     code = f"flowchart {orientation}\n"
     node_id_map = {}
+    
+    # 2. Build Nodes inside Subgraphs
     for role, n_list in swimlanes.items():
         code += f"    subgraph {role}\n"
         for i, n in n_list:
-            nid = f"N{i}"; node_id_map[i] = nid
+            nid = f"N{i}"
+            node_id_map[i] = nid
+            
+            # Label & Styling
             label = n.get('label', 'Step').replace('"', "'")
             detail = n.get('detail', '').replace('"', "'")
             meds = n.get('medications', '')
             if meds: detail += f"\\nMeds: {meds}"
             full_label = f"{label}\\n{detail}" if detail else label
+            
             ntype = n.get('type', 'Process')
-            if ntype == 'Start': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            elif ntype == 'Decision': shape = '{', '}'; style = 'fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
-            elif ntype == 'End': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            else: shape = '[', ']'; style = 'fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
-            code += f'        {nid}{shape[0]}"{full_label}"{shape[1]}\n        style {nid} {style}\n'
+            style = ""
+            shape_s, shape_e = '[', ']'
+            
+            if ntype == 'Start':
+                shape_s, shape_e = '([', '])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
+            elif ntype == 'Decision':
+                shape_s, shape_e = '{', '}'
+                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
+            elif ntype == 'End':
+                shape_s, shape_e = '([', '])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
+            else: # Process/Note
+                shape_s, shape_e = '[', ']'
+                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
+            
+            code += f'        {nid}{shape_s}"{full_label}"{shape_e}\n'
+            code += f'        {style}\n'
         code += "    end\n"
+        
+    # 3. Build Edges
     for i, n in enumerate(valid_nodes):
         nid = node_id_map[i]
-        if n.get('type') == 'Decision' and 'branches' in n:
+        ntype = n.get('type')
+        
+        if ntype == 'Decision' and 'branches' in n:
             for b in n.get('branches', []):
-                t = b.get('target')
-                if isinstance(t, (int, float)) and 0 <= t < len(valid_nodes): code += f"    {nid} --|{b.get('label', 'Yes')}| {node_id_map[int(t)]}\n"
-        elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
+                t_idx = b.get('target')
+                lbl = b.get('label', 'Yes')
+                if isinstance(t_idx, (int, float)) and 0 <= t_idx < len(valid_nodes):
+                     code += f"    {nid} --|{lbl}| {node_id_map[int(t_idx)]}\n"
+        else:
+            # Simple sequential flow
+            if i + 1 < len(valid_nodes):
+                code += f"    {nid} --> {node_id_map[i+1]}\n"
+                
     return code
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
@@ -486,9 +602,8 @@ with st.sidebar:
     if gemini_api_key:
         for p in PHASES:
             is_active = (p == st.session_state.current_phase_label)
-            if st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,)):
-                pass
-
+            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
+        
         st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
         st.divider()
         st.progress(calculate_granular_progress())
@@ -517,45 +632,7 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    # 1. TRIGGER FUNCTION
-    def trigger_p1_draft():
-        # Only trigger if both fields have text
-        c = st.session_state.p1_cond_input
-        s = st.session_state.p1_setting
-        if c and s:
-            # Generate Criteria
-            prompt1 = f"Act as a CMO. For '{c}' in '{s}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
-            d1 = get_gemini_response(prompt1, json_mode=True)
-            if d1:
-                st.session_state.data['phase1']['inclusion'] = d1.get('inclusion', '')
-                st.session_state.data['phase1']['exclusion'] = d1.get('exclusion', '')
-                st.session_state['p1_inc'] = d1.get('inclusion', '')
-                st.session_state['p1_exc'] = d1.get('exclusion', '')
-
-            # Generate Problem
-            prompt2 = f"Act as a CMO. For condition '{c}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
-            d2 = get_gemini_response(prompt2, json_mode=True)
-            if d2:
-                st.session_state.data['phase1']['problem'] = d2.get('problem', '')
-                st.session_state['p1_prob'] = d2.get('problem', '')
-
-            # Generate Goals
-            prompt3 = f"Act as a CMO. For '{c}' problem '{d2.get('problem','')}', suggest 3 SMART 'objectives'. Return JSON."
-            d3 = get_gemini_response(prompt3, json_mode=True)
-            if d3:
-                st.session_state.data['phase1']['objectives'] = d3.get('objectives', '')
-                st.session_state['p1_obj'] = d3.get('objectives', '')
-
-    # 2. SYNC FUNCTION (General)
-    def sync_p1_widgets():
-        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
-        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
-        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
-        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
-        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
-        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
-
-    # Initialize State Keys if missing
+    # 1. Sync Logic (Manual)
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
@@ -567,20 +644,70 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
-        # SPECIFIC TRIGGER ON CARE SETTING CHANGE
-        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
-        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=trigger_p1_draft)
+        # Removed on_change to allow Enter key to work naturally
+        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input")
+        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting")
         
+        # Save to state immediately
+        st.session_state.data['phase1']['condition'] = cond_input
+        st.session_state.data['phase1']['setting'] = setting_input
+
         st.subheader("2. Target Population")
-        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
-        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
+        curr_key = f"{cond_input}|{setting_input}"
+        last_key = st.session_state.get('last_criteria_key', '')
+        
+        if cond_input and setting_input and curr_key != last_key:
+            with st.spinner("Auto-generating inclusion/exclusion criteria..."):
+                prompt = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    st.session_state.data['phase1']['inclusion'] = str(data.get('inclusion', ''))
+                    st.session_state.data['phase1']['exclusion'] = str(data.get('exclusion', ''))
+                    st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
+                    st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
+                    st.session_state['last_criteria_key'] = curr_key
+                    st.rerun()
+        
+        # Manual sync for text areas
+        inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
+        exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
+        st.session_state.data['phase1']['inclusion'] = inc_val
+        st.session_state.data['phase1']['exclusion'] = exc_val
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
-        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
+        curr_inc = st.session_state.get('p1_inc', '')
+        curr_prob_key = f"{curr_inc}|{cond_input}"
+        last_prob_key = st.session_state.get('last_prob_key', '')
+        if curr_inc and cond_input and curr_prob_key != last_prob_key:
+             with st.spinner("Auto-generating problem statement..."):
+                prompt = f"Act as a CMO. For condition '{cond_input}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                    st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
+                    st.session_state['last_prob_key'] = curr_prob_key
+                    st.rerun()
+        
+        prob_val = st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", label_visibility="collapsed")
+        st.session_state.data['phase1']['problem'] = prob_val
         
         st.subheader("4. Goals")
-        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
+        curr_prob = st.session_state.get('p1_prob', '')
+        curr_obj_key = f"{curr_prob}|{cond_input}"
+        last_obj_key = st.session_state.get('last_obj_key', '')
+        if curr_prob and cond_input and curr_obj_key != last_obj_key:
+             with st.spinner("Auto-generating SMART objectives..."):
+                prompt = f"Act as a CMO. For '{cond_input}' problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    st.session_state.data['phase1']['objectives'] = str(data.get('objectives', ''))
+                    st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+                    st.session_state['last_obj_key'] = curr_obj_key
+                    st.rerun()
+        
+        obj_val = st.text_area("Project Goals", height=150, key="p1_obj", label_visibility="collapsed")
+        st.session_state.data['phase1']['objectives'] = obj_val
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -615,7 +742,6 @@ if "Phase 1" in phase:
             st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
-        sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
@@ -811,7 +937,6 @@ elif "Phase 5" in phase:
     if st.button("Generate Expert Form", key="btn_expert"):
         with st.spinner("Generating..."):
             nodes = st.session_state.data['phase3']['nodes']
-            # Group nodes for prompt
             s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
             p_nodes = [n for n in nodes if n.get('type') == 'Process']
             d_nodes = [n for n in nodes if n.get('type') == 'Decision']
@@ -882,9 +1007,9 @@ elif "Phase 5" in phase:
         if st.button("Update Education Module"):
              new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
              if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
-
-    st.divider()
     
+    st.divider()
+
     # 4. Slide Deck
     st.subheader("4. Slide Deck")
     if st.button("Generate Slide Deck"):
