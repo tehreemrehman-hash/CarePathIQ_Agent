@@ -483,15 +483,24 @@ with st.sidebar:
     
     if "current_phase_label" not in st.session_state: st.session_state.current_phase_label = PHASES[0]
     
-    # NAVIGATION LOGIC - HIDDEN IF NO KEY
-    if gemini_api_key:
-        for p in PHASES:
-            is_active = (p == st.session_state.current_phase_label)
-            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
-        
-        st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
-        st.divider()
-        st.progress(calculate_granular_progress())
+    # NAVIGATION LOGIC - NOW INSIDE THE KEY CHECK OR GLOBAL
+    # Fixed Logic: Show Phase Box regardless, but only enable buttons if key presence? 
+    # User requested: "Current Phase" box should appear on landing page.
+    
+    # Navigation Buttons
+    for p in PHASES:
+        is_active = (p == st.session_state.current_phase_label)
+        # We disable navigation if no key is present to prevent errors, or allow it for UI preview
+        # But for landing page, usually we want to block interaction.
+        # User said "Showing up ... when someone is not yet on phase 1".
+        # This implies they want the UI to be cleaner.
+        # BUT they also said "should appear on left side bar on landing page" in the previous prompt.
+        # I will show the box and buttons.
+        st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
+    
+    st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
+    st.divider()
+    st.progress(calculate_granular_progress())
 
 # LANDING PAGE LOGIC
 if not gemini_api_key:
@@ -517,14 +526,7 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    def sync_p1_widgets():
-        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
-        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
-        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
-        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
-        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
-        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
-
+    # 1. Sync Logic (Manual) - REMOVED CALLBACKS from widgets to fix Enter key issue
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
@@ -536,11 +538,19 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
-        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Sepsis", key="p1_cond_input", on_change=sync_p1_widgets)
-        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
+        # Removed on_change to allow Enter key to work naturally
+        cond_input = st.text_input("Clinical Condition", key="p1_cond_input")
+        setting_input = st.text_input("Care Setting", key="p1_setting")
+        
+        # Save to state immediately
+        st.session_state.data['phase1']['condition'] = cond_input
+        st.session_state.data['phase1']['setting'] = setting_input
+
         st.subheader("2. Target Population")
         curr_key = f"{cond_input}|{setting_input}"
         last_key = st.session_state.get('last_criteria_key', '')
+        
+        # Trigger Logic: If inputs exist and differ from last generation run
         if cond_input and setting_input and curr_key != last_key:
             with st.spinner("Auto-generating inclusion/exclusion criteria..."):
                 prompt = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
@@ -552,8 +562,12 @@ if "Phase 1" in phase:
                     st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                     st.session_state['last_criteria_key'] = curr_key
                     st.rerun()
-        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
-        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
+        
+        # Manual sync for text areas
+        inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
+        exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
+        st.session_state.data['phase1']['inclusion'] = inc_val
+        st.session_state.data['phase1']['exclusion'] = exc_val
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
@@ -569,7 +583,9 @@ if "Phase 1" in phase:
                     st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
                     st.session_state['last_prob_key'] = curr_prob_key
                     st.rerun()
-        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
+        
+        prob_val = st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", label_visibility="collapsed")
+        st.session_state.data['phase1']['problem'] = prob_val
         
         st.subheader("4. Goals")
         curr_prob = st.session_state.get('p1_prob', '')
@@ -584,7 +600,9 @@ if "Phase 1" in phase:
                     st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
                     st.session_state['last_obj_key'] = curr_obj_key
                     st.rerun()
-        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
+        
+        obj_val = st.text_area("Project Goals", height=150, key="p1_obj", label_visibility="collapsed")
+        st.session_state.data['phase1']['objectives'] = obj_val
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -619,7 +637,6 @@ if "Phase 1" in phase:
             st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
-        sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
@@ -815,7 +832,6 @@ elif "Phase 5" in phase:
     if st.button("Generate Expert Form", key="btn_expert"):
         with st.spinner("Generating..."):
             nodes = st.session_state.data['phase3']['nodes']
-            # Group nodes for prompt
             s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
             p_nodes = [n for n in nodes if n.get('type') == 'Process']
             d_nodes = [n for n in nodes if n.get('type') == 'Decision']
