@@ -184,31 +184,24 @@ def calculate_granular_progress():
     data = st.session_state.data
     total_points = 0
     earned_points = 0
-    
-    # Phase 1
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
-    # Phase 2
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
-    # Phase 3
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
-    # Phase 4
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
-    # Phase 5
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
         if p5.get(k): earned_points += 1
-        
     if total_points == 0: return 0.0
     return min(1.0, earned_points / total_points)
 
@@ -508,8 +501,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         else: text = response.text
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
-            match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
-            if match: text = match.group()
+            match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
+            if match: text = match.group(0)
             try: return json.loads(text)
             except: return None
         return text
@@ -656,19 +649,39 @@ if "Phase 1" in phase:
         curr_key = f"{cond_input}|{setting_input}"
         last_key = st.session_state.get('last_criteria_key', '')
         
+        # TRIGGER LOGIC: If inputs exist and differ from last generation run
         if cond_input and setting_input and curr_key != last_key:
-            with st.spinner("Auto-generating inclusion/exclusion criteria..."):
-                prompt = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['inclusion'] = str(data.get('inclusion', ''))
-                    st.session_state.data['phase1']['exclusion'] = str(data.get('exclusion', ''))
+            with st.status("🤖 Auto-generating Content...", expanded=True) as status:
+                # 1. Criteria
+                status.write("Drafting Inclusion/Exclusion Criteria...")
+                prompt1 = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
+                d1 = get_gemini_response(prompt1, json_mode=True)
+                if d1:
+                    st.session_state.data['phase1']['inclusion'] = str(d1.get('inclusion', ''))
+                    st.session_state.data['phase1']['exclusion'] = str(d1.get('exclusion', ''))
                     st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
                     st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
-                    st.session_state['last_criteria_key'] = curr_key
-                    st.rerun()
+
+                # 2. Problem
+                status.write("Formulating Problem Statement...")
+                prompt2 = f"Act as a CMO. For condition '{cond_input}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
+                d2 = get_gemini_response(prompt2, json_mode=True)
+                if d2:
+                    st.session_state.data['phase1']['problem'] = str(d2.get('problem', ''))
+                    st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
+
+                # 3. Objectives
+                status.write("Setting SMART Goals...")
+                prompt3 = f"Act as a CMO. For '{cond_input}' problem '{st.session_state.data['phase1']['problem']}', suggest 3 SMART 'objectives'. Return JSON."
+                d3 = get_gemini_response(prompt3, json_mode=True)
+                if d3:
+                    st.session_state.data['phase1']['objectives'] = str(d3.get('objectives', ''))
+                    st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+                
+                st.session_state['last_criteria_key'] = curr_key
+                status.update(label="Drafting Complete!", state="complete", expanded=False)
+            st.rerun()
         
-        # Manual sync for text areas
         inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
         exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
         st.session_state.data['phase1']['inclusion'] = inc_val
@@ -676,38 +689,17 @@ if "Phase 1" in phase:
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
-        curr_inc = st.session_state.get('p1_inc', '')
-        curr_prob_key = f"{curr_inc}|{cond_input}"
-        last_prob_key = st.session_state.get('last_prob_key', '')
-        if curr_inc and cond_input and curr_prob_key != last_prob_key:
-             with st.spinner("Auto-generating problem statement..."):
-                prompt = f"Act as a CMO. For condition '{cond_input}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                    st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
-                    st.session_state['last_prob_key'] = curr_prob_key
-                    st.rerun()
-        
         prob_val = st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", label_visibility="collapsed")
         st.session_state.data['phase1']['problem'] = prob_val
         
         st.subheader("4. Goals")
-        curr_prob = st.session_state.get('p1_prob', '')
-        curr_obj_key = f"{curr_prob}|{cond_input}"
-        last_obj_key = st.session_state.get('last_obj_key', '')
-        if curr_prob and cond_input and curr_obj_key != last_obj_key:
-             with st.spinner("Auto-generating SMART objectives..."):
-                prompt = f"Act as a CMO. For '{cond_input}' problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON."
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['objectives'] = str(data.get('objectives', ''))
-                    st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
-                    st.session_state['last_obj_key'] = curr_obj_key
-                    st.rerun()
-        
         obj_val = st.text_area("Project Goals", height=150, key="p1_obj", label_visibility="collapsed")
         st.session_state.data['phase1']['objectives'] = obj_val
+
+    # Manual Trigger Button (Fail-safe)
+    if st.button("Regenerate Draft"):
+         st.session_state['last_criteria_key'] = "" 
+         st.rerun()
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
