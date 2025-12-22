@@ -1,14 +1,3 @@
-I have identified the exact causes for all three issues and fixed them below.
-
-**Root Causes & Fixes:**
-
-1. **Gantt Chart Missing:** There was a column name mismatch. The schedule data uses the column name **"Stage"**, but the chart generator was looking for **"Phase"**, causing a silent error. I have corrected this to `df['Stage']`.
-2. **Boundaries Not Populating:** The AI sometimes returns capitalized keys (e.g., "Boundaries" instead of "boundaries"). I added a fallback check so it catches the text regardless of capitalization.
-3. **Double Numbering:** The formatting function was adding numbers (1., 2.) to text that the AI *already* numbered. I added a regex cleaner to strip existing numbers before re-formatting, ensuring a clean "1. Goal" format.
-
-Here is the **Final, Fixed Code**.
-
-```python
 import streamlit as st
 import streamlit.components.v1 as components
 import google.generativeai as genai
@@ -480,6 +469,26 @@ def format_as_numbered_list(items):
 def change_phase(new_phase):
     st.session_state.current_phase_label = new_phase
 
+def render_bottom_navigation():
+    """Renders Previous/Next buttons at the bottom of the page."""
+    if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
+        current_idx = PHASES.index(st.session_state.current_phase_label)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            if current_idx > 0:
+                prev_phase = PHASES[current_idx - 1]
+                if st.button(f"← {prev_phase}", key="bottom_prev", width="stretch"):
+                    change_phase(prev_phase)
+                    st.rerun()
+                    
+        with col3:
+            if current_idx < len(PHASES) - 1:
+                next_phase = PHASES[current_idx + 1]
+                if st.button(f"{next_phase} →", key="bottom_next", width="stretch"):
+                    change_phase(next_phase)
+                    st.rerun()
+
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
 # ==========================================
@@ -506,7 +515,7 @@ with st.sidebar:
     if gemini_api_key:
         for p in PHASES:
             is_active = (p == st.session_state.current_phase_label)
-            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=change_phase, args=(p,))
+            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", width="stretch", on_click=change_phase, args=(p,))
         st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
         st.divider()
         st.progress(calculate_granular_progress())
@@ -624,7 +633,7 @@ if "Phase 1" in phase:
             {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
         ]
     df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
     if not edited_sched.empty:
         st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
         chart_data = edited_sched.copy()
@@ -635,9 +644,9 @@ if "Phase 1" in phase:
             chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Start', title='Date'), x2='End', y=alt.Y('Stage', sort=None), color='Owner', tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
     
-    if st.button("Generate Project Charter", type="primary", use_container_width=True):
+    if st.button("Generate Project Charter", type="primary", width="stretch"):
         sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
@@ -663,7 +672,7 @@ elif "Phase 2" in phase:
         q = st.text_input("PubMed Search Query", value=default_q)
     with col_btn:
         st.write(""); st.write("")
-        if st.button("Search PubMed", type="primary", use_container_width=True):
+        if st.button("Search PubMed", type="primary", width="stretch"):
             st.session_state.data['phase2']['mesh_query'] = q
             with st.spinner("Searching..."):
                 st.session_state.data['phase2']['evidence'] = search_pubmed(q)
@@ -718,7 +727,7 @@ elif "Phase 2" in phase:
                 "authors": None,
                 "abstract": None
             }, 
-            hide_index=True, use_container_width=True, key="ev_editor"
+            hide_index=True, width="stretch", key="ev_editor"
         )
         export_widget(edited_ev.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
     render_bottom_navigation()
@@ -727,7 +736,7 @@ elif "Phase 2" in phase:
 elif "Phase 3" in phase:
     col_tools, col_editor = st.columns([1, 3])
     with col_tools:
-        if st.button("Auto-Draft Logic (AI)", type="primary", use_container_width=True):
+        if st.button("Auto-Draft Logic (AI)", type="primary", width="stretch"):
             cond = st.session_state.data['phase1']['condition']
             with st.spinner("Drafting..."):
                 prompt = f"Act as Clinical Decision Scientist. Create pathway for {cond}. Return JSON LIST. Objects: id, type (Start|Decision|Process|End), label, detail, labs, imaging, medications, dosage, branches."
@@ -735,11 +744,11 @@ elif "Phase 3" in phase:
                 if nodes:
                     st.session_state.data['phase3']['nodes'] = harden_nodes(nodes)
                     st.rerun()
-        if st.button("Clear All", use_container_width=True):
+        if st.button("Clear All", width="stretch"):
             st.session_state.data['phase3']['nodes'] = []
             st.rerun()
         st.write("")
-        if st.button("Auto-Populate Evidence", use_container_width=True):
+        if st.button("Auto-Populate Evidence", width="stretch"):
              with st.spinner("Matching..."):
                  ev_titles = [f"{e['id']}: {e['title']}" for e in st.session_state.data['phase2']['evidence']]
                  for node in st.session_state.data['phase3']['nodes']:
@@ -754,7 +763,7 @@ elif "Phase 3" in phase:
         edited_nodes = st.data_editor(
             df_nodes, 
             num_rows="dynamic", 
-            use_container_width=True, 
+            width="stretch", 
             key="p3_editor",
             column_config={
                 "type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "End"]),
@@ -784,7 +793,7 @@ elif "Phase 4" in phase:
         components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
         with st.expander("Edit Pathway Data", expanded=False):
             df_p4 = pd.DataFrame(nodes)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", width="stretch")
             if not df_p4.equals(edited_p4):
                 st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
                 st.rerun()
