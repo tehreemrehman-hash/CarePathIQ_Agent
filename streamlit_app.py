@@ -15,6 +15,8 @@ import os
 import copy
 import xml.etree.ElementTree as ET
 import altair as alt
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
@@ -29,7 +31,7 @@ try:
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
 except ImportError:
-    st.error("Missing Libraries: Please run `pip install python-docx python-pptx`")
+    st.error("Missing Libraries: Please run `pip install python-docx python-pptx matplotlib`")
     Document = None
     Presentation = None
 
@@ -45,8 +47,11 @@ st.set_page_config(
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* HIDE HEADER LINKS */
-    [data-testid="stHeaderAction"] { display: none !important; }
+    /* AGGRESSIVELY HIDE HEADER LINKS & ANCHORS */
+    [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+    a.anchor-link { display: none !important; height: 0px !important; width: 0px !important; }
+    .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a { display: none !important; pointer-events: none; cursor: default; text-decoration: none; color: transparent !important; }
+    h1 > a, h2 > a, h3 > a { display: none !important; }
     
     /* BUTTONS */
     div.stButton > button, 
@@ -219,43 +224,88 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
             final_content = content + COPYRIGHT_MD
     st.download_button(label, final_content, filename, mime_type)
 
+def generate_gantt_image(schedule):
+    if not schedule: return None
+    try:
+        df = pd.DataFrame(schedule)
+        df['Start'] = pd.to_datetime(df['Start'])
+        df['End'] = pd.to_datetime(df['End'])
+        df['Duration'] = (df['End'] - df['Start']).dt.days
+        fig, ax = plt.subplots(figsize=(8, 4))
+        y_pos = range(len(df))
+        ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#00695C', alpha=0.8)
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(df['Phase'], fontsize=9)
+        ax.invert_yaxis()
+        ax.xaxis_date()
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
+        ax.set_xlabel('Timeline')
+        ax.set_title('Project Schedule', fontsize=12, fontweight='bold', color='#5D4037')
+        plt.tight_layout()
+        img_buffer = BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=150)
+        plt.close(fig)
+        img_buffer.seek(0)
+        return img_buffer
+    except Exception as e:
+        return None
+
 def create_word_docx(data):
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
     ihi = data.get('ihi_content', {})
+    
+    # Charter Structure
     doc.add_heading('What are we trying to accomplish?', level=1)
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
+    
     doc.add_heading('Project Description', level=2)
     doc.add_paragraph(ihi.get('project_description', ''))
+    
     doc.add_heading('Rationale', level=2)
     doc.add_paragraph(ihi.get('rationale', ''))
+    
     doc.add_heading('Expected Outcomes', level=2)
     doc.add_paragraph(ihi.get('expected_outcomes', ''))
+    
     doc.add_heading('Aim Statement', level=2)
     doc.add_paragraph(ihi.get('aim_statement', data.get('objectives', '')))
+
     doc.add_heading('How will we know that a change is an improvement?', level=1)
     doc.add_heading('Outcome Measure(s)', level=2)
     for m in ihi.get('outcome_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    
     doc.add_heading('Process Measure(s)', level=2)
     for m in ihi.get('process_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    
     doc.add_heading('Balancing Measure(s)', level=2)
     for m in ihi.get('balancing_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+
     doc.add_heading('What changes can we make?', level=1)
     doc.add_heading('Initial Activities', level=2)
     doc.add_paragraph(ihi.get('initial_activities', ''))
+    
     doc.add_heading('Change Ideas', level=2)
     for c in ihi.get('change_ideas', []): doc.add_paragraph(f"- {c}", style='List Bullet')
+    
     doc.add_heading('Key Stakeholders', level=2)
     doc.add_paragraph(ihi.get('stakeholders', ''))
+    
     doc.add_heading('Barriers', level=2)
     doc.add_paragraph(ihi.get('barriers', ''))
+    
     doc.add_heading('Boundaries', level=2)
     doc.add_paragraph(ihi.get('boundaries', ''))
+    
     doc.add_heading('Project Timeline', level=1)
     schedule = data.get('schedule', [])
     if schedule:
+        gantt_img = generate_gantt_image(schedule)
+        if gantt_img:
+            doc.add_picture(gantt_img, width=DocxInches(6))
+            doc.add_paragraph("")
         table = doc.add_table(rows=1, cols=4)
         table.style = 'Table Grid'
         hdr_cells = table.rows[0].cells
@@ -413,8 +463,7 @@ def search_pubmed(query):
             medline = article.find('MedlineCitation')
             pmid = medline.find('PMID').text
             title = medline.find('Article/ArticleTitle').text
-            
-            # --- AUTHOR PARSING ---
+            # Authors
             author_list = article.findall('.//Author')
             authors_str = "Unknown"
             if author_list:
@@ -425,44 +474,31 @@ def search_pubmed(query):
                     if lname is not None and init is not None: authors.append(f"{lname.text} {init.text}")
                 authors_str = ", ".join(authors)
                 if len(author_list) > 3: authors_str += ", et al."
-            
-            # --- YEAR PARSING ---
+            # Year
             year_node = article.find('.//PubDate/Year')
             year = year_node.text if year_node is not None else "N/A"
-            
-            # --- JOURNAL PARSING ---
+            # Journal
             journal = medline.find('Article/Journal/Title').text if medline.find('Article/Journal/Title') is not None else "N/A"
-
+            # Abstract
             abs_node = medline.find('Article/Abstract')
             abstract_text = " ".join([e.text for e in abs_node.findall('AbstractText') if e.text]) if abs_node is not None else "No abstract."
-            
             citations.append({
-                "id": pmid, 
-                "title": title, 
-                "authors": authors_str,
-                "year": year,
-                "journal": journal,
-                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", 
-                "abstract": abstract_text, 
-                "grade": "Un-graded", 
-                "rationale": "Not yet evaluated."
+                "id": pmid, "title": title, "authors": authors_str, "year": year, "journal": journal,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/", "abstract": abstract_text,
+                "grade": "Un-graded", "rationale": "Not yet evaluated."
             })
         return citations
     except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
 
-def update_phase(new_phase):
-    st.session_state.current_phase_label = new_phase
+def format_as_numbered_list(items):
+    """Helper to ensure lists are strings with numbers."""
+    if isinstance(items, list):
+        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(items)])
+    return str(items)
 
-def render_bottom_navigation():
-    st.divider()
-    current_label = st.session_state.get('current_phase_label', PHASES[0])
-    try: curr_idx = PHASES.index(current_label)
-    except: curr_idx = 0
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col1:
-        if curr_idx > 0: st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx-1],))
-    with col3:
-        if curr_idx < len(PHASES) - 1: st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx+1],))
+# --- NAVIGATION CONTROLLER ---
+def change_phase(new_phase):
+    st.session_state.current_phase_label = new_phase
 
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
@@ -490,8 +526,7 @@ with st.sidebar:
     if gemini_api_key:
         for p in PHASES:
             is_active = (p == st.session_state.current_phase_label)
-            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
-        
+            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=change_phase, args=(p,))
         st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
         st.divider()
         st.progress(calculate_granular_progress())
@@ -515,7 +550,7 @@ if "data" not in st.session_state:
 # ==========================================
 # 4. MAIN WORKFLOW LOGIC
 # ==========================================
-phase = st.radio("Workflow Phase", PHASES, index=PHASES.index(st.session_state.current_phase_label), horizontal=True, label_visibility="collapsed", key="top_nav_radio", on_change=lambda: update_phase(st.session_state.top_nav_radio))
+phase = st.radio("Workflow Phase", PHASES, index=PHASES.index(st.session_state.current_phase_label), horizontal=True, label_visibility="collapsed", key="top_nav_radio", on_change=lambda: change_phase(st.session_state.top_nav_radio))
 st.divider()
 
 # --- PHASE 1 ---
@@ -536,10 +571,11 @@ if "Phase 1" in phase:
             """
             data = get_gemini_response(prompt, json_mode=True)
             if data:
-                st.session_state.data['phase1']['inclusion'] = str(data.get('inclusion', ''))
-                st.session_state.data['phase1']['exclusion'] = str(data.get('exclusion', ''))
+                # Use the helper to enforce numbered lists formatting
+                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                st.session_state.data['phase1']['objectives'] = str(data.get('objectives', ''))
+                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
                 
                 # Force update keys
                 st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
@@ -564,7 +600,8 @@ if "Phase 1" in phase:
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
 
-    styled_info("<b>Tip:</b> This form is interactive. The AI agent will auto-draft sections as you type. You can manually edit any text area to refine the content.")
+    # UPDATED TIP TEXT
+    styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
@@ -641,7 +678,8 @@ elif "Phase 2" in phase:
     col_q, col_btn = st.columns([3, 1])
     with col_q:
         default_q = st.session_state.data['phase2'].get('mesh_query', '')
-        if not default_q and st.session_state.data['phase1']['condition']: default_q = f"guidelines for {st.session_state.data['phase1']['condition']}"
+        if not default_q and st.session_state.data['phase1']['condition']:
+            default_q = f"managing patients with {st.session_state.data['phase1']['condition']} in {st.session_state.data['phase1'].get('setting', '')}"
         q = st.text_input("PubMed Search Query", value=default_q)
     with col_btn:
         st.write(""); st.write("")
@@ -655,6 +693,8 @@ elif "Phase 2" in phase:
         st.markdown("### Evidence Table")
         
         styled_info("<b>Tip:</b> GRADE (Grading of Recommendations, Assessment, Development and Evaluations) is a framework for rating the quality of evidence (High, Moderate, Low, Very Low) and strength of recommendations.")
+        
+        styled_info("<b>Tip:</b> The table below shows key details. Download the CSV to see the <b>full abstract, authors, journal, and year</b>.")
 
         col_filter, col_clear, col_regrade = st.columns([3, 1, 2])
         with col_filter:
@@ -684,8 +724,6 @@ elif "Phase 2" in phase:
         if st.session_state.data['phase2'].get('mesh_query'):
             search_q = st.session_state.data['phase2']['mesh_query']
             st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(search_q)}", type="secondary")
-
-        styled_info("<b>Tip:</b> The table below shows key details. Download the CSV to see the <b>full abstract, authors, and year</b>.")
 
         edited_ev = st.data_editor(
             df_ev, 
@@ -893,22 +931,9 @@ elif "Phase 5" in phase:
              if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
     st.divider()
-
-    # 4. Slide Deck
-    st.subheader("4. Slide Deck")
-    if st.button("Generate Slide Deck"):
-        with st.spinner("Generating..."):
-            s_prompt = f"Create slide deck structure for {cond}. Audience: {audience}. Return JSON: title, slides (title, content)."
-            s_json = get_gemini_response(s_prompt, json_mode=True)
-            if s_json: st.session_state.data['phase5']['pptx'] = create_ppt_presentation(s_json)
     
-    if st.session_state.data['phase5'].get('pptx'):
-        st.download_button("Download Slides (.pptx)", st.session_state.data['phase5']['pptx'], "Slides.pptx")
-
-    st.divider()
-    
-    # 5. Exec Summary
-    st.subheader("5. Executive Summary")
+    # 4. Exec Summary
+    st.subheader("4. Executive Summary")
     if st.button("Draft Executive Summary"):
         with st.spinner("Drafting..."):
             st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
