@@ -375,20 +375,14 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
     candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
     response = None
-    last_error = None
     for model_name in candidates:
         try:
             model = genai.GenerativeModel(model_name)
             is_stream = stream_container is not None
             response = model.generate_content(prompt, stream=is_stream)
             if response: break 
-        except Exception as e:
-            last_error = e
-            time.sleep(0.5)
-            continue
-    if not response:
-        st.error(f"AI Generation Failed. Error: {last_error}")
-        return None
+        except Exception: time.sleep(0.5); continue
+    if not response: st.error("AI Error. Please check API Key."); return None
     try:
         if stream_container:
             text = ""
@@ -398,13 +392,12 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         else: text = response.text
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
-            # Robust JSON extraction
-            match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
-            if match: text = match.group(0)
+            match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
+            if match: text = match.group()
             try: return json.loads(text)
-            except Exception as e: st.error(f"JSON Parsing Error: {e}"); return None
+            except: return None
         return text
-    except Exception as e: st.error(f"Response Processing Error: {e}"); return None
+    except Exception: return None
 
 def search_pubmed(query):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
@@ -493,8 +486,9 @@ with st.sidebar:
     if gemini_api_key:
         for p in PHASES:
             is_active = (p == st.session_state.current_phase_label)
-            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
-        
+            if st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,)):
+                pass
+
         st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
         st.divider()
         st.progress(calculate_granular_progress())
@@ -523,7 +517,45 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    # 1. Sync Logic
+    # 1. TRIGGER FUNCTION
+    def trigger_p1_draft():
+        # Only trigger if both fields have text
+        c = st.session_state.p1_cond_input
+        s = st.session_state.p1_setting
+        if c and s:
+            # Generate Criteria
+            prompt1 = f"Act as a CMO. For '{c}' in '{s}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
+            d1 = get_gemini_response(prompt1, json_mode=True)
+            if d1:
+                st.session_state.data['phase1']['inclusion'] = d1.get('inclusion', '')
+                st.session_state.data['phase1']['exclusion'] = d1.get('exclusion', '')
+                st.session_state['p1_inc'] = d1.get('inclusion', '')
+                st.session_state['p1_exc'] = d1.get('exclusion', '')
+
+            # Generate Problem
+            prompt2 = f"Act as a CMO. For condition '{c}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
+            d2 = get_gemini_response(prompt2, json_mode=True)
+            if d2:
+                st.session_state.data['phase1']['problem'] = d2.get('problem', '')
+                st.session_state['p1_prob'] = d2.get('problem', '')
+
+            # Generate Goals
+            prompt3 = f"Act as a CMO. For '{c}' problem '{d2.get('problem','')}', suggest 3 SMART 'objectives'. Return JSON."
+            d3 = get_gemini_response(prompt3, json_mode=True)
+            if d3:
+                st.session_state.data['phase1']['objectives'] = d3.get('objectives', '')
+                st.session_state['p1_obj'] = d3.get('objectives', '')
+
+    # 2. SYNC FUNCTION (General)
+    def sync_p1_widgets():
+        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
+        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
+        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
+        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
+        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
+        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
+
+    # Initialize State Keys if missing
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
@@ -535,76 +567,20 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
-        # Removed on_change to allow Enter key to work naturally
-        cond_input = st.text_input("Clinical Condition", key="p1_cond_input")
-        setting_input = st.text_input("Care Setting", key="p1_setting")
+        # SPECIFIC TRIGGER ON CARE SETTING CHANGE
+        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
+        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=trigger_p1_draft)
         
-        # Save to state immediately
-        st.session_state.data['phase1']['condition'] = cond_input
-        st.session_state.data['phase1']['setting'] = setting_input
-
         st.subheader("2. Target Population")
-        curr_key = f"{cond_input}|{setting_input}"
-        last_key = st.session_state.get('last_criteria_key', '')
-        
-        if cond_input and setting_input and curr_key != last_key:
-            with st.spinner("Auto-generating inclusion/exclusion criteria..."):
-                prompt = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['inclusion'] = str(data.get('inclusion', ''))
-                    st.session_state.data['phase1']['exclusion'] = str(data.get('exclusion', ''))
-                    st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
-                    st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
-                    st.session_state['last_criteria_key'] = curr_key
-                    st.rerun()
-        
-        inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
-        exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
-        st.session_state.data['phase1']['inclusion'] = inc_val
-        st.session_state.data['phase1']['exclusion'] = exc_val
+        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
+        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
-        curr_inc = st.session_state.get('p1_inc', '')
-        curr_prob_key = f"{curr_inc}|{cond_input}"
-        last_prob_key = st.session_state.get('last_prob_key', '')
-        if curr_inc and cond_input and curr_prob_key != last_prob_key:
-             with st.spinner("Auto-generating problem statement..."):
-                prompt = f"Act as a CMO. For condition '{cond_input}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                    st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
-                    st.session_state['last_prob_key'] = curr_prob_key
-                    st.rerun()
-        
-        prob_val = st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", label_visibility="collapsed")
-        st.session_state.data['phase1']['problem'] = prob_val
+        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
         
         st.subheader("4. Goals")
-        curr_prob = st.session_state.get('p1_prob', '')
-        curr_obj_key = f"{curr_prob}|{cond_input}"
-        last_obj_key = st.session_state.get('last_obj_key', '')
-        if curr_prob and cond_input and curr_obj_key != last_obj_key:
-             with st.spinner("Auto-generating SMART objectives..."):
-                prompt = f"Act as a CMO. For '{cond_input}' problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON."
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['objectives'] = str(data.get('objectives', ''))
-                    st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
-                    st.session_state['last_obj_key'] = curr_obj_key
-                    st.rerun()
-        
-        obj_val = st.text_area("Project Goals", height=150, key="p1_obj", label_visibility="collapsed")
-        st.session_state.data['phase1']['objectives'] = obj_val
-
-    # Add a Manual Button for Safety
-    if st.button("Regenerate Draft"):
-         st.session_state['last_criteria_key'] = "" # Force reset
-         st.session_state['last_prob_key'] = ""
-         st.session_state['last_obj_key'] = ""
-         st.rerun()
+        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -639,6 +615,7 @@ if "Phase 1" in phase:
             st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
+        sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
@@ -834,6 +811,7 @@ elif "Phase 5" in phase:
     if st.button("Generate Expert Form", key="btn_expert"):
         with st.spinner("Generating..."):
             nodes = st.session_state.data['phase3']['nodes']
+            # Group nodes for prompt
             s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
             p_nodes = [n for n in nodes if n.get('type') == 'Process']
             d_nodes = [n for n in nodes if n.get('type') == 'Decision']
@@ -904,9 +882,9 @@ elif "Phase 5" in phase:
         if st.button("Update Education Module"):
              new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
              if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
-    
-    st.divider()
 
+    st.divider()
+    
     # 4. Slide Deck
     st.subheader("4. Slide Deck")
     if st.button("Generate Slide Deck"):
