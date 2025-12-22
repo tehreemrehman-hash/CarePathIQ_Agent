@@ -37,10 +37,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS: RESTORED ORIGINAL THEME ---
 st.markdown("""
 <style>
-    /* BUTTONS */
+    /* 1. MAIN BUTTONS (Primary & Secondary) -> Dark Brown (#5D4037) */
     div.stButton > button, 
     div[data-testid="stButton"] > button,
     button[kind="primary"],
@@ -57,6 +57,8 @@ st.markdown("""
         border-color: #3E2723 !important;
         color: white !important;
     }
+    
+    /* DISABLE BUTTONS */
     div.stButton > button:disabled {
         background-color: #eee !important;
         color: #999 !important;
@@ -74,7 +76,7 @@ st.markdown("""
         background-color: #3E2723 !important;
     }
 
-    /* SIDEBAR BUTTONS */
+    /* SIDEBAR BUTTONS -> Mint Green Background, Brown Text */
     section[data-testid="stSidebar"] div.stButton > button {
         background-color: #A9EED1 !important; 
         color: #5D4037 !important;
@@ -86,7 +88,7 @@ st.markdown("""
         color: #3E2723 !important;
     }
     
-    /* RADIO BUTTONS */
+    /* RADIO BUTTONS (Phase Indicator) */
     div[role="radiogroup"] label > div:first-child {
         background-color: white !important;
         border-color: #5D4037 !important;
@@ -118,7 +120,7 @@ st.markdown("""
     /* HEADERS */
     h1, h2, h3 { color: #00695C; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     
-    /* TOOLTIPS */
+    /* TOOLTIP STYLING */
     div[data-testid="stTooltipContent"] {
         background-color: white !important;
         color: #333 !important;
@@ -128,6 +130,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # CONSTANTS
+COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
 COPYRIGHT_HTML_FOOTER = """
 <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.85em; color: #666;">
     <p>
@@ -142,8 +145,6 @@ COPYRIGHT_HTML_FOOTER = """
     </p>
 </div>
 """
-COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
-
 HEURISTIC_DEFS = {
     "H1": "Visibility of system status", "H2": "Match between system and real world",
     "H3": "User control and freedom", "H4": "Consistency and standards",
@@ -162,25 +163,25 @@ def calculate_granular_progress():
     total_points = 0
     earned_points = 0
     
-    # Phase 1
+    # Phase 1: 6 points
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
-    # Phase 2
+    # Phase 2: 2 points
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
-    # Phase 3
+    # Phase 3: 3 points
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
-    # Phase 4
+    # Phase 4: 2 points
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
-    # Phase 5
+    # Phase 5: 3 points
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
@@ -199,6 +200,7 @@ def styled_info(text):
 
 def export_widget(content, filename, mime_type="text/plain", label="Download"):
     final_content = content
+    # For text-based formats (HTML/MD), append copyright footer
     if "text" in mime_type or "csv" in mime_type or "markdown" in mime_type:
         if isinstance(content, str):
             final_content = content + COPYRIGHT_MD
@@ -365,9 +367,19 @@ def generate_mermaid_code(nodes, orientation="TD"):
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
-    candidates = ["gemini-1.5-flash", "gemini-1.5-pro"]
-    if model_choice != "Auto" and model_choice in candidates:
-        candidates.insert(0, model_choice)
+    
+    # --- UPDATED MODEL LIST (2025) ---
+    if model_choice == "Auto":
+        candidates = [
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash"
+        ]
+    else:
+        candidates = [model_choice, "gemini-1.5-flash"]
+        
     response = None
     for model_name in candidates:
         try:
@@ -484,7 +496,17 @@ with st.sidebar:
     
     default_key = st.secrets.get("GEMINI_API_KEY", "")
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    model_choice = st.selectbox("Model", ["Auto", "gemini-1.5-flash", "gemini-1.5-pro"])
+    
+    # --- UPDATED MODEL LIST (2025) ---
+    model_options = [
+        "Auto", 
+        "gemini-3-flash-preview",  # Newest/Fastest
+        "gemini-2.5-pro",          # Best for Reasoning
+        "gemini-2.5-flash",        # High Speed / Low Cost
+        "gemini-1.5-pro"           # Legacy / Stable
+    ]
+    model_choice = st.selectbox("Model", model_options, index=0)
+    
     if gemini_api_key:
         genai.configure(api_key=gemini_api_key)
         st.success("AI Connected")
@@ -602,7 +624,6 @@ if "Phase 1" in phase:
                 if data:
                     inc_text = str(data.get('inclusion', ''))
                     exc_text = str(data.get('exclusion', ''))
-                    # Update State
                     st.session_state.data['phase1']['inclusion'] = inc_text
                     st.session_state.data['phase1']['exclusion'] = exc_text
                     st.session_state['p1_inc'] = inc_text
@@ -916,20 +937,37 @@ elif "Phase 5" in phase:
         else:
             with st.status("Generating Assets...", expanded=True) as status:
                 
-                # 1. Expert Panel Form (RESTORED CUSTOM LOGIC)
+                # Expert Panel Form
                 status.write("Creating Expert Panel Feedback Form...")
+                # Get actual node data
+                nodes = st.session_state.data['phase3']['nodes']
+                # Group nodes
+                s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
+                p_nodes = [n for n in nodes if n.get('type') == 'Process']
+                d_nodes = [n for n in nodes if n.get('type') == 'Decision']
+                # Convert to strings for prompt
+                s_e_str = "\n".join([f"- ID {n.get('id')}: {n.get('label')}" for n in s_e_nodes])
+                p_str = "\n".join([f"- ID {n.get('id')}: {n.get('label')}" for n in p_nodes])
+                d_str = "\n".join([f"- ID {n.get('id')}: {n.get('label')}" for n in d_nodes])
+                
                 prompt_expert = f"""
                 Create a standalone HTML5 Form for Expert Panel Feedback on a '{cond}' clinical pathway.
                 Target Audience: {audience}.
                 
-                CRITICAL LOGIC:
-                The form MUST contain distinct sections to identify feedback by Node Type.
-                1. Section: Start/End Nodes.
-                2. Section: Decision Nodes.
-                3. Section: Process Nodes.
+                Here is the actual node structure to build the form from:
+                SECTION 1: START/END NODES
+                {s_e_str}
+                SECTION 2: DECISION NODES
+                {d_str}
+                SECTION 3: PROCESS NODES
+                {p_str}
                 
-                For EACH section, include a dropdown or radio button asking:
-                "Justification for Change:" -> Options: ["Evidence-Based", "Resource-Based", "Other"].
+                CRITICAL LOGIC:
+                For EACH node listed above, create a Checkbox with the Node Label.
+                IF the checkbox is selected, dynamically reveal a DIV containing:
+                   1. Textarea: "Recommended Change"
+                   2. Dropdown: "Justification" [Options: "Peer-Reviewed Literature", "National Society Guideline or Policy", "Institutional Guideline or Policy", "Resource Limitations", "None of the Above"]
+                   3. Textarea: "Justification Detail"
                 
                 Backend: Form Action = 'https://formsubmit.co/{email_target}'.
                 Styling: Professional, clean CSS.
@@ -941,7 +979,7 @@ elif "Phase 5" in phase:
                      expert_html = expert_html.replace('</body>', f'{COPYRIGHT_HTML_FOOTER}</body>')
                 st.session_state.data['phase5']['expert_html'] = expert_html
                 
-                # 2. Beta Tester Form
+                # Beta Tester Form
                 status.write("Creating Beta Tester Feedback Form...")
                 prompt_beta = f"""
                 Create a standalone HTML5 Form for Beta Testers of the '{cond}' pathway.
@@ -951,12 +989,11 @@ elif "Phase 5" in phase:
                 Return ONLY valid HTML code.
                 """
                 beta_html = get_gemini_response(prompt_beta)
-                # Append footer
                 if beta_html:
                     beta_html = beta_html.replace('</body>', f'{COPYRIGHT_HTML_FOOTER}</body>')
                 st.session_state.data['phase5']['beta_html'] = beta_html
 
-                # 3. Education Module (RESTORED LOGIC)
+                # Education Module
                 status.write("Creating Interactive Education & Certificate Module...")
                 prompt_edu = f"""
                 Create a standalone HTML/JS file for '{cond}' Staff Education.
@@ -975,7 +1012,6 @@ elif "Phase 5" in phase:
                 Return ONLY valid HTML code.
                 """
                 edu_html = get_gemini_response(prompt_edu)
-                # Append footer
                 if edu_html:
                     edu_html = edu_html.replace('</body>', f'{COPYRIGHT_HTML_FOOTER}</body>')
                 st.session_state.data['phase5']['edu_html'] = edu_html
