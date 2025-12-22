@@ -467,4 +467,257 @@ if "Phase 1" in phase:
             {"Phase": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
             {"Phase": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
             {"Phase": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-            {"Phase": "6. Beta Testing", "Owner": "Quality", "Start":
+            {"Phase": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
+            {"Phase": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
+            {"Phase": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
+            {"Phase": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
+        ]
+        
+    df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor")
+    if not edited_sched.empty:
+        st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
+        chart_data = edited_sched.copy()
+        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
+        chart_data['End'] = pd.to_datetime(chart_data['End'])
+        chart = alt.Chart(chart_data).mark_bar().encode(x='Start', x2='End', y='Phase', color='Owner').interactive()
+        st.altair_chart(chart, use_container_width=True)
+    
+    if st.button("Generate Charter"):
+        charter_text = f"# Project Charter: {st.session_state.data['phase1']['condition']}\n\n**Problem Statement:**\n{st.session_state.data['phase1']['problem']}\n\n**Objectives:**\n{st.session_state.data['phase1']['objectives']}\n\n**Scope:**\nInclusion: {st.session_state.data['phase1']['inclusion']}\nExclusion: {st.session_state.data['phase1']['exclusion']}"
+        export_widget(charter_text, "Project_Charter.md", "text/markdown", label="Download Charter (.md)")
+
+    render_bottom_navigation()
+
+# --- PHASE 2 ---
+elif "Phase 2" in phase:
+    col_q, col_btn = st.columns([3, 1])
+    with col_q:
+        default_q = st.session_state.data['phase2'].get('mesh_query', '')
+        if not default_q and st.session_state.data['phase1']['condition']:
+            default_q = f"guidelines for {st.session_state.data['phase1']['condition']}"
+        q = st.text_input("PubMed Search Query", value=default_q)
+        
+    with col_btn:
+        st.write("")
+        st.write("")
+        if st.button("Search PubMed", type="primary", use_container_width=True):
+            st.session_state.data['phase2']['mesh_query'] = q
+            with st.spinner("Querying PubMed Database..."):
+                res = search_pubmed(q)
+                st.session_state.data['phase2']['evidence'] = res
+                st.rerun()
+
+    if st.session_state.data['phase2']['evidence']:
+        st.markdown("### Evidence Table")
+        if st.button("AI-Grade All Evidence"):
+            with st.status("Grading...", expanded=True):
+                ev_list = st.session_state.data['phase2']['evidence']
+                for i in range(0, len(ev_list), 5):
+                    batch = ev_list[i:i+5]
+                    prompt = f"Assign GRADE (High/Mod/Low) and Rationale for: {json.dumps([{k:v for k,v in e.items() if k in ['id','title','abstract']} for e in batch])}. Return JSON {{ID: {{grade, rationale}}}}"
+                    res = get_gemini_response(prompt, json_mode=True)
+                    if res:
+                        for e in batch:
+                            if e['id'] in res: e.update(res[e['id']])
+                st.rerun()
+        
+        # FIX: ID String Conversion
+        df_ev = pd.DataFrame(st.session_state.data['phase2']['evidence'])
+        if not df_ev.empty and 'id' in df_ev.columns: df_ev['id'] = df_ev['id'].astype(str)
+        
+        edited_ev = st.data_editor(
+            df_ev, 
+            column_config={
+                "id": st.column_config.TextColumn("PMID", disabled=True),
+                "url": st.column_config.LinkColumn("Link"), 
+                "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]),
+                "rationale": st.column_config.TextColumn("Rationale", width="large"),
+                "abstract": None 
+            }, 
+            hide_index=True, use_container_width=True, key="ev_editor"
+        )
+        st.session_state.data['phase2']['evidence'] = edited_ev.to_dict('records')
+        
+    render_bottom_navigation()
+
+# --- PHASE 3 ---
+elif "Phase 3" in phase:
+    col_tools, col_editor = st.columns([1, 3])
+    with col_tools:
+        if st.button("Auto-Draft Logic (AI)", type="primary", use_container_width=True):
+            cond = st.session_state.data['phase1']['condition']
+            with st.spinner("Drafting..."):
+                prompt = f"""
+                Act as Clinical Decision Scientist. Create pathway for {cond}.
+                Return JSON LIST. Each node: 
+                {{
+                    "id": "P1", "type": "Start|Decision|Process|End", "label": "...", "role": "Physician",
+                    "detail": "Action...", 
+                    "labs": "...", "imaging": "...", "medications": "...", "dosage": "...", 
+                    "branches": [{{ "label": "Yes", "target": null }}] (Only for Decision nodes)
+                }}
+                """
+                nodes = get_gemini_response(prompt, json_mode=True)
+                if nodes:
+                    st.session_state.data['phase3']['nodes'] = harden_nodes(nodes)
+                    st.rerun()
+        if st.button("Clear All", use_container_width=True):
+            st.session_state.data['phase3']['nodes'] = []
+            st.rerun()
+
+    with col_editor:
+        df_nodes = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+        edited_nodes = st.data_editor(
+            df_nodes, 
+            num_rows="dynamic", 
+            use_container_width=True, 
+            key="p3_editor",
+            column_config={
+                "type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "End"]),
+                "labs": st.column_config.TextColumn("Labs"),
+                "medications": st.column_config.TextColumn("Meds"),
+                "dosage": st.column_config.TextColumn("Dosage"),
+                "detail": st.column_config.TextColumn("Details", width="medium")
+            }
+        )
+        if st.button("Save Logic"):
+            st.session_state.data['phase3']['nodes'] = harden_nodes(edited_nodes.to_dict('records'))
+            st.success("Saved.")
+            st.rerun()
+            
+    render_bottom_navigation()
+
+# --- PHASE 4 ---
+elif "Phase 4" in phase:
+    nodes = st.session_state.data['phase3']['nodes']
+    col_vis, col_heuristics = st.columns([2, 1])
+    with col_vis:
+        st.subheader("Pathway Visualization")
+        mermaid_code = generate_mermaid_code(nodes)
+        components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
+    with col_heuristics:
+        st.subheader("Heuristics")
+        if st.button("Analyze Risks"):
+            prompt = f"Analyze logic {json.dumps(nodes)} for Nielsen's Heuristics. Return JSON {{H1: critique...}}"
+            res = get_gemini_response(prompt, json_mode=True)
+            if res:
+                st.session_state.data['phase4']['heuristics_data'] = res
+                st.rerun()
+        h_data = st.session_state.data['phase4'].get('heuristics_data', {})
+        for k, v in h_data.items():
+            with st.expander(k): 
+                st.write(v)
+                if st.button(f"Apply Fix ({k})", key=f"fix_{k}"):
+                    with st.spinner("Applying AI Fix..."):
+                        p_fix = f"Update this JSON to fix {k} ({v}): {json.dumps(nodes)}. Return JSON."
+                        new_nodes = get_gemini_response(p_fix, json_mode=True)
+                        if new_nodes:
+                            st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                            st.rerun()
+
+    render_bottom_navigation()
+
+# --- PHASE 5 ---
+elif "Phase 5" in phase:
+    st.markdown("### Operational Toolkit: Interactive HTML Assets")
+    styled_info("These tools generate **standalone HTML files** that you can send to users. Submissions from these forms will be sent directly to the email you provide below.")
+    
+    cond = st.session_state.data['phase1']['condition'] or "Pathway"
+    
+    with st.expander("Deployment Configuration", expanded=True):
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            audience = st.text_input("Target Audience", value="Multidisciplinary Team")
+        with col_c2:
+            email_target = st.text_input("Receive Submissions at Email:", placeholder="you@hospital.org")
+    
+    st.divider()
+    
+    if st.button("Generate Interactive HTML Assets (AI)", type="primary", use_container_width=True):
+        if not email_target:
+            st.error("Please provide an email address to receive form submissions.")
+        else:
+            with st.status("Generating Assets...", expanded=True) as status:
+                
+                # 1. Expert Panel Form (RESTORED CUSTOM LOGIC)
+                status.write("Creating Expert Panel Feedback Form...")
+                prompt_expert = f"""
+                Create a standalone HTML5 Form for Expert Panel Feedback on a '{cond}' clinical pathway.
+                Target Audience: {audience}.
+                
+                CRITICAL LOGIC:
+                The form MUST contain distinct sections to identify feedback by Node Type.
+                1. Section: Start/End Nodes.
+                2. Section: Decision Nodes.
+                3. Section: Process Nodes.
+                
+                For EACH section, include a dropdown or radio button asking:
+                "Justification for Change:" -> Options: ["Evidence-Based", "Resource-Based", "Other"].
+                
+                Backend: Form Action = 'https://formsubmit.co/{email_target}'.
+                Styling: Professional, clean CSS.
+                Return ONLY valid HTML code.
+                """
+                expert_html = get_gemini_response(prompt_expert)
+                st.session_state.data['phase5']['expert_html'] = expert_html
+                
+                # 2. Beta Tester Form
+                status.write("Creating Beta Tester Feedback Form...")
+                prompt_beta = f"""
+                Create a standalone HTML5 Form for Beta Testers of the '{cond}' pathway.
+                Target Audience: {audience}.
+                Form Action: 'https://formsubmit.co/{email_target}'.
+                Questions: Usability, clarity, bugs.
+                Return ONLY valid HTML code.
+                """
+                beta_html = get_gemini_response(prompt_beta)
+                st.session_state.data['phase5']['beta_html'] = beta_html
+
+                # 3. Education Module (RESTORED LOGIC)
+                status.write("Creating Interactive Education & Certificate Module...")
+                prompt_edu = f"""
+                Create a standalone HTML/JS file for '{cond}' Staff Education.
+                
+                1. Content: 3 Key Clinical Takeaways.
+                2. Quiz: 5 Multiple Choice Questions related to {cond}. 
+                   - JS Validation: Show "Correct" or "Incorrect" immediately.
+                3. Gating: 
+                   - IF score == 100%: Reveal Hidden Certificate Form.
+                   - ELSE: Show "Please review and try again".
+                4. Certificate Form:
+                   - Input: "Full Name".
+                   - Action: 'https://formsubmit.co/{email_target}'.
+                   - Submit Button: "Submit for Certificate".
+                
+                Return ONLY valid HTML code.
+                """
+                edu_html = get_gemini_response(prompt_edu)
+                st.session_state.data['phase5']['edu_html'] = edu_html
+                
+                status.update(label="Assets Generated Successfully!", state="complete")
+
+    st.subheader("Asset Downloads")
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        if st.session_state.data['phase5'].get('expert_html'):
+            st.download_button("📥 Expert Panel Form (.html)", st.session_state.data['phase5']['expert_html'], f"{cond}_ExpertForm.html", "text/html", use_container_width=True)
+        else:
+            st.button("Expert Form Missing", disabled=True, use_container_width=True)
+            
+    with c2:
+        if st.session_state.data['phase5'].get('beta_html'):
+            st.download_button("📥 Beta Tester Form (.html)", st.session_state.data['phase5']['beta_html'], f"{cond}_BetaForm.html", "text/html", use_container_width=True)
+        else:
+            st.button("Beta Form Missing", disabled=True, use_container_width=True)
+            
+    with c3:
+        if st.session_state.data['phase5'].get('edu_html'):
+            st.download_button("📥 Education Module (.html)", st.session_state.data['phase5']['edu_html'], f"{cond}_EduModule.html", "text/html", use_container_width=True)
+        else:
+            st.button("Education Module Missing", disabled=True, use_container_width=True)
+
+    render_bottom_navigation()
+
+st.markdown(COPYRIGHT_MD, unsafe_allow_html=True)
