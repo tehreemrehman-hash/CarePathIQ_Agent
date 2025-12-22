@@ -184,24 +184,31 @@ def calculate_granular_progress():
     data = st.session_state.data
     total_points = 0
     earned_points = 0
+    
+    # Phase 1
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
+    # Phase 2
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
+    # Phase 3
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
+    # Phase 4
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
+    # Phase 5
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
         if p5.get(k): earned_points += 1
+        
     if total_points == 0: return 0.0
     return min(1.0, earned_points / total_points)
 
@@ -220,83 +227,136 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
     st.download_button(label, final_content, filename, mime_type)
 
 def create_word_docx(data):
+    """Generates the IHI-aligned Project Charter Word Doc."""
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
+    
     ihi = data.get('ihi_content', {})
+    
     doc.add_heading('What are we trying to accomplish?', level=1)
+    
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
+    
     doc.add_heading('Project Description', level=2)
     doc.add_paragraph(ihi.get('project_description', ''))
+    
     doc.add_heading('Rationale', level=2)
     doc.add_paragraph(ihi.get('rationale', ''))
+    
     doc.add_heading('Expected Outcomes', level=2)
     doc.add_paragraph(ihi.get('expected_outcomes', ''))
+    
     doc.add_heading('Aim Statement', level=2)
     doc.add_paragraph(ihi.get('aim_statement', data.get('objectives', '')))
+
     doc.add_heading('How will we know that a change is an improvement?', level=1)
+    
     doc.add_heading('Outcome Measure(s)', level=2)
-    for m in ihi.get('outcome_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    for m in ihi.get('outcome_measures', []):
+        doc.add_paragraph(f"- {m}", style='List Bullet')
+        
     doc.add_heading('Process Measure(s)', level=2)
-    for m in ihi.get('process_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    for m in ihi.get('process_measures', []):
+        doc.add_paragraph(f"- {m}", style='List Bullet')
+        
     doc.add_heading('Balancing Measure(s)', level=2)
-    for m in ihi.get('balancing_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    for m in ihi.get('balancing_measures', []):
+        doc.add_paragraph(f"- {m}", style='List Bullet')
+
     doc.add_heading('What changes can we make?', level=1)
+    
     doc.add_heading('Initial Activities', level=2)
     doc.add_paragraph(ihi.get('initial_activities', ''))
+    
     doc.add_heading('Change Ideas', level=2)
-    for c in ihi.get('change_ideas', []): doc.add_paragraph(f"- {c}", style='List Bullet')
+    for c in ihi.get('change_ideas', []):
+        doc.add_paragraph(f"- {c}", style='List Bullet')
+        
     doc.add_heading('Key Stakeholders', level=2)
     doc.add_paragraph(ihi.get('stakeholders', ''))
+    
     doc.add_heading('Barriers', level=2)
     doc.add_paragraph(ihi.get('barriers', ''))
+    
     doc.add_heading('Boundaries', level=2)
     doc.add_paragraph(ihi.get('boundaries', ''))
+    
     doc.add_heading('Project Timeline', level=1)
     schedule = data.get('schedule', [])
     if schedule:
         table = doc.add_table(rows=1, cols=4)
         table.style = 'Table Grid'
         hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Stage'; hdr_cells[1].text = 'Owner'; hdr_cells[2].text = 'Start Date'; hdr_cells[3].text = 'End Date'
+        hdr_cells[0].text = 'Stage'
+        hdr_cells[1].text = 'Owner'
+        hdr_cells[2].text = 'Start Date'
+        hdr_cells[3].text = 'End Date'
+        
         for item in schedule:
             row_cells = table.add_row().cells
             row_cells[0].text = str(item.get('Stage', ''))
             row_cells[1].text = str(item.get('Owner', ''))
             row_cells[2].text = str(item.get('Start', ''))
             row_cells[3].text = str(item.get('End', ''))
-    section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
+            
+    section = doc.sections[0]
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
     return buffer
 
 def create_exec_summary_docx(summary_text, condition):
+    """Generates a Word Document for the Executive Summary."""
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Executive Summary: {condition}", 0)
+    
     for line in summary_text.split('\n'):
         if line.strip():
-            if line.startswith('###'): doc.add_heading(line.replace('###', '').strip(), level=3)
-            elif line.startswith('##'): doc.add_heading(line.replace('##', '').strip(), level=2)
-            elif line.startswith('#'): doc.add_heading(line.replace('#', '').strip(), level=1)
-            else: doc.add_paragraph(line.strip().replace('**', ''))
-    section = doc.sections[0]; footer = section.footer; p = footer.paragraphs[0]
-    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
+            if line.startswith('###'):
+                doc.add_heading(line.replace('###', '').strip(), level=3)
+            elif line.startswith('##'):
+                doc.add_heading(line.replace('##', '').strip(), level=2)
+            elif line.startswith('#'):
+                doc.add_heading(line.replace('#', '').strip(), level=1)
+            else:
+                doc.add_paragraph(line.strip().replace('**', ''))
+
+    section = doc.sections[0]
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
     return buffer
 
 def create_ppt_presentation(slides_data, flowchart_img=None):
     if Presentation is None: return None
     try:
         prs = Presentation()
-        BROWN = RGBColor(93, 64, 55); WHITE = RGBColor(255, 255, 255); GREY = RGBColor(80, 80, 80)
+        # Theme Colors
+        BROWN = RGBColor(93, 64, 55)
+        WHITE = RGBColor(255, 255, 255)
+        GREY = RGBColor(80, 80, 80)
+
         def add_footer(slide):
             left = Inches(0.5); top = Inches(7.1); width = Inches(9); height = Inches(0.3)
             txBox = slide.shapes.add_textbox(left, top, width, height)
             p = txBox.text_frame.paragraphs[0]
             p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
             p.font.size = Pt(9); p.font.color.rgb = GREY; p.alignment = PP_ALIGN.CENTER
+
+        # Title Slide
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         fill = slide.background.fill; fill.solid(); fill.fore_color.rgb = BROWN
         tbox = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(2))
@@ -304,76 +364,144 @@ def create_ppt_presentation(slides_data, flowchart_img=None):
         p.text = slides_data.get('title', 'Presentation')
         p.font.size = Pt(44); p.font.color.rgb = WHITE; p.font.bold = True; p.alignment = PP_ALIGN.CENTER
         add_footer(slide)
+
+        # Content Slides
         for s_info in slides_data.get('slides', []):
             slide = prs.slides.add_slide(prs.slide_layouts[6])
+            # Header
             shape = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(1.2))
             shape.fill.solid(); shape.fill.fore_color.rgb = BROWN; shape.line.fill.background()
             tbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
             p = tbox.text_frame.paragraphs[0]
             p.text = s_info.get('title', '')
             p.font.size = Pt(32); p.font.color.rgb = WHITE; p.font.bold = True
+            # Content
             cbox = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.0))
             tf = cbox.text_frame; tf.word_wrap = True
             content = s_info.get('content', '')
+            # Simple markdown cleanup
             for line in content.split('\n'):
                 if line.strip():
                     p = tf.add_paragraph()
                     p.text = line.replace('**','').strip()
                     p.font.size = Pt(18); p.font.color.rgb = GREY
             add_footer(slide)
-        buffer = BytesIO(); prs.save(buffer); buffer.seek(0)
+
+        buffer = BytesIO()
+        prs.save(buffer)
+        buffer.seek(0)
         return buffer
-    except Exception as e: st.error(f"PPT Error: {e}"); return None
+    except Exception as e:
+        st.error(f"PPT Generation Error: {e}")
+        return None
 
 def harden_nodes(nodes_list):
+    """Validates and repairs the Decision Tree logic."""
     if not isinstance(nodes_list, list): return []
     validated = []
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict): continue
-        if 'id' not in node or not node['id']: node['id'] = f"{node.get('type', 'P')[0].upper()}{i+1}"
+        if 'id' not in node or not node['id']:
+            prefix = node.get('type', 'P')[0].upper()
+            node['id'] = f"{prefix}{i+1}"
         if 'type' not in node: node['type'] = 'Process'
         if node['type'] == 'Decision':
             if 'branches' not in node or not isinstance(node['branches'], list):
-                node['branches'] = [{'label': 'Yes', 'target': i+1}, {'label': 'No', 'target': i+2}]
+                node['branches'] = [
+                    {'label': 'Yes', 'target': i+1 if i+1 < len(nodes_list) else None},
+                    {'label': 'No', 'target': i+2 if i+2 < len(nodes_list) else None}
+                ]
+            else:
+                for b in node['branches']:
+                    if 'label' not in b: b['label'] = 'Option'
+                    if 'target' not in b: b['target'] = None
         validated.append(node)
     return validated
 
 def generate_mermaid_code(nodes, orientation="TD"):
+    """Generates Mermaid flowchart code."""
     if not nodes: return "flowchart TD\n%% No nodes"
+    
     valid_nodes = harden_nodes(nodes)
+    
+    # 1. Group by Role (Swimlanes)
     from collections import defaultdict
     swimlanes = defaultdict(list)
-    for i, n in enumerate(valid_nodes): swimlanes[n.get('role', 'Unassigned')].append((i, n))
+    for i, n in enumerate(valid_nodes):
+        role = n.get('role', 'Unassigned')
+        swimlanes[role].append((i, n))
+    
     code = f"flowchart {orientation}\n"
     node_id_map = {}
+    
+    # 2. Build Nodes inside Subgraphs
     for role, n_list in swimlanes.items():
         code += f"    subgraph {role}\n"
         for i, n in n_list:
-            nid = f"N{i}"; node_id_map[i] = nid
+            nid = f"N{i}"
+            node_id_map[i] = nid
+            
+            # Label & Styling
             label = n.get('label', 'Step').replace('"', "'")
             detail = n.get('detail', '').replace('"', "'")
             meds = n.get('medications', '')
             if meds: detail += f"\\nMeds: {meds}"
             full_label = f"{label}\\n{detail}" if detail else label
+            
             ntype = n.get('type', 'Process')
-            if ntype == 'Start': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            elif ntype == 'Decision': shape = '{', '}'; style = 'fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
-            elif ntype == 'End': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            else: shape = '[', ']'; style = 'fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
-            code += f'        {nid}{shape[0]}"{full_label}"{shape[1]}\n        style {nid} {style}\n'
+            style = ""
+            shape_s, shape_e = '[', ']'
+            
+            if ntype == 'Start':
+                shape_s, shape_e = '([', '])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
+            elif ntype == 'Decision':
+                shape_s, shape_e = '{', '}'
+                style = f'style {nid} fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
+            elif ntype == 'End':
+                shape_s, shape_e = '([', '])'
+                style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
+            else: # Process/Note
+                shape_s, shape_e = '[', ']'
+                style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
+            
+            code += f'        {nid}{shape_s}"{full_label}"{shape_e}\n'
+            code += f'        {style}\n'
         code += "    end\n"
+        
+    # 3. Build Edges
     for i, n in enumerate(valid_nodes):
         nid = node_id_map[i]
-        if n.get('type') == 'Decision' and 'branches' in n:
+        ntype = n.get('type')
+        
+        if ntype == 'Decision' and 'branches' in n:
             for b in n.get('branches', []):
-                t = b.get('target')
-                if isinstance(t, (int, float)) and 0 <= t < len(valid_nodes): code += f"    {nid} --|{b.get('label', 'Yes')}| {node_id_map[int(t)]}\n"
-        elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
+                t_idx = b.get('target')
+                lbl = b.get('label', 'Yes')
+                if isinstance(t_idx, (int, float)) and 0 <= t_idx < len(valid_nodes):
+                     code += f"    {nid} --|{lbl}| {node_id_map[int(t_idx)]}\n"
+        else:
+            # Simple sequential flow
+            if i + 1 < len(valid_nodes):
+                code += f"    {nid} --> {node_id_map[i+1]}\n"
+                
     return code
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
-    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
+    
+    # --- UPDATED MODEL LIST (2025) ---
+    if model_choice == "Auto":
+        candidates = [
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash"
+        ]
+    else:
+        candidates = [model_choice, "gemini-1.5-flash"]
+        
     response = None
     for model_name in candidates:
         try:
@@ -381,15 +509,22 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             is_stream = stream_container is not None
             response = model.generate_content(prompt, stream=is_stream)
             if response: break 
-        except Exception: time.sleep(0.5); continue
-    if not response: st.error("AI Error. Please check API Key."); return None
+        except Exception:
+            time.sleep(0.5)
+            continue
+    if not response:
+        st.error("AI Error. Please check API Key.")
+        return None
     try:
         if stream_container:
             text = ""
             for chunk in response:
-                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
+                if chunk.text:
+                    text += chunk.text
+                    stream_container.markdown(text + "▌")
             stream_container.markdown(text) 
-        else: text = response.text
+        else:
+            text = response.text
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
             match = re.search(r'\{.*\}|\[.*\]', text, re.DOTALL)
@@ -404,10 +539,16 @@ def search_pubmed(query):
     try:
         search_params = {'db': 'pubmed', 'term': f"{query} AND (\"last 5 years\"[dp])", 'retmode': 'json', 'retmax': 20, 'sort': 'relevance'}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
-        with urllib.request.urlopen(url) as response: id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read().decode())
+            id_list = data.get('esearchresult', {}).get('idlist', [])
         if not id_list: return []
-        fetch_params = {'db': 'pubmed', 'id': ','.join(id_list), 'retmode': 'xml'}
-        with urllib.request.urlopen(base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)) as response: root = ET.fromstring(response.read().decode())
+        ids_str = ','.join(id_list)
+        fetch_params = {'db': 'pubmed', 'id': ids_str, 'retmode': 'xml'}
+        url = base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)
+        with urllib.request.urlopen(url) as response:
+            xml_data = response.read().decode()
+        root = ET.fromstring(xml_data)
         citations = []
         for article in root.findall('.//PubmedArticle'):
             medline = article.find('MedlineCitation')
@@ -422,7 +563,8 @@ def search_pubmed(query):
                 for auth in author_list[:3]:
                     lname = auth.find('LastName')
                     init = auth.find('Initials')
-                    if lname is not None and init is not None: authors.append(f"{lname.text} {init.text}")
+                    if lname is not None and init is not None:
+                        authors.append(f"{lname.text} {init.text}")
                 authors_str = ", ".join(authors)
                 if len(author_list) > 3: authors_str += ", et al."
             
@@ -444,7 +586,9 @@ def search_pubmed(query):
                 "rationale": "Not yet evaluated."
             })
         return citations
-    except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
+    except Exception as e:
+        st.error(f"PubMed Search Error: {e}")
+        return []
 
 def update_phase(new_phase):
     st.session_state.current_phase_label = new_phase
@@ -456,9 +600,11 @@ def render_bottom_navigation():
     except: curr_idx = 0
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
-        if curr_idx > 0: st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx-1],))
+        if curr_idx > 0:
+            st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx-1],))
     with col3:
-        if curr_idx < len(PHASES) - 1: st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx+1],))
+        if curr_idx < len(PHASES) - 1:
+            st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx+1],))
 
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
@@ -468,44 +614,67 @@ with st.sidebar:
         if "CarePathIQ_Logo.png" in os.listdir():
             with open("CarePathIQ_Logo.png", "rb") as f:
                 logo_data = base64.b64encode(f.read()).decode()
-            st.markdown(f"""<div style="text-align: center; margin-bottom: 20px;"><a href="https://carepathiq.org/" target="_blank"><img src="data:image/png;base64,{logo_data}" width="200" style="max-width: 100%;"></a></div>""", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <a href="https://carepathiq.org/" target="_blank">
+                        <img src="data:image/png;base64,{logo_data}" width="200" style="max-width: 100%;">
+                    </a>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
     except Exception: pass
 
     st.title("AI Agent")
     st.divider()
+    
     default_key = st.secrets.get("GEMINI_API_KEY", "")
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
+    
+    # --- UPDATED MODEL LIST (2025) ---
+    model_options = [
+        "Auto", 
+        "gemini-3-flash-preview", 
+        "gemini-2.5-pro", 
+        "gemini-2.5-flash", 
+        "gemini-1.5-pro"
+    ]
     model_choice = st.selectbox("Model", model_options, index=0)
     
-    if gemini_api_key: genai.configure(api_key=gemini_api_key); st.success("AI Connected")
+    if gemini_api_key:
+        genai.configure(api_key=gemini_api_key)
+        st.success("AI Connected")
     st.divider()
     
-    if "current_phase_label" not in st.session_state: st.session_state.current_phase_label = PHASES[0]
-    
-    # NAVIGATION LOGIC - NOW INSIDE THE KEY CHECK OR GLOBAL
-    # Fixed Logic: Show Phase Box regardless, but only enable buttons if key presence? 
-    # User requested: "Current Phase" box should appear on landing page.
-    
-    # Navigation Buttons
-    for p in PHASES:
-        is_active = (p == st.session_state.current_phase_label)
-        # We disable navigation if no key is present to prevent errors, or allow it for UI preview
-        # But for landing page, usually we want to block interaction.
-        # User said "Showing up ... when someone is not yet on phase 1".
-        # This implies they want the UI to be cleaner.
-        # BUT they also said "should appear on left side bar on landing page" in the previous prompt.
-        # I will show the box and buttons.
-        st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,))
-    
-    st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
-    st.divider()
-    st.progress(calculate_granular_progress())
+    if "current_phase_label" not in st.session_state: 
+        st.session_state.current_phase_label = PHASES[0]
+        
+    if gemini_api_key:
+        for p in PHASES:
+            is_active = (p == st.session_state.current_phase_label)
+            if st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=update_phase, args=(p,)):
+                pass
+
+        st.markdown(f"""
+        <div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">
+            Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        st.progress(calculate_granular_progress())
 
 # LANDING PAGE LOGIC
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
-    st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background-color: #5D4037; padding: 20px; border-radius: 10px; color: white; margin-bottom: 20px;">
+        <h3>Welcome</h3>
+        <p>Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the agent.</p>
+        <p>Don't have a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</p>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
 
@@ -526,11 +695,10 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    # 1. Sync Logic (Manual) - REMOVED CALLBACKS from widgets to fix Enter key issue
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
+    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
-    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
 
@@ -538,11 +706,9 @@ if "Phase 1" in phase:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
-        # Removed on_change to allow Enter key to work naturally
         cond_input = st.text_input("Clinical Condition", key="p1_cond_input")
         setting_input = st.text_input("Care Setting", key="p1_setting")
         
-        # Save to state immediately
         st.session_state.data['phase1']['condition'] = cond_input
         st.session_state.data['phase1']['setting'] = setting_input
 
@@ -550,7 +716,6 @@ if "Phase 1" in phase:
         curr_key = f"{cond_input}|{setting_input}"
         last_key = st.session_state.get('last_criteria_key', '')
         
-        # Trigger Logic: If inputs exist and differ from last generation run
         if cond_input and setting_input and curr_key != last_key:
             with st.spinner("Auto-generating inclusion/exclusion criteria..."):
                 prompt = f"Act as a CMO. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria. Return JSON."
@@ -563,7 +728,6 @@ if "Phase 1" in phase:
                     st.session_state['last_criteria_key'] = curr_key
                     st.rerun()
         
-        # Manual sync for text areas
         inc_val = st.text_area("Inclusion Criteria", height=100, key="p1_inc")
         exc_val = st.text_area("Exclusion Criteria", height=100, key="p1_exc")
         st.session_state.data['phase1']['inclusion'] = inc_val
