@@ -239,13 +239,13 @@ def create_word_docx(data):
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
     
-    doc.add_heading('Project Description', level=2)
+    doc.add_heading('Project Description (defines what)', level=2)
     doc.add_paragraph(ihi.get('project_description', ''))
     
-    doc.add_heading('Rationale', level=2)
+    doc.add_heading('Rationale (defines why)', level=2)
     doc.add_paragraph(ihi.get('rationale', ''))
     
-    doc.add_heading('Expected Outcomes', level=2)
+    doc.add_heading('Expected Outcomes and Benefits', level=2)
     doc.add_paragraph(ihi.get('expected_outcomes', ''))
     
     doc.add_heading('Aim Statement', level=2)
@@ -265,7 +265,7 @@ def create_word_docx(data):
     for m in ihi.get('balancing_measures', []):
         doc.add_paragraph(f"- {m}", style='List Bullet')
 
-    doc.add_heading('What changes can we make?', level=1)
+    doc.add_heading('What changes can we make that will result in improvement?', level=1)
     
     doc.add_heading('Initial Activities', level=2)
     doc.add_paragraph(ihi.get('initial_activities', ''))
@@ -696,9 +696,9 @@ st.divider()
 # --- PHASE 1 ---
 if "Phase 1" in phase:
     if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
-    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
     if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
+    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
 
