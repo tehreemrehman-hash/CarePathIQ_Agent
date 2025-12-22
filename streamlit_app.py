@@ -28,7 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS: RESTORED ORIGINAL THEME ---
+# --- CUSTOM CSS: ORIGINAL THEME ---
 st.markdown("""
 <style>
     /* 1. MAIN BUTTONS (Primary & Secondary) -> Dark Brown (#5D4037) */
@@ -67,7 +67,7 @@ st.markdown("""
         background-color: #3E2723 !important;
     }
 
-    /* SIDEBAR BUTTONS -> Mint Green Background, Brown Text (RESTORED) */
+    /* SIDEBAR BUTTONS -> Mint Green Background, Brown Text */
     section[data-testid="stSidebar"] div.stButton > button {
         background-color: #A9EED1 !important; 
         color: #5D4037 !important;
@@ -122,6 +122,17 @@ st.markdown("""
 
 # CONSTANTS
 COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
+COPYRIGHT_HTML = """
+<div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.85em; color: #666;">
+    <p>
+        <a href="https://www.carepathiq.org" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">CarePathIQ</a> 
+        © 2024 by 
+        <a href="https://www.tehreemrehman.com" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">Tehreem Rehman</a> 
+        is licensed under 
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" style="text-decoration:none; color:#4a4a4a;">CC BY-SA 4.0</a>
+    </p>
+</div>
+"""
 
 # ==========================================
 # 2. HELPER FUNCTIONS
@@ -316,7 +327,7 @@ def search_pubmed(query):
         return []
 
 def render_bottom_navigation():
-    """Renders Previous/Next buttons at the bottom of the page (RESTORED LOGIC)."""
+    """Renders Previous/Next buttons at the bottom of the page."""
     st.divider()
     PHASES = [
         "Phase 1: Scoping & Charter", 
@@ -346,7 +357,7 @@ def render_bottom_navigation():
 # 3. SIDEBAR & SESSION INITIALIZATION
 # ==========================================
 with st.sidebar:
-    # Clickable Logo (RESTORED)
+    # Clickable Logo
     try:
         if "CarePathIQ_Logo.png" in os.listdir():
             with open("CarePathIQ_Logo.png", "rb") as f:
@@ -364,7 +375,7 @@ with st.sidebar:
     except Exception: pass
 
     st.title("AI Agent")
-    st.caption("Clinical Pathway Architect")
+    # Removed "Clinical Pathway Architect" caption per request
     st.divider()
     
     default_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -375,7 +386,7 @@ with st.sidebar:
         st.success("AI Connected")
     st.divider()
     
-    # Navigation Buttons (RESTORED MINT GREEN THEME)
+    # Navigation Buttons (Mint Green)
     PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
     if "current_phase_label" not in st.session_state: st.session_state.current_phase_label = PHASES[0]
     
@@ -390,7 +401,7 @@ with st.sidebar:
             st.session_state.current_phase_label = PHASES[curr_idx-1]
             st.rerun()
             
-    # Phase Status Box (RESTORED)
+    # Phase Status Box
     st.markdown(f"""
     <div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">
         Current Phase: <br><span style="font-size: 1.1em;">{current_label}</span>
@@ -405,6 +416,18 @@ with st.sidebar:
 
     st.divider()
     st.progress(calculate_granular_progress())
+
+# LANDING PAGE LOGIC: BLOCK ACCESS WITHOUT KEY
+if not gemini_api_key:
+    st.title("CarePathIQ AI Agent")
+    st.markdown("""
+    <div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;">
+        <strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. 
+        Get a free API key <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; text-decoration: underline;">here</a>.
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
+    st.stop()
 
 if "data" not in st.session_state:
     st.session_state.data = {
@@ -423,7 +446,7 @@ if 'target_phase' in st.session_state and st.session_state.target_phase:
 # ==========================================
 # 4. MAIN WORKFLOW LOGIC
 # ==========================================
-# Top Navigation (Restored Radio Button Logic)
+# Top Navigation
 phase = st.radio("Workflow Phase", PHASES, index=curr_idx, horizontal=True, label_visibility="collapsed", key="top_nav_radio")
 if phase != st.session_state.current_phase_label:
     st.session_state.current_phase_label = phase
@@ -452,9 +475,9 @@ if "Phase 1" in phase:
                         st.session_state.data['phase1'].update(res)
                         st.rerun()
     st.divider()
-    st.subheader("Project Schedule")
+    st.subheader("Schedule Gantt Chart")
     
-    # 9-Step Schedule Logic (Fixed Date Math)
+    # 9-Step Schedule Logic (Fixed Date Math & Terminology)
     if not st.session_state.data['phase1']['schedule']:
         today = date.today()
         def add_weeks(start, w): return start + timedelta(weeks=w)
@@ -462,30 +485,99 @@ if "Phase 1" in phase:
         d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
         
         st.session_state.data['phase1']['schedule'] = [
-            {"Phase": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
-            {"Phase": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
-            {"Phase": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
-            {"Phase": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
-            {"Phase": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-            {"Phase": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
-            {"Phase": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
-            {"Phase": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
-            {"Phase": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
+            {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
+            {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
+            {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
+            {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
+            {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
+            {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
+            {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
+            {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
+            {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
         ]
         
     df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor")
+    # Column config with 'Stage' instead of 'Phase'
+    edited_sched = st.data_editor(
+        df_sched, 
+        num_rows="dynamic", 
+        use_container_width=True, 
+        key="sched_editor",
+        column_config={
+            "Stage": st.column_config.TextColumn("Stage", width="medium"),
+            "Owner": st.column_config.TextColumn("Owner"),
+            "Start": st.column_config.DateColumn("Start"),
+            "End": st.column_config.DateColumn("End")
+        }
+    )
     if not edited_sched.empty:
         st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
         chart_data = edited_sched.copy()
         chart_data['Start'] = pd.to_datetime(chart_data['Start'])
         chart_data['End'] = pd.to_datetime(chart_data['End'])
-        chart = alt.Chart(chart_data).mark_bar().encode(x='Start', x2='End', y='Phase', color='Owner').interactive()
+        # Updated Altair chart to use 'Stage'
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x='Start', 
+            x2='End', 
+            y=alt.Y('Stage', sort=None), 
+            color='Owner',
+            tooltip=['Stage', 'Start', 'End', 'Owner']
+        ).interactive()
         st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Charter"):
-        charter_text = f"# Project Charter: {st.session_state.data['phase1']['condition']}\n\n**Problem Statement:**\n{st.session_state.data['phase1']['problem']}\n\n**Objectives:**\n{st.session_state.data['phase1']['objectives']}\n\n**Scope:**\nInclusion: {st.session_state.data['phase1']['inclusion']}\nExclusion: {st.session_state.data['phase1']['exclusion']}"
-        export_widget(charter_text, "Project_Charter.md", "text/markdown", label="Download Charter (.md)")
+        d = st.session_state.data['phase1']
+        today_str = date.today().strftime("%B %d, %Y")
+        
+        # Schedule String
+        sched_list = d.get('schedule', [])
+        schedule_html = ""
+        for item in sched_list:
+            schedule_html += f"<tr><td>{item.get('Stage','')}</td><td>{item.get('Owner','')}</td><td>{item.get('Start','')}</td><td>{item.get('End','')}</td></tr>"
+
+        # Detailed HTML Charter
+        charter_html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; color: #333; }}
+                h1 {{ color: #5D4037; border-bottom: 2px solid #5D4037; padding-bottom: 10px; }}
+                h2 {{ color: #00695C; margin-top: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f2f2f2; }}
+            </style>
+        </head>
+        <body>
+            <h1>Project Charter: {d['condition']} Pathway</h1>
+            <p><strong>Date:</strong> {today_str}</p>
+            
+            <h2>1. Project Overview</h2>
+            <p><strong>Clinical Gap / Problem:</strong><br>{d['problem']}</p>
+            <p><strong>Care Setting:</strong> {d['setting']}</p>
+            
+            <h2>2. Scope</h2>
+            <table style="width:100%">
+                <tr><th style="width:50%">Inclusion Criteria</th><th style="width:50%">Exclusion Criteria</th></tr>
+                <tr><td valign="top">{d['inclusion'].replace(chr(10), '<br>')}</td><td valign="top">{d['exclusion'].replace(chr(10), '<br>')}</td></tr>
+            </table>
+            
+            <h2>3. SMART Objectives</h2>
+            <p>{d['objectives'].replace(chr(10), '<br>')}</p>
+            
+            <h2>4. Project Schedule (Gantt)</h2>
+            <table>
+                <tr><th>Stage</th><th>Owner</th><th>Start Date</th><th>End Date</th></tr>
+                {schedule_html}
+            </table>
+            
+            <div style="margin-top: 30px; font-size: 0.8em; color: #777;">
+                Generated by CarePathIQ AI Agent
+            </div>
+        </body>
+        </html>
+        """
+        export_widget(charter_html, "Project_Charter.html", "text/html", label="Download Charter (.html)")
 
     render_bottom_navigation()
 
@@ -721,3 +813,4 @@ elif "Phase 5" in phase:
     render_bottom_navigation()
 
 st.markdown(COPYRIGHT_MD, unsafe_allow_html=True)
+st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
