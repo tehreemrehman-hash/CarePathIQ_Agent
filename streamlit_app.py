@@ -15,23 +15,21 @@ import os
 import copy
 import xml.etree.ElementTree as ET
 import altair as alt
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
 
 # --- LIBRARY HANDLING ---
-# Safely import libraries to prevent app crash if requirements.txt is missing
 try:
     from docx import Document
     from docx.shared import Inches as DocxInches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    import matplotlib.pyplot as plt
-    import matplotlib.dates as mdates
+    # PPTX imports removed as requested
 except ImportError:
-    st.error("Missing Libraries: Please add `python-docx` and `matplotlib` to your requirements.txt file.")
+    st.error("Missing Libraries: Please run `pip install python-docx matplotlib`")
     Document = None
-    plt = None
-    mdates = None
 
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
@@ -45,11 +43,10 @@ st.set_page_config(
 # --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* AGGRESSIVELY HIDE HEADER LINKS & ANCHORS */
+    /* HIDE HEADER LINKS (Aggressive) */
     [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
-    a.anchor-link { display: none !important; height: 0px !important; width: 0px !important; }
-    .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a { display: none !important; pointer-events: none; cursor: default; text-decoration: none; color: transparent !important; }
-    h1 > a, h2 > a, h3 > a { display: none !important; }
+    a.anchor-link { display: none !important; pointer-events: none; }
+    h1 a, h2 a, h3 a { display: none !important; color: transparent !important; }
     
     /* BUTTONS */
     div.stButton > button, 
@@ -182,6 +179,25 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 # 2. HELPER FUNCTIONS
 # ==========================================
 
+# --- NAVIGATION CONTROLLER (Moved Up) ---
+def change_phase(new_phase):
+    st.session_state.current_phase_label = new_phase
+
+def update_phase(new_phase):
+    st.session_state.current_phase_label = new_phase
+
+# --- BOTTOM NAVIGATION (Moved Up) ---
+def render_bottom_navigation():
+    st.divider()
+    current_label = st.session_state.get('current_phase_label', PHASES[0])
+    try: curr_idx = PHASES.index(current_label)
+    except: curr_idx = 0
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if curr_idx > 0: st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=change_phase, args=(PHASES[curr_idx-1],))
+    with col3:
+        if curr_idx < len(PHASES) - 1: st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=change_phase, args=(PHASES[curr_idx+1],))
+
 def calculate_granular_progress():
     if 'data' not in st.session_state: return 0.0
     data = st.session_state.data
@@ -224,8 +240,8 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
 
 def generate_gantt_image(schedule):
     if not schedule: return None
-    # Safety check if matplotlib is not installed
-    if plt is None or mdates is None: return None
+    # Safety check if matplotlib is not installed/imported
+    if 'plt' not in globals() or 'mdates' not in globals() or plt is None: return None
     try:
         df = pd.DataFrame(schedule)
         df['Start'] = pd.to_datetime(df['Start'])
@@ -256,7 +272,6 @@ def create_word_docx(data):
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
     ihi = data.get('ihi_content', {})
     
-    # Charter Structure
     doc.add_heading('What are we trying to accomplish?', level=1)
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
@@ -456,10 +471,6 @@ def format_as_numbered_list(items):
     if isinstance(items, list):
         return "\n".join([f"{i+1}. {item}" for i, item in enumerate(items)])
     return str(items)
-
-# --- NAVIGATION CONTROLLER ---
-def change_phase(new_phase):
-    st.session_state.current_phase_label = new_phase
 
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
