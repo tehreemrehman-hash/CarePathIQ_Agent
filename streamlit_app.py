@@ -42,10 +42,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS: RESTORED ORIGINAL THEME ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* 1. MAIN BUTTONS (Primary & Secondary) -> Dark Brown (#5D4037) */
+    /* BUTTONS */
     div.stButton > button, 
     div[data-testid="stButton"] > button,
     button[kind="primary"],
@@ -62,8 +62,6 @@ st.markdown("""
         border-color: #3E2723 !important;
         color: white !important;
     }
-    
-    /* DISABLE BUTTONS */
     div.stButton > button:disabled {
         background-color: #eee !important;
         color: #999 !important;
@@ -80,8 +78,8 @@ st.markdown("""
     div.stDownloadButton > button:hover {
         background-color: #3E2723 !important;
     }
-    
-    /* LINK BUTTONS (Open in PubMed) -> Dark Brown (#5D4037) */
+
+    /* LINK BUTTONS */
     a[kind="secondary"] {
         background-color: #5D4037 !important;
         border-color: #5D4037 !important;
@@ -96,7 +94,7 @@ st.markdown("""
         color: white !important;
     }
 
-    /* SIDEBAR BUTTONS -> Mint Green Background, Brown Text */
+    /* SIDEBAR BUTTONS */
     section[data-testid="stSidebar"] div.stButton > button {
         background-color: #A9EED1 !important; 
         color: #5D4037 !important;
@@ -108,7 +106,7 @@ st.markdown("""
         color: #3E2723 !important;
     }
     
-    /* RADIO BUTTONS (Phase Indicator) */
+    /* RADIO BUTTONS */
     div[role="radiogroup"] label > div:first-child {
         background-color: white !important;
         border-color: #5D4037 !important;
@@ -140,7 +138,7 @@ st.markdown("""
     /* HEADERS */
     h1, h2, h3 { color: #00695C; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     
-    /* TOOLTIP STYLING */
+    /* TOOLTIPS */
     div[data-testid="stTooltipContent"] {
         background-color: white !important;
         color: #333 !important;
@@ -183,25 +181,25 @@ def calculate_granular_progress():
     total_points = 0
     earned_points = 0
     
-    # Phase 1: 6 points
+    # Phase 1
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
-    # Phase 2: 2 points
+    # Phase 2
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
-    # Phase 3: 3 points
+    # Phase 3
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
-    # Phase 4: 2 points
+    # Phase 4
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
-    # Phase 5: 3 points
+    # Phase 5
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
@@ -211,7 +209,6 @@ def calculate_granular_progress():
     return min(1.0, earned_points / total_points)
 
 def styled_info(text):
-    # Apply bold only to the "Tip:" part
     formatted_text = text.replace("Tip:", "<b>Tip:</b>")
     st.markdown(f"""
     <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
@@ -220,112 +217,144 @@ def styled_info(text):
 
 def export_widget(content, filename, mime_type="text/plain", label="Download"):
     final_content = content
-    # For text-based formats (HTML/MD), append copyright footer
     if "text" in mime_type or "csv" in mime_type or "markdown" in mime_type:
         if isinstance(content, str):
             final_content = content + COPYRIGHT_MD
     st.download_button(label, final_content, filename, mime_type)
 
 def create_word_docx(data):
-    """Generates the IHI-aligned Project Charter Word Doc."""
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
-    
     ihi = data.get('ihi_content', {})
-    
     doc.add_heading('What are we trying to accomplish?', level=1)
-    
     doc.add_heading('Problem', level=2)
     doc.add_paragraph(ihi.get('problem', data.get('problem', '')))
-    
-    doc.add_heading('Project Description (defines what)', level=2)
+    doc.add_heading('Project Description', level=2)
     doc.add_paragraph(ihi.get('project_description', ''))
-    
-    doc.add_heading('Rationale (defines why)', level=2)
+    doc.add_heading('Rationale', level=2)
     doc.add_paragraph(ihi.get('rationale', ''))
-    
-    doc.add_heading('Expected Outcomes and Benefits', level=2)
+    doc.add_heading('Expected Outcomes', level=2)
     doc.add_paragraph(ihi.get('expected_outcomes', ''))
-    
     doc.add_heading('Aim Statement', level=2)
     doc.add_paragraph(ihi.get('aim_statement', data.get('objectives', '')))
-
     doc.add_heading('How will we know that a change is an improvement?', level=1)
-    
     doc.add_heading('Outcome Measure(s)', level=2)
-    for m in ihi.get('outcome_measures', []):
-        doc.add_paragraph(f"- {m}", style='List Bullet')
-        
+    for m in ihi.get('outcome_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
     doc.add_heading('Process Measure(s)', level=2)
-    for m in ihi.get('process_measures', []):
-        doc.add_paragraph(f"- {m}", style='List Bullet')
-        
+    for m in ihi.get('process_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
     doc.add_heading('Balancing Measure(s)', level=2)
-    for m in ihi.get('balancing_measures', []):
-        doc.add_paragraph(f"- {m}", style='List Bullet')
-
-    doc.add_heading('What changes can we make that will result in improvement?', level=1)
-    
+    for m in ihi.get('balancing_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+    doc.add_heading('What changes can we make?', level=1)
     doc.add_heading('Initial Activities', level=2)
     doc.add_paragraph(ihi.get('initial_activities', ''))
-    
     doc.add_heading('Change Ideas', level=2)
-    for c in ihi.get('change_ideas', []):
-        doc.add_paragraph(f"- {c}", style='List Bullet')
-        
+    for c in ihi.get('change_ideas', []): doc.add_paragraph(f"- {c}", style='List Bullet')
     doc.add_heading('Key Stakeholders', level=2)
     doc.add_paragraph(ihi.get('stakeholders', ''))
-    
     doc.add_heading('Barriers', level=2)
     doc.add_paragraph(ihi.get('barriers', ''))
-    
     doc.add_heading('Boundaries', level=2)
     doc.add_paragraph(ihi.get('boundaries', ''))
-    
-    # Copyright Footer
+    doc.add_heading('Project Timeline', level=1)
+    schedule = data.get('schedule', [])
+    if schedule:
+        table = doc.add_table(rows=1, cols=4)
+        table.style = 'Table Grid'
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'Stage'; hdr_cells[1].text = 'Owner'; hdr_cells[2].text = 'Start Date'; hdr_cells[3].text = 'End Date'
+        for item in schedule:
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(item.get('Stage', ''))
+            row_cells[1].text = str(item.get('Owner', ''))
+            row_cells[2].text = str(item.get('Start', ''))
+            row_cells[3].text = str(item.get('End', ''))
     section = doc.sections[0]
     footer = section.footer
     p = footer.paragraphs[0]
     p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
 def create_exec_summary_docx(summary_text, condition):
-    """Generates a Word Document for the Executive Summary."""
     if Document is None: return None
     doc = Document()
     doc.add_heading(f"Executive Summary: {condition}", 0)
-    
     for line in summary_text.split('\n'):
         if line.strip():
-            if line.startswith('###'):
-                doc.add_heading(line.replace('###', '').strip(), level=3)
-            elif line.startswith('##'):
-                doc.add_heading(line.replace('##', '').strip(), level=2)
-            elif line.startswith('#'):
-                doc.add_heading(line.replace('#', '').strip(), level=1)
-            else:
-                doc.add_paragraph(line.strip().replace('**', ''))
-
-    # Copyright Footer
+            if line.startswith('###'): doc.add_heading(line.replace('###', '').strip(), level=3)
+            elif line.startswith('##'): doc.add_heading(line.replace('##', '').strip(), level=2)
+            elif line.startswith('#'): doc.add_heading(line.replace('#', '').strip(), level=1)
+            else: doc.add_paragraph(line.strip().replace('**', ''))
     section = doc.sections[0]
     footer = section.footer
     p = footer.paragraphs[0]
     p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
+def create_ppt_presentation(slides_data, flowchart_img=None):
+    if Presentation is None: return None
+    try:
+        prs = Presentation()
+        # Theme Colors
+        BROWN = RGBColor(93, 64, 55)
+        WHITE = RGBColor(255, 255, 255)
+        GREY = RGBColor(80, 80, 80)
+
+        def add_footer(slide):
+            left = Inches(0.5); top = Inches(7.1); width = Inches(9); height = Inches(0.3)
+            txBox = slide.shapes.add_textbox(left, top, width, height)
+            p = txBox.text_frame.paragraphs[0]
+            p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+            p.font.size = Pt(9); p.font.color.rgb = GREY; p.alignment = PP_ALIGN.CENTER
+
+        # Title Slide
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        fill = slide.background.fill; fill.solid(); fill.fore_color.rgb = BROWN
+        tbox = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(2))
+        p = tbox.text_frame.paragraphs[0]
+        p.text = slides_data.get('title', 'Presentation')
+        p.font.size = Pt(44); p.font.color.rgb = WHITE; p.font.bold = True; p.alignment = PP_ALIGN.CENTER
+        add_footer(slide)
+
+        # Content Slides
+        for s_info in slides_data.get('slides', []):
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            # Header
+            shape = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(1.2))
+            shape.fill.solid(); shape.fill.fore_color.rgb = BROWN; shape.line.fill.background()
+            tbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(9), Inches(0.8))
+            p = tbox.text_frame.paragraphs[0]
+            p.text = s_info.get('title', '')
+            p.font.size = Pt(32); p.font.color.rgb = WHITE; p.font.bold = True
+            # Content
+            cbox = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(5.0))
+            tf = cbox.text_frame; tf.word_wrap = True
+            content = s_info.get('content', '')
+            # Simple markdown cleanup
+            for line in content.split('\n'):
+                if line.strip():
+                    p = tf.add_paragraph()
+                    p.text = line.replace('**','').strip()
+                    p.font.size = Pt(18); p.font.color.rgb = GREY
+            add_footer(slide)
+
+        buffer = BytesIO()
+        prs.save(buffer)
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"PPT Generation Error: {e}")
+        return None
+
 def harden_nodes(nodes_list):
-    """Validates and repairs the Decision Tree logic."""
     if not isinstance(nodes_list, list): return []
     validated = []
     for i, node in enumerate(nodes_list):
@@ -336,10 +365,7 @@ def harden_nodes(nodes_list):
         if 'type' not in node: node['type'] = 'Process'
         if node['type'] == 'Decision':
             if 'branches' not in node or not isinstance(node['branches'], list):
-                node['branches'] = [
-                    {'label': 'Yes', 'target': i+1 if i+1 < len(nodes_list) else None},
-                    {'label': 'No', 'target': i+2 if i+2 < len(nodes_list) else None}
-                ]
+                node['branches'] = [{'label': 'Yes', 'target': i+1 if i+1 < len(nodes_list) else None}, {'label': 'No', 'target': i+2 if i+2 < len(nodes_list) else None}]
             else:
                 for b in node['branches']:
                     if 'label' not in b: b['label'] = 'Option'
@@ -348,39 +374,26 @@ def harden_nodes(nodes_list):
     return validated
 
 def generate_mermaid_code(nodes, orientation="TD"):
-    """Generates Mermaid flowchart code."""
     if not nodes: return "flowchart TD\n%% No nodes"
-    
     valid_nodes = harden_nodes(nodes)
-    
-    # 1. Group by Role (Swimlanes)
     from collections import defaultdict
     swimlanes = defaultdict(list)
     for i, n in enumerate(valid_nodes):
         role = n.get('role', 'Unassigned')
         swimlanes[role].append((i, n))
-    
     code = f"flowchart {orientation}\n"
     node_id_map = {}
-    
-    # 2. Build Nodes inside Subgraphs
     for role, n_list in swimlanes.items():
         code += f"    subgraph {role}\n"
         for i, n in n_list:
             nid = f"N{i}"
             node_id_map[i] = nid
-            
-            # Label & Styling
             label = n.get('label', 'Step').replace('"', "'")
             detail = n.get('detail', '').replace('"', "'")
             meds = n.get('medications', '')
             if meds: detail += f"\\nMeds: {meds}"
             full_label = f"{label}\\n{detail}" if detail else label
-            
             ntype = n.get('type', 'Process')
-            style = ""
-            shape_s, shape_e = '[', ']'
-            
             if ntype == 'Start':
                 shape_s, shape_e = '([', '])'
                 style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
@@ -390,19 +403,15 @@ def generate_mermaid_code(nodes, orientation="TD"):
             elif ntype == 'End':
                 shape_s, shape_e = '([', '])'
                 style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            else: # Process/Note
+            else:
                 shape_s, shape_e = '[', ']'
                 style = f'style {nid} fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
-            
             code += f'        {nid}{shape_s}"{full_label}"{shape_e}\n'
             code += f'        {style}\n'
         code += "    end\n"
-        
-    # 3. Build Edges
     for i, n in enumerate(valid_nodes):
         nid = node_id_map[i]
         ntype = n.get('type')
-        
         if ntype == 'Decision' and 'branches' in n:
             for b in n.get('branches', []):
                 t_idx = b.get('target')
@@ -410,27 +419,16 @@ def generate_mermaid_code(nodes, orientation="TD"):
                 if isinstance(t_idx, (int, float)) and 0 <= t_idx < len(valid_nodes):
                      code += f"    {nid} --|{lbl}| {node_id_map[int(t_idx)]}\n"
         else:
-            # Simple sequential flow
             if i + 1 < len(valid_nodes):
                 code += f"    {nid} --> {node_id_map[i+1]}\n"
-                
     return code
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
-    
-    # --- UPDATED MODEL LIST (2025) ---
     if model_choice == "Auto":
-        candidates = [
-            "gemini-3-flash-preview",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash"
-        ]
+        candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]
     else:
         candidates = [model_choice, "gemini-1.5-flash"]
-        
     response = None
     for model_name in candidates:
         try:
@@ -448,9 +446,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         if stream_container:
             text = ""
             for chunk in response:
-                if chunk.text:
-                    text += chunk.text
-                    stream_container.markdown(text + "▌")
+                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
             stream_container.markdown(text) 
         else:
             text = response.text
@@ -504,14 +500,11 @@ def render_bottom_navigation():
     current_label = st.session_state.get('current_phase_label', PHASES[0])
     try: curr_idx = PHASES.index(current_label)
     except: curr_idx = 0
-    
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
-        if curr_idx > 0:
-            st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx-1],))
+        if curr_idx > 0: st.button(f"← Previous: {PHASES[curr_idx-1].split(':')[0]}", key=f"btm_prev_{curr_idx}", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx-1],))
     with col3:
-        if curr_idx < len(PHASES) - 1:
-            st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx+1],))
+        if curr_idx < len(PHASES) - 1: st.button(f"Next: {PHASES[curr_idx+1].split(':')[0]} →", key=f"btm_next_{curr_idx}", type="primary", use_container_width=True, on_click=update_phase, args=(PHASES[curr_idx+1],))
 
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
@@ -529,15 +522,7 @@ with st.sidebar:
     
     default_key = st.secrets.get("GEMINI_API_KEY", "")
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
-    
-    # --- UPDATED MODEL LIST (2025) ---
-    model_options = [
-        "Auto", 
-        "gemini-3-flash-preview", 
-        "gemini-2.5-pro", 
-        "gemini-2.5-flash", 
-        "gemini-1.5-pro"
-    ]
+    model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
     if gemini_api_key:
@@ -557,7 +542,7 @@ with st.sidebar:
 
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
-    st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar.</div>""", unsafe_allow_html=True)
+    st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
 
@@ -593,7 +578,7 @@ if "Phase 1" in phase:
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
 
-    styled_info("Tip: This form is <b>interactive</b>. The AI agent will auto-draft sections as you type. You can manually edit any text area to refine the content.")
+    styled_info("<b>Tip:</b> This form is interactive. The AI agent will auto-draft sections as you type. You can manually edit any text area to refine the content.")
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
@@ -666,7 +651,7 @@ if "Phase 1" in phase:
             {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
         ]
     df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor")
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
     if not edited_sched.empty:
         st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
         chart_data = edited_sched.copy()
@@ -807,8 +792,19 @@ elif "Phase 4" in phase:
     col_vis, col_heuristics = st.columns([2, 1])
     with col_vis:
         st.subheader("Pathway Visualization")
-        mermaid_code = generate_mermaid_code(nodes)
+        c_view1, c_view2 = st.columns([1, 2])
+        with c_view1:
+            orientation = st.selectbox("Orientation", ["Vertical (TD)", "Horizontal (LR)"], index=0)
+            mermaid_orient = "TD" if "Vertical" in orientation else "LR"
+        mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
         components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
+        with st.expander("Edit Pathway Data", expanded=False):
+            df_p4 = pd.DataFrame(nodes)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            if not df_p4.equals(edited_p4):
+                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                st.rerun()
+
     with col_heuristics:
         st.subheader("Heuristics")
         if st.button("Analyze Risks"):
@@ -930,11 +926,24 @@ elif "Phase 5" in phase:
         if st.button("Update Education Module"):
              new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
              if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+    
+    st.divider()
+
+    # 4. Slide Deck
+    st.subheader("4. Slide Deck")
+    if st.button("Generate Slide Deck"):
+        with st.spinner("Generating..."):
+            s_prompt = f"Create slide deck structure for {cond}. Audience: {audience}. Return JSON: title, slides (title, content)."
+            s_json = get_gemini_response(s_prompt, json_mode=True)
+            if s_json: st.session_state.data['phase5']['pptx'] = create_ppt_presentation(s_json)
+    
+    if st.session_state.data['phase5'].get('pptx'):
+        st.download_button("Download Slides (.pptx)", st.session_state.data['phase5']['pptx'], "Slides.pptx")
 
     st.divider()
     
-    # 4. Exec Summary
-    st.subheader("4. Executive Summary")
+    # 5. Exec Summary
+    st.subheader("5. Executive Summary")
     if st.button("Draft Executive Summary"):
         with st.spinner("Drafting..."):
             st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
