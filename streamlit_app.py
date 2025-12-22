@@ -19,6 +19,15 @@ import altair as alt
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
 
+# --- LIBRARY HANDLING ---
+try:
+    from docx import Document
+    from docx.shared import Inches as DocxInches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+except ImportError:
+    st.error("Missing Libraries: Please run `pip install python-docx`")
+    Document = None
+
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
 # ==========================================
@@ -28,10 +37,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS: ORIGINAL THEME ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* 1. MAIN BUTTONS (Primary & Secondary) -> Dark Brown (#5D4037) */
+    /* BUTTONS */
     div.stButton > button, 
     div[data-testid="stButton"] > button,
     button[kind="primary"],
@@ -48,8 +57,6 @@ st.markdown("""
         border-color: #3E2723 !important;
         color: white !important;
     }
-    
-    /* DISABLE BUTTONS */
     div.stButton > button:disabled {
         background-color: #eee !important;
         color: #999 !important;
@@ -67,7 +74,7 @@ st.markdown("""
         background-color: #3E2723 !important;
     }
 
-    /* SIDEBAR BUTTONS -> Mint Green Background, Brown Text */
+    /* SIDEBAR BUTTONS */
     section[data-testid="stSidebar"] div.stButton > button {
         background-color: #A9EED1 !important; 
         color: #5D4037 !important;
@@ -79,7 +86,7 @@ st.markdown("""
         color: #3E2723 !important;
     }
     
-    /* RADIO BUTTONS (Phase Indicator) */
+    /* RADIO BUTTONS */
     div[role="radiogroup"] label > div:first-child {
         background-color: white !important;
         border-color: #5D4037 !important;
@@ -111,7 +118,7 @@ st.markdown("""
     /* HEADERS */
     h1, h2, h3 { color: #00695C; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     
-    /* TOOLTIP STYLING */
+    /* TOOLTIPS */
     div[data-testid="stTooltipContent"] {
         background-color: white !important;
         color: #333 !important;
@@ -121,8 +128,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # CONSTANTS
-COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
-COPYRIGHT_HTML = """
+COPYRIGHT_HTML_FOOTER = """
 <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 0.85em; color: #666;">
     <p>
         <a href="https://www.carepathiq.org" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">CarePathIQ</a> 
@@ -130,9 +136,21 @@ COPYRIGHT_HTML = """
         <a href="https://www.tehreemrehman.com" target="_blank" style="text-decoration:none; color:#4a4a4a; font-weight:bold;">Tehreem Rehman</a> 
         is licensed under 
         <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" style="text-decoration:none; color:#4a4a4a;">CC BY-SA 4.0</a>
+        <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;">
+        <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;">
+        <img src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" alt="" style="max-width: 1em;max-height:1em;margin-left: .2em;">
     </p>
 </div>
 """
+COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
+
+HEURISTIC_DEFS = {
+    "H1": "Visibility of system status", "H2": "Match between system and real world",
+    "H3": "User control and freedom", "H4": "Consistency and standards",
+    "H5": "Error prevention", "H6": "Recognition rather than recall",
+    "H7": "Flexibility and efficiency of use", "H8": "Aesthetic and minimalist design",
+    "H9": "Help users recognize, diagnose, and recover from errors", "H10": "Help and documentation"
+}
 
 # ==========================================
 # 2. HELPER FUNCTIONS
@@ -144,25 +162,25 @@ def calculate_granular_progress():
     total_points = 0
     earned_points = 0
     
-    # Phase 1: 6 points
+    # Phase 1
     p1 = data.get('phase1', {})
     for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
         total_points += 1
         if p1.get(k): earned_points += 1
-    # Phase 2: 2 points
+    # Phase 2
     p2 = data.get('phase2', {})
     total_points += 2
     if p2.get('mesh_query'): earned_points += 1
     if p2.get('evidence'): earned_points += 1
-    # Phase 3: 3 points
+    # Phase 3
     p3 = data.get('phase3', {})
     total_points += 3
     if p3.get('nodes'): earned_points += 3
-    # Phase 4: 2 points
+    # Phase 4
     p4 = data.get('phase4', {})
     total_points += 2
     if p4.get('heuristics_data'): earned_points += 2
-    # Phase 5: 3 points
+    # Phase 5
     p5 = data.get('phase5', {})
     for k in ['beta_html', 'expert_html', 'edu_html']:
         total_points += 1
@@ -173,6 +191,7 @@ def calculate_granular_progress():
 
 def styled_info(text):
     formatted_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
+    formatted_text = re.sub(r'(?<!<b>)\bTip:', r'<b>Tip:</b>', formatted_text)
     st.markdown(f"""
     <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
         {formatted_text}
@@ -184,6 +203,89 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
         if isinstance(content, str):
             final_content = content + COPYRIGHT_MD
     st.download_button(label, final_content, filename, mime_type)
+
+def create_word_docx(data):
+    """Generates a Word Document Project Charter from Phase 1 data."""
+    if Document is None: return None
+    doc = Document()
+    doc.add_heading(f"Project Charter: {data.get('condition', 'Untitled')}", 0)
+    
+    doc.add_heading('1. Project Overview', level=1)
+    doc.add_paragraph(f"Care Setting: {data.get('setting', 'N/A')}")
+    doc.add_heading('Problem Statement', level=2)
+    doc.add_paragraph(data.get('problem', 'N/A'))
+    
+    doc.add_heading('2. Scope', level=1)
+    table = doc.add_table(rows=1, cols=2)
+    table.style = 'Table Grid'
+    hdr_cells = table.rows[0].cells
+    hdr_cells[0].text = 'Inclusion Criteria'
+    hdr_cells[1].text = 'Exclusion Criteria'
+    row_cells = table.add_row().cells
+    row_cells[0].text = data.get('inclusion', '')
+    row_cells[1].text = data.get('exclusion', '')
+    
+    doc.add_heading('3. SMART Objectives', level=1)
+    doc.add_paragraph(data.get('objectives', 'N/A'))
+    
+    doc.add_heading('4. Project Timeline', level=1)
+    schedule = data.get('schedule', [])
+    if schedule:
+        table = doc.add_table(rows=1, cols=4)
+        table.style = 'Table Grid'
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'Stage'
+        hdr_cells[1].text = 'Owner'
+        hdr_cells[2].text = 'Start Date'
+        hdr_cells[3].text = 'End Date'
+        
+        for item in schedule:
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(item.get('Stage', ''))
+            row_cells[1].text = str(item.get('Owner', ''))
+            row_cells[2].text = str(item.get('Start', ''))
+            row_cells[3].text = str(item.get('End', ''))
+    
+    # Copyright Footer
+    section = doc.sections[0]
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def create_exec_summary_docx(summary_text, condition):
+    """Generates a Word Document for the Executive Summary."""
+    if Document is None: return None
+    doc = Document()
+    doc.add_heading(f"Executive Summary: {condition}", 0)
+    
+    for line in summary_text.split('\n'):
+        if line.strip():
+            if line.startswith('###'):
+                doc.add_heading(line.replace('###', '').strip(), level=3)
+            elif line.startswith('##'):
+                doc.add_heading(line.replace('##', '').strip(), level=2)
+            elif line.startswith('#'):
+                doc.add_heading(line.replace('#', '').strip(), level=1)
+            else:
+                doc.add_paragraph(line.strip().replace('**', ''))
+
+    # Copyright Footer
+    section = doc.sections[0]
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 def harden_nodes(nodes_list):
     """Validates and repairs the Decision Tree logic."""
@@ -224,11 +326,14 @@ def generate_mermaid_code(nodes, orientation="TD"):
             nid = f"N{i}"
             node_id_map[i] = nid
             label = n.get('label', 'Step').replace('"', "'")
+            # Clinical details in visualizer
             detail = n.get('detail', '').replace('"', "'")
             meds = n.get('medications', '')
             if meds: detail += f"\\nMeds: {meds}"
+            
             full_label = f"{label}\\n{detail}" if detail else label
             ntype = n.get('type', 'Process')
+            
             if ntype == 'Start':
                 shape_s, shape_e = '([', '])'
                 style = f'style {nid} fill:#D5E8D4,stroke:#82B366,stroke-width:2px'
@@ -375,7 +480,6 @@ with st.sidebar:
     except Exception: pass
 
     st.title("AI Agent")
-    # Removed "Clinical Pathway Architect" caption per request
     st.divider()
     
     default_key = st.secrets.get("GEMINI_API_KEY", "")
@@ -426,7 +530,7 @@ if not gemini_api_key:
         Get a free API key <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; text-decoration: underline;">here</a>.
     </div>
     """, unsafe_allow_html=True)
-    st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
+    st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
 
 if "data" not in st.session_state:
@@ -456,26 +560,101 @@ st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    col1, col2 = st.columns(2)
+    # 1. Helper to Sync Widgets to Data Store
+    def sync_p1_widgets():
+        st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
+        st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
+        st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
+        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
+        st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
+        st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
+
+    # 2. Initialize Session State Keys if missing
+    if 'p1_cond_input' not in st.session_state: st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
+    if 'p1_inc' not in st.session_state: st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
+    if 'p1_exc' not in st.session_state: st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
+    if 'p1_setting' not in st.session_state: st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
+    if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
+    if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
+
+    styled_info("Tip: This form is <b>interactive</b>. The AI agent will auto-draft sections (Criteria, Problem, Goals) <b>as you type</b>. You can manually edit any text area to refine the content.")
+
+    col1, col2 = st.columns([1, 1])
+
     with col1:
-        st.session_state.data['phase1']['condition'] = st.text_input("Clinical Condition", value=st.session_state.data['phase1'].get('condition',''))
-        st.session_state.data['phase1']['setting'] = st.text_input("Care Setting", value=st.session_state.data['phase1'].get('setting',''))
-        st.session_state.data['phase1']['inclusion'] = st.text_area("Inclusion Criteria", value=st.session_state.data['phase1'].get('inclusion',''), height=100)
-        st.session_state.data['phase1']['exclusion'] = st.text_area("Exclusion Criteria", value=st.session_state.data['phase1'].get('exclusion',''), height=100)
+        st.subheader("1. Clinical Focus")
+        # Interactive Inputs with Callbacks
+        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Sepsis", key="p1_cond_input", on_change=sync_p1_widgets)
+        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
+        
+        st.subheader("2. Target Population")
+        # Logic: Auto-Generate Criteria if Condition/Setting change
+        curr_key = f"{cond_input}|{setting_input}"
+        last_key = st.session_state.get('last_criteria_key', '')
+        
+        if cond_input and setting_input and curr_key != last_key:
+            with st.spinner("Auto-generating inclusion/exclusion criteria..."):
+                prompt = f"""
+                Act as a Chief Medical Officer. For '{cond_input}' in '{setting_input}', suggest precise 'inclusion' and 'exclusion' criteria.
+                Return JSON object with keys: 'inclusion', 'exclusion'.
+                """
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    inc_text = str(data.get('inclusion', ''))
+                    exc_text = str(data.get('exclusion', ''))
+                    # Update State
+                    st.session_state.data['phase1']['inclusion'] = inc_text
+                    st.session_state.data['phase1']['exclusion'] = exc_text
+                    st.session_state['p1_inc'] = inc_text
+                    st.session_state['p1_exc'] = exc_text
+                    st.session_state['last_criteria_key'] = curr_key
+                    st.rerun()
+
+        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
+        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
+        
     with col2:
-        st.session_state.data['phase1']['problem'] = st.text_area("Problem Statement", value=st.session_state.data['phase1'].get('problem',''), height=100)
-        st.session_state.data['phase1']['objectives'] = st.text_area("SMART Objectives", value=st.session_state.data['phase1'].get('objectives',''), height=100)
-        if st.button("Auto-Draft Content (AI)", type="primary"):
-            cond = st.session_state.data['phase1']['condition']
-            if cond:
-                with st.spinner("Drafting..."):
-                    prompt = f"Act as CMO. For {cond}: Define 3 inclusion/exclusion criteria, a problem statement, and 3 SMART objectives. Return JSON."
-                    res = get_gemini_response(prompt, json_mode=True)
-                    if res:
-                        st.session_state.data['phase1'].update(res)
-                        st.rerun()
+        st.subheader("3. Clinical Gap / Problem Statement")
+        # Logic: Auto-Generate Problem if Criteria exist
+        curr_inc = st.session_state.get('p1_inc', '')
+        curr_cond = st.session_state.get('p1_cond_input', '')
+        curr_prob_key = f"{curr_inc}|{curr_cond}"
+        last_prob_key = st.session_state.get('last_prob_key', '')
+        
+        if curr_inc and curr_cond and curr_prob_key != last_prob_key:
+             with st.spinner("Auto-generating problem statement..."):
+                prompt = f"Act as a CMO. For condition '{curr_cond}', suggest a 'problem' statement referencing care variation. Return JSON with key: 'problem'."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    p_text = str(data.get('problem', ''))
+                    st.session_state.data['phase1']['problem'] = p_text
+                    st.session_state['p1_prob'] = p_text
+                    st.session_state['last_prob_key'] = curr_prob_key
+                    st.rerun()
+
+        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
+        
+        st.subheader("4. Goals")
+        # Logic: Auto-Generate Goals if Problem exists
+        curr_prob = st.session_state.get('p1_prob', '')
+        curr_obj_key = f"{curr_prob}|{curr_cond}"
+        last_obj_key = st.session_state.get('last_obj_key', '')
+        
+        if curr_prob and curr_cond and curr_obj_key != last_obj_key:
+             with st.spinner("Auto-generating SMART objectives..."):
+                prompt = f"Act as a CMO. For condition '{curr_cond}' addressing problem '{curr_prob}', suggest 3 SMART 'objectives'. Return JSON with key 'objectives'."
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    o_text = str(data.get('objectives', ''))
+                    st.session_state.data['phase1']['objectives'] = o_text
+                    st.session_state['p1_obj'] = o_text
+                    st.session_state['last_obj_key'] = curr_obj_key
+                    st.rerun()
+
+        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
+
     st.divider()
-    st.subheader("Schedule Gantt Chart")
+    st.subheader("5. Project Timeline (Gantt Chart)")
     
     # 9-Step Schedule Logic (Fixed Date Math & Terminology)
     if not st.session_state.data['phase1']['schedule']:
@@ -512,72 +691,44 @@ if "Phase 1" in phase:
     )
     if not edited_sched.empty:
         st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
+        
+        # ALTAIR FIX: Drop invalid data and force datetime conversion
         chart_data = edited_sched.copy()
+        chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
         chart_data['Start'] = pd.to_datetime(chart_data['Start'])
         chart_data['End'] = pd.to_datetime(chart_data['End'])
-        # Updated Altair chart to use 'Stage'
-        chart = alt.Chart(chart_data).mark_bar().encode(
-            x='Start', 
-            x2='End', 
-            y=alt.Y('Stage', sort=None), 
-            color='Owner',
-            tooltip=['Stage', 'Start', 'End', 'Owner']
-        ).interactive()
-        st.altair_chart(chart, use_container_width=True)
-    
-    if st.button("Generate Charter"):
-        d = st.session_state.data['phase1']
-        today_str = date.today().strftime("%B %d, %Y")
         
-        # Schedule String
-        sched_list = d.get('schedule', [])
-        schedule_html = ""
-        for item in sched_list:
-            schedule_html += f"<tr><td>{item.get('Stage','')}</td><td>{item.get('Owner','')}</td><td>{item.get('Start','')}</td><td>{item.get('End','')}</td></tr>"
-
-        # Detailed HTML Charter
-        charter_html = f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; color: #333; }}
-                h1 {{ color: #5D4037; border-bottom: 2px solid #5D4037; padding-bottom: 10px; }}
-                h2 {{ color: #00695C; margin-top: 20px; }}
-                table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                th {{ background-color: #f2f2f2; }}
-            </style>
-        </head>
-        <body>
-            <h1>Project Charter: {d['condition']} Pathway</h1>
-            <p><strong>Date:</strong> {today_str}</p>
-            
-            <h2>1. Project Overview</h2>
-            <p><strong>Clinical Gap / Problem:</strong><br>{d['problem']}</p>
-            <p><strong>Care Setting:</strong> {d['setting']}</p>
-            
-            <h2>2. Scope</h2>
-            <table style="width:100%">
-                <tr><th style="width:50%">Inclusion Criteria</th><th style="width:50%">Exclusion Criteria</th></tr>
-                <tr><td valign="top">{d['inclusion'].replace(chr(10), '<br>')}</td><td valign="top">{d['exclusion'].replace(chr(10), '<br>')}</td></tr>
-            </table>
-            
-            <h2>3. SMART Objectives</h2>
-            <p>{d['objectives'].replace(chr(10), '<br>')}</p>
-            
-            <h2>4. Project Schedule (Gantt)</h2>
-            <table>
-                <tr><th>Stage</th><th>Owner</th><th>Start Date</th><th>End Date</th></tr>
-                {schedule_html}
-            </table>
-            
-            <div style="margin-top: 30px; font-size: 0.8em; color: #777;">
-                Generated by CarePathIQ AI Agent
-            </div>
-        </body>
-        </html>
-        """
-        export_widget(charter_html, "Project_Charter.html", "text/html", label="Download Charter (.html)")
+        if not chart_data.empty:
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X('Start', title='Date'), 
+                x2='End', 
+                y=alt.Y('Stage', sort=None, title='Stage'), 
+                color=alt.Color('Owner', legend=alt.Legend(title="Owner")),
+                tooltip=['Stage', 'Start', 'End', 'Owner']
+            ).properties(height=300).interactive()
+            st.altair_chart(chart, use_container_width=True)
+    
+    if st.button("Generate Project Charter", type="primary", use_container_width=True):
+        # Sync final values before generation
+        sync_p1_widgets()
+        d = st.session_state.data['phase1']
+        
+        # Check inputs
+        if not d['condition'] or not d['problem']:
+            st.error("Please ensure Condition and Problem Statement are filled.")
+        else:
+            with st.status("Generating Charter Document...", expanded=True) as status:
+                charter_buffer = create_word_docx(d)
+                if charter_buffer:
+                    status.update(label="Charter Ready!", state="complete")
+                    st.download_button(
+                        label="Download Project Charter (.docx)",
+                        data=charter_buffer,
+                        file_name=f"Project_Charter_{d['condition']}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                else:
+                    status.update(label="Error generating Word Doc.", state="error")
 
     render_bottom_navigation()
 
@@ -602,21 +753,32 @@ elif "Phase 2" in phase:
 
     if st.session_state.data['phase2']['evidence']:
         st.markdown("### Evidence Table")
-        if st.button("AI-Grade All Evidence"):
-            with st.status("Grading...", expanded=True):
-                ev_list = st.session_state.data['phase2']['evidence']
-                for i in range(0, len(ev_list), 5):
-                    batch = ev_list[i:i+5]
-                    prompt = f"Assign GRADE (High/Mod/Low) and Rationale for: {json.dumps([{k:v for k,v in e.items() if k in ['id','title','abstract']} for e in batch])}. Return JSON {{ID: {{grade, rationale}}}}"
-                    res = get_gemini_response(prompt, json_mode=True)
-                    if res:
-                        for e in batch:
-                            if e['id'] in res: e.update(res[e['id']])
-                st.rerun()
         
-        # FIX: ID String Conversion
+        col_filter, col_clear, col_regrade = st.columns([3, 1, 2])
+        with col_filter:
+            selected_grades = st.multiselect("Filter by GRADE:", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)", "Un-graded"])
+        with col_clear:
+            if st.button("Clear Evidence List", key="clear_ev"):
+                st.session_state.data['phase2']['evidence'] = []
+                st.rerun()
+        with col_regrade:
+            if st.button("AI-Grade All Evidence"):
+                with st.status("Grading...", expanded=True):
+                    ev_list = st.session_state.data['phase2']['evidence']
+                    for i in range(0, len(ev_list), 5):
+                        batch = ev_list[i:i+5]
+                        prompt = f"Assign GRADE (High/Mod/Low) and Rationale for: {json.dumps([{k:v for k,v in e.items() if k in ['id','title','abstract']} for e in batch])}. Return JSON {{ID: {{grade, rationale}}}}"
+                        res = get_gemini_response(prompt, json_mode=True)
+                        if res:
+                            for e in batch:
+                                if e['id'] in res: e.update(res[e['id']])
+                    st.rerun()
+        
         df_ev = pd.DataFrame(st.session_state.data['phase2']['evidence'])
-        if not df_ev.empty and 'id' in df_ev.columns: df_ev['id'] = df_ev['id'].astype(str)
+        if not df_ev.empty:
+            if 'id' in df_ev.columns: df_ev['id'] = df_ev['id'].astype(str)
+            if 'grade' not in df_ev.columns: df_ev['grade'] = 'Un-graded'
+            df_ev = df_ev[df_ev['grade'].isin(selected_grades)]
         
         edited_ev = st.data_editor(
             df_ev, 
@@ -629,7 +791,9 @@ elif "Phase 2" in phase:
             }, 
             hide_index=True, use_container_width=True, key="ev_editor"
         )
-        st.session_state.data['phase2']['evidence'] = edited_ev.to_dict('records')
+        
+        csv = edited_ev.to_csv(index=False).encode('utf-8')
+        export_widget(csv, "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
         
     render_bottom_navigation()
 
@@ -677,6 +841,16 @@ elif "Phase 3" in phase:
             st.session_state.data['phase3']['nodes'] = harden_nodes(edited_nodes.to_dict('records'))
             st.success("Saved.")
             st.rerun()
+    
+    if st.button("Auto-Populate Supporting Evidence (AI)"):
+         with st.spinner("Matching nodes to evidence..."):
+             ev_titles = [f"{e['id']}: {e['title']}" for e in st.session_state.data['phase2']['evidence']]
+             for node in st.session_state.data['phase3']['nodes']:
+                 if not node.get('evidence'):
+                     p_match = f"Match this clinical step: '{node['label']}' to best evidence ID: {ev_titles}. Return just ID."
+                     res = get_gemini_response(p_match)
+                     if res: node['evidence'] = res.strip()
+             st.rerun()
             
     render_bottom_navigation()
 
@@ -707,6 +881,16 @@ elif "Phase 4" in phase:
                         if new_nodes:
                             st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
                             st.rerun()
+    
+    st.divider()
+    custom_edit = st.text_area("Custom Refinement", placeholder="E.g., 'Add a blood pressure check after triage'", label_visibility="collapsed")
+    if st.button("Apply Changes", type="primary"):
+         with st.spinner("Applying..."):
+             p_cust = f"Update logic based on: {custom_edit}. Current: {json.dumps(nodes)}. Return JSON."
+             new_nodes = get_gemini_response(p_cust, json_mode=True)
+             if new_nodes:
+                 st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                 st.rerun()
 
     render_bottom_navigation()
 
@@ -752,6 +936,9 @@ elif "Phase 5" in phase:
                 Return ONLY valid HTML code.
                 """
                 expert_html = get_gemini_response(prompt_expert)
+                # Append footer
+                if expert_html:
+                     expert_html = expert_html.replace('</body>', f'{COPYRIGHT_HTML_FOOTER}</body>')
                 st.session_state.data['phase5']['expert_html'] = expert_html
                 
                 # 2. Beta Tester Form
@@ -764,6 +951,9 @@ elif "Phase 5" in phase:
                 Return ONLY valid HTML code.
                 """
                 beta_html = get_gemini_response(prompt_beta)
+                # Append footer
+                if beta_html:
+                    beta_html = beta_html.replace('</body>', f'{COPYRIGHT_HTML_FOOTER}</body>')
                 st.session_state.data['phase5']['beta_html'] = beta_html
 
                 # 3. Education Module (RESTORED LOGIC)
@@ -785,6 +975,9 @@ elif "Phase 5" in phase:
                 Return ONLY valid HTML code.
                 """
                 edu_html = get_gemini_response(prompt_edu)
+                # Append footer
+                if edu_html:
+                    edu_html = edu_html.replace('</body>', f'{COPYRIGHT_HTML_FOOTER}</body>')
                 st.session_state.data['phase5']['edu_html'] = edu_html
                 
                 status.update(label="Assets Generated Successfully!", state="complete")
@@ -809,8 +1002,28 @@ elif "Phase 5" in phase:
             st.download_button("📥 Education Module (.html)", st.session_state.data['phase5']['edu_html'], f"{cond}_EduModule.html", "text/html", use_container_width=True)
         else:
             st.button("Education Module Missing", disabled=True, use_container_width=True)
+    
+    st.divider()
+    st.subheader("Executive Summary")
+    if st.button("Draft Executive Summary (AI)"):
+        with st.spinner("Drafting..."):
+            p_sum = f"Write a professional executive summary for the {cond} pathway project."
+            summary = get_gemini_response(p_sum)
+            st.session_state.data['phase5']['exec_summary'] = summary
+            st.rerun()
+            
+    if st.session_state.data['phase5'].get('exec_summary'):
+        st.markdown(st.session_state.data['phase5']['exec_summary'])
+        # Create Word Doc for Summary
+        summary_buffer = create_exec_summary_docx(st.session_state.data['phase5']['exec_summary'], cond)
+        if summary_buffer:
+            st.download_button(
+                label="Download Executive Summary (.docx)",
+                data=summary_buffer,
+                file_name=f"Executive_Summary_{cond}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
 
     render_bottom_navigation()
 
-st.markdown(COPYRIGHT_MD, unsafe_allow_html=True)
-st.markdown(COPYRIGHT_HTML, unsafe_allow_html=True)
+st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
