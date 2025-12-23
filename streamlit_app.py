@@ -911,8 +911,8 @@ elif "Phase 2" in phase:
                             e.update(grades[e['id']])
         st.session_state['p2_last_autorun_query'] = default_q
 
-    # Optional advanced refinement with the current query prefilled
-    with st.expander("Advanced: refine search (optional)", expanded=False):
+    # Refinement with the current query prefilled
+    with st.expander("Refine search", expanded=False):
         current_q = st.session_state.data['phase2'].get('mesh_query', default_q)
         q = st.text_input(
             "PubMed Search Query",
@@ -920,30 +920,38 @@ elif "Phase 2" in phase:
             placeholder="Enter a custom query (optional)",
             key="p2_query_input",
         )
-        if q:
-            st.caption("Note: The search applies a 'last 5 years' filter automatically.")
-        if st.button("Search PubMed", type="primary", key="p2_search_btn"):
-            full_query = f"{q} AND (\"last 5 years\"[dp])"
-            st.session_state.data['phase2']['mesh_query'] = q
-            with ai_activity("Searching PubMed and auto‑grading…"):
-                results = search_pubmed(full_query)
-                st.session_state.data['phase2']['evidence'] = results
-                if results:
-                    prompt = (
-                        "Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: "
-                        f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                        "Return JSON {ID: {grade, rationale}}"
-                    )
-                    grades = get_gemini_response(prompt, json_mode=True)
-                    if grades:
-                        for e in st.session_state.data['phase2']['evidence']:
-                            if e['id'] in grades:
-                                e.update(grades[e['id']])
-            st.session_state['p2_last_autorun_query'] = q
-            st.rerun()
+        col_run, col_open = st.columns([1, 1])
+        with col_run:
+            if st.button("Run Search", type="primary", key="p2_search_run"):
+                full_query = f"{q} AND (\"last 5 years\"[dp])"
+                st.session_state.data['phase2']['mesh_query'] = q
+                with ai_activity("Searching PubMed and auto‑grading…"):
+                    results = search_pubmed(full_query)
+                    st.session_state.data['phase2']['evidence'] = results
+                    if results:
+                        prompt = (
+                            "Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: "
+                            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
+                            "Return JSON {ID: {grade, rationale}}"
+                        )
+                        grades = get_gemini_response(prompt, json_mode=True)
+                        if grades:
+                            for e in st.session_state.data['phase2']['evidence']:
+                                if e['id'] in grades:
+                                    e.update(grades[e['id']])
+                st.session_state['p2_last_autorun_query'] = q
+        with col_open:
+            if q:
+                full_q = f"{q} AND (\"last 5 years\"[dp])"
+                st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
 
     if st.session_state.data['phase2']['evidence']:
         st.markdown("### Evidence Table")
+        # Always provide an 'Open in PubMed' action with current query
+        if st.session_state.data['phase2'].get('mesh_query'):
+            search_q = st.session_state.data['phase2']['mesh_query']
+            full_q = f"{search_q} AND (\"last 5 years\"[dp])"
+            st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
         
         # TOP TIP: GRADE DEFINITIONS
         styled_info("""<b>Tip: GRADE Criteria Guide</b><br>
@@ -973,10 +981,6 @@ elif "Phase 2" in phase:
         df_ev = pd.DataFrame(display_data)
         
         if not df_ev.empty:
-            if st.session_state.data['phase2'].get('mesh_query'):
-                search_q = st.session_state.data['phase2']['mesh_query']
-                full_q = f"{search_q} AND (\"last 5 years\"[dp])"
-                st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
 
             edited_ev = st.data_editor(
                 df_ev, 
