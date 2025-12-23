@@ -546,7 +546,7 @@ with st.sidebar:
 # LANDING PAGE LOGIC
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
-    st.markdown('<p style="font-size: 1.2em; color: #00695C; margin-top: -10px; margin-bottom: 20px;">Intelligently build and deploy clinical pathways</p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size: 1.2em; color: #00695C; margin-top: -10px; margin-bottom: 20px;"><strong><em>Intelligently build and deploy clinical pathways</em></strong></p>', unsafe_allow_html=True)
     st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
