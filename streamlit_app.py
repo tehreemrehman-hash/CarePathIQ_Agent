@@ -184,8 +184,7 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 # --- NAVIGATION CONTROLLER ---
 def change_phase(new_phase):
     st.session_state.current_phase_label = new_phase
-    # No explicit rerun needed if inside callback, but good practice if state desyncs
-    
+
 def render_bottom_navigation():
     """Renders Previous/Next buttons at the bottom of the page."""
     if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
@@ -242,6 +241,7 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
             final_content = content + COPYRIGHT_MD
     st.download_button(label, final_content, filename, mime_type)
 
+@st.cache_data(ttl=3600)
 def generate_gantt_image(schedule):
     if not schedule: return None
     # Safety check if matplotlib is not installed/imported
@@ -422,6 +422,7 @@ def generate_mermaid_code(nodes, orientation="TD"):
         elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
     return code
 
+@st.cache_data(ttl=3600)
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
     if not gemini_api_key: return None
     candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
@@ -450,6 +451,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         return text
     except Exception: return None
 
+@st.cache_data(ttl=3600)
 def search_pubmed(query):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
@@ -550,7 +552,7 @@ if "data" not in st.session_state:
         "phase5": {"exec_summary": "", "beta_html": "", "expert_html": "", "edu_html": ""}
     }
 # --- FORCE MIGRATION FOR OLD DATA ---
-if "pico_p" in st.session_state.data["phase2"]:
+if "pico_p" in st.session_state.data.get("phase2", {}):
     # Old PICO structure detected; clear Phase 2 data to force new layout
     st.session_state.data["phase2"] = {"evidence": [], "mesh_query": ""}
     # Optional: trigger a rerun if you want immediate effect, usually not needed if logic below is safe
@@ -704,15 +706,15 @@ if "Phase 1" in phase:
             chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Start', title='Date'), x2='End', y=alt.Y('Stage', sort=None), color='Owner', tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
-            st.altair_chart(chart, width="stretch")
+            st.altair_chart(chart, use_container_width=True)
     
-    if st.button("Generate Project Charter", type="primary", width="stretch"):
+    if st.button("Generate Project Charter", type="primary", use_container_width=True):
         sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
             with st.status("Generating Project Charter...", expanded=True) as status:
-                p_ihi = f"Act as QI Advisor (IHI Model). Draft Charter for {d['condition']}. Problem: {d['problem']}. Scope: {d['inclusion']}. Return JSON: project_description, rationale, expected_outcomes, aim_statement, outcome_measures, process_measures, balancing_measures, initial_activities, change_ideas, stakeholders, barriers, boundaries."
+                p_ihi = f"Act as QI Advisor (IHI Model). Draft Charter for {d['condition']}. Problem: {d['problem']}. Scope: {d['inclusion']}. Return JSON: project_description, rationale, expected_outcomes, aim_statement, outcome_measures, process_measures, balancing_measures, initial_activities, change_ideas, stakeholders, barriers, boundaries (return as dict: in_scope, out_of_scope)."
                 res = get_gemini_response(p_ihi, json_mode=True)
                 if res:
                     st.session_state.data['phase1']['ihi_content'] = res
