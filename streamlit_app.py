@@ -215,18 +215,14 @@ def render_bottom_navigation():
     """Renders Previous/Next buttons at the bottom of the page."""
     if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
         current_idx = PHASES.index(st.session_state.current_phase_label)
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col_q:
-            default_q = st.session_state.data['phase2'].get('mesh_query', '')
-            # Auto-generate robust PubMed query based on Phase 1 inputs if empty
-            if not default_q and st.session_state.data['phase1']['condition']:
-                 c = st.session_state.data['phase1']['condition']
-                 s = st.session_state.data['phase1']['setting']
-                 cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
-                 set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
-                 default_q = f'({cond_q} AND {set_q}) AND english[lang]'
-                next_phase = PHASES[current_idx + 1]
+        col_prev, _, col_next = st.columns([1, 2, 1])
+        if current_idx > 0:
+            prev_phase = PHASES[current_idx - 1]
+            with col_prev:
+                st.button(f"← {prev_phase.split(':')[0]}", key="bottom_prev", use_container_width=True, on_click=change_phase, args=(prev_phase,))
+        if current_idx < len(PHASES) - 1:
+            next_phase = PHASES[current_idx + 1]
+            with col_next:
                 st.button(f"{next_phase.split(':')[0]} →", key="bottom_next", use_container_width=True, type="primary", on_click=change_phase, args=(next_phase,))
 
 def calculate_granular_progress():
@@ -883,12 +879,17 @@ if "Phase 1" in phase:
 elif "Phase 2" in phase:
     st.title("Phase 2: Rapid Evidence Appraisal")
 
-    # Build default query from Phase 1 if none saved
+    # Build robust default query from Phase 1 if none saved
     default_q = st.session_state.data['phase2'].get('mesh_query', '')
     if not default_q and st.session_state.data['phase1']['condition']:
         c = st.session_state.data['phase1']['condition']
         s = st.session_state.data['phase1']['setting']
-        default_q = f"managing patients with {c} in {s}"
+        cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+        if s:
+            set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
+            default_q = f'({cond_q} AND {set_q}) AND english[lang]'
+        else:
+            default_q = f'{cond_q} AND english[lang]'
 
     # Auto-run search once per distinct default query when evidence is empty
     if (
@@ -1010,6 +1011,61 @@ elif "Phase 2" in phase:
     else:
         # If nothing to show, provide a helpful prompt and the PubMed link if available
         st.info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
+        # Offer quick broaden options
+        c = st.session_state.data['phase1'].get('condition', '')
+        s = st.session_state.data['phase1'].get('setting', '')
+        col_b1, col_b2 = st.columns([1, 1])
+        with col_b1:
+            if c and st.button("Broaden: drop setting", key="p2_broaden_drop_setting"):
+                cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+                q = f'{cond_q} AND english[lang]'
+                st.session_state.data['phase2']['mesh_query'] = q
+                full_query = f"{q} AND (\"last 5 years\"[dp])"
+                with ai_activity("Searching PubMed and auto‑grading…"):
+                    results = search_pubmed(full_query)
+                    st.session_state.data['phase2']['evidence'] = results
+                    if results:
+                        prompt = (
+                            "Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: "
+                            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
+                            "Return JSON {ID: {grade, rationale}}"
+                        )
+                        grades = get_gemini_response(prompt, json_mode=True)
+                        if grades:
+                            for e in st.session_state.data['phase2']['evidence']:
+                                if e['id'] in grades:
+                                    e.update(grades[e['id']])
+                st.session_state['p2_last_autorun_query'] = q
+                st.rerun()
+        with col_b2:
+            if st.button("Broaden: drop time filter", key="p2_broaden_drop_time"):
+                q_current = st.session_state.data['phase2'].get('mesh_query', '') or default_q
+                # If still empty, rebuild robust query from Phase 1
+                if not q_current and c:
+                    cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+                    if s:
+                        set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
+                        q_current = f'({cond_q} AND {set_q}) AND english[lang]'
+                    else:
+                        q_current = f'{cond_q} AND english[lang]'
+                st.session_state.data['phase2']['mesh_query'] = q_current
+                # Run without last 5 years filter
+                with ai_activity("Searching PubMed and auto‑grading…"):
+                    results = search_pubmed(q_current)
+                    st.session_state.data['phase2']['evidence'] = results
+                    if results:
+                        prompt = (
+                            "Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: "
+                            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
+                            "Return JSON {ID: {grade, rationale}}"
+                        )
+                        grades = get_gemini_response(prompt, json_mode=True)
+                        if grades:
+                            for e in st.session_state.data['phase2']['evidence']:
+                                if e['id'] in grades:
+                                    e.update(grades[e['id']])
+                st.session_state['p2_last_autorun_query'] = q_current
+                st.rerun()
         if st.session_state.data['phase2'].get('mesh_query'):
             search_q = st.session_state.data['phase2']['mesh_query']
             full_q = f"{search_q} AND (\"last 5 years\"[dp])"
