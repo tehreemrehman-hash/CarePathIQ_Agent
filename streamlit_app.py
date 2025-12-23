@@ -15,8 +15,6 @@ import os
 import copy
 import xml.etree.ElementTree as ET
 import altair as alt
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
@@ -26,10 +24,13 @@ try:
     from docx import Document
     from docx.shared import Inches as DocxInches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    # PPTX removed
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
 except ImportError:
-    st.error("Missing Libraries: Please run `pip install python-docx matplotlib`")
+    # Safe fallback to prevent crash if libraries are missing
     Document = None
+    plt = None
+    mdates = None
 
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
@@ -180,6 +181,63 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 # 2. HELPER FUNCTIONS
 # ==========================================
 
+def format_as_numbered_list(items):
+    """Helper to ensure lists are strings with numbers."""
+    if isinstance(items, list):
+        # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
+        clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
+        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
+    return str(items)
+
+def get_gemini_response(prompt, json_mode=False, stream_container=None):
+    if not gemini_api_key: return None
+    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
+    response = None
+    for model_name in candidates:
+        try:
+            model = genai.GenerativeModel(model_name)
+            is_stream = stream_container is not None
+            response = model.generate_content(prompt, stream=is_stream)
+            if response: break 
+        except Exception: time.sleep(0.5); continue
+    if not response: st.error("AI Error. Please check API Key."); return None
+    try:
+        if stream_container:
+            text = ""
+            for chunk in response:
+                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
+            stream_container.markdown(text) 
+        else: text = response.text
+        if json_mode:
+            text = text.replace('```json', '').replace('```', '').strip()
+            match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
+            if match: text = match.group(0)
+            try: return json.loads(text)
+            except: return None
+        return text
+    except Exception: return None
+
+# --- NAVIGATION CONTROLLER ---
+def change_phase(new_phase):
+    st.session_state.current_phase_label = new_phase
+
+def render_bottom_navigation():
+    """Renders Previous/Next buttons at the bottom of the page."""
+    if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
+        current_idx = PHASES.index(st.session_state.current_phase_label)
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            if current_idx > 0:
+                prev_phase = PHASES[current_idx - 1]
+                # Using on_click callback prevents reload issues
+                st.button(f"← {prev_phase.split(':')[0]}", key="bottom_prev", use_container_width=True, on_click=change_phase, args=(prev_phase,))
+                    
+        with col3:
+            if current_idx < len(PHASES) - 1:
+                next_phase = PHASES[current_idx + 1]
+                st.button(f"{next_phase.split(':')[0]} →", key="bottom_next", use_container_width=True, type="primary", on_click=change_phase, args=(next_phase,))
+
 def calculate_granular_progress():
     if 'data' not in st.session_state: return 0.0
     data = st.session_state.data
@@ -222,7 +280,6 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
 
 def generate_gantt_image(schedule):
     if not schedule: return None
-    # Safety check if matplotlib is not installed/imported
     if 'plt' not in globals() or 'mdates' not in globals() or plt is None: return None
     try:
         df = pd.DataFrame(schedule)
@@ -233,7 +290,6 @@ def generate_gantt_image(schedule):
         y_pos = range(len(df))
         ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#00695C', alpha=0.8)
         ax.set_yticks(y_pos)
-        # Corrected column name for Gantt visual labels
         labels = df['Stage'].tolist() if 'Stage' in df.columns else df['Phase'].tolist()
         ax.set_yticklabels(labels, fontsize=9)
         ax.invert_yaxis()
@@ -381,34 +437,6 @@ def generate_mermaid_code(nodes, orientation="TD"):
         elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
     return code
 
-def get_gemini_response(prompt, json_mode=False, stream_container=None):
-    if not gemini_api_key: return None
-    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
-    response = None
-    for model_name in candidates:
-        try:
-            model = genai.GenerativeModel(model_name)
-            is_stream = stream_container is not None
-            response = model.generate_content(prompt, stream=is_stream)
-            if response: break 
-        except Exception: time.sleep(0.5); continue
-    if not response: st.error("AI Error. Please check API Key."); return None
-    try:
-        if stream_container:
-            text = ""
-            for chunk in response:
-                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
-            stream_container.markdown(text) 
-        else: text = response.text
-        if json_mode:
-            text = text.replace('```json', '').replace('```', '').strip()
-            match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
-            if match: text = match.group(0)
-            try: return json.loads(text)
-            except: return None
-        return text
-    except Exception: return None
-
 def search_pubmed(query):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
@@ -450,38 +478,6 @@ def search_pubmed(query):
         return citations
     except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
 
-def format_as_numbered_list(items):
-    """Helper to ensure lists are strings with numbers."""
-    if isinstance(items, list):
-        # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
-        clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
-        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
-    return str(items)
-
-# --- NAVIGATION CONTROLLER ---
-def change_phase(new_phase):
-    st.session_state.current_phase_label = new_phase
-
-def render_bottom_navigation():
-    """Renders Previous/Next buttons at the bottom of the page."""
-    if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
-        current_idx = PHASES.index(st.session_state.current_phase_label)
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col1:
-            if current_idx > 0:
-                prev_phase = PHASES[current_idx - 1]
-                if st.button(f"← {prev_phase.split(':')[0]}", key="bottom_prev", width="stretch"):
-                    change_phase(prev_phase)
-                    st.rerun()
-                    
-        with col3:
-            if current_idx < len(PHASES) - 1:
-                next_phase = PHASES[current_idx + 1]
-                if st.button(f"{next_phase.split(':')[0]} →", key="bottom_next", width="stretch"):
-                    change_phase(next_phase)
-                    st.rerun()
-
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
 # ==========================================
@@ -508,7 +504,7 @@ with st.sidebar:
     if gemini_api_key:
         for p in PHASES:
             is_active = (p == st.session_state.current_phase_label)
-            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", width="stretch", on_click=change_phase, args=(p,))
+            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=change_phase, args=(p,))
         st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
         st.divider()
         st.progress(calculate_granular_progress())
@@ -523,7 +519,7 @@ if not gemini_api_key:
 if "data" not in st.session_state:
     st.session_state.data = {
         "phase1": {"condition": "", "setting": "", "inclusion": "", "exclusion": "", "problem": "", "objectives": "", "schedule": []},
-        "phase2": {"evidence": [], "mesh_query": ""},
+        "phase2": {"evidence": [], "mesh_query": "", "pico_p": "", "pico_i": "", "pico_c": "", "pico_o": ""},
         "phase3": {"nodes": []},
         "phase4": {"heuristics_data": {}},
         "phase5": {"exec_summary": "", "beta_html": "", "expert_html": "", "edu_html": ""}
@@ -532,18 +528,22 @@ if "data" not in st.session_state:
 # ==========================================
 # 4. MAIN WORKFLOW LOGIC
 # ==========================================
-phase = st.radio("Workflow Phase", PHASES, index=PHASES.index(st.session_state.current_phase_label), horizontal=True, label_visibility="collapsed", key="top_nav_radio", on_change=lambda: change_phase(st.session_state.top_nav_radio))
+try:
+    radio_index = PHASES.index(st.session_state.current_phase_label)
+except ValueError:
+    radio_index = 0
+
+phase = st.radio("Workflow Phase", PHASES, index=radio_index, horizontal=True, label_visibility="collapsed", key="top_nav_radio", on_change=lambda: change_phase(st.session_state.top_nav_radio))
 st.divider()
 
 # --- PHASE 1 ---
 if "Phase 1" in phase:
-    # 1. TRIGGER FUNCTION
+    # 1. TRIGGER FUNCTIONS (Callbacks)
     def trigger_p1_draft():
         # Only trigger if both fields have text
         c = st.session_state.p1_cond_input
         s = st.session_state.p1_setting
         if c and s:
-            # Generate ALL CONTENT in one go (Consolidated)
             prompt = f"""
             Act as a Chief Medical Officer. For '{c}' in '{s}', generate a single JSON object with these 4 keys:
             1. "inclusion": Detailed inclusion criteria (formatted as a numbered list).
@@ -559,7 +559,35 @@ if "Phase 1" in phase:
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
                 
-                # Force update keys
+                # Force update keys used by widgets
+                st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
+                st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
+                st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
+                st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+
+    def apply_refinements():
+        refinement_text = st.session_state.p1_refine_input
+        if refinement_text:
+            current_data = st.session_state.data['phase1']
+            prompt = f"""
+            Update the following clinical pathway sections based on this specific user feedback: "{refinement_text}"
+            
+            Current Data:
+            - Inclusion: {current_data['inclusion']}
+            - Exclusion: {current_data['exclusion']}
+            - Problem: {current_data['problem']}
+            - Objectives: {current_data['objectives']}
+            
+            Return a JSON object with the updated keys: "inclusion", "exclusion", "problem", "objectives".
+            """
+            data = get_gemini_response(prompt, json_mode=True)
+            if data:
+                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
+                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+                
+                # Force update keys used by widgets
                 st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
                 st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                 st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
@@ -584,6 +612,7 @@ if "Phase 1" in phase:
 
     # UPDATED TIP TEXT
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
+    
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("1. Clinical Focus")
@@ -602,10 +631,17 @@ if "Phase 1" in phase:
         st.subheader("4. Goals")
         st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
 
-    # Manual Trigger Button (Fail-safe)
-    if st.button("Regenerate Draft"):
-         trigger_p1_draft()
-         st.rerun()
+    # Manual Trigger Button using Callback (Fixes StreamlitAPIException)
+    if st.button("Regenerate Draft", on_click=trigger_p1_draft):
+         pass
+
+    st.divider()
+    
+    # NEW: Natural Language Refinement Section
+    st.subheader("Refine Content")
+    st.text_area("Custom Refinement", placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...", key="p1_refine_input")
+    if st.button("Apply Refinements", type="primary", on_click=apply_refinements):
+        st.success("Refinements applied!")
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -626,7 +662,7 @@ if "Phase 1" in phase:
             {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
         ]
     df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
     if not edited_sched.empty:
         st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
         chart_data = edited_sched.copy()
@@ -637,9 +673,9 @@ if "Phase 1" in phase:
             chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Start', title='Date'), x2='End', y=alt.Y('Stage', sort=None), color='Owner', tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
-            st.altair_chart(chart, width="stretch")
+            st.altair_chart(chart, use_container_width=True)
     
-    if st.button("Generate Project Charter", type="primary", width="stretch"):
+    if st.button("Generate Project Charter", type="primary", use_container_width=True):
         sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
@@ -657,15 +693,48 @@ if "Phase 1" in phase:
 
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
+    st.markdown("### 1. PICO Framework")
+    styled_info("<b>Tip:</b> Define your clinical question using the PICO framework (Patient, Intervention, Comparison, Outcome) to generate a precise search query.")
+    
+    # Sync functions for PICO inputs
+    def sync_p2_pico():
+        st.session_state.data['phase2']['pico_p'] = st.session_state.p2_p
+        st.session_state.data['phase2']['pico_i'] = st.session_state.p2_i
+        st.session_state.data['phase2']['pico_c'] = st.session_state.p2_c
+        st.session_state.data['phase2']['pico_o'] = st.session_state.p2_o
+
+    # Initialize from session state
+    if 'p2_p' not in st.session_state: st.session_state.p2_p = st.session_state.data['phase2'].get('pico_p', '')
+    if 'p2_i' not in st.session_state: st.session_state.p2_i = st.session_state.data['phase2'].get('pico_i', '')
+    if 'p2_c' not in st.session_state: st.session_state.p2_c = st.session_state.data['phase2'].get('pico_c', '')
+    if 'p2_o' not in st.session_state: st.session_state.p2_o = st.session_state.data['phase2'].get('pico_o', '')
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.text_input("Patient (P)", key="p2_p", on_change=sync_p2_pico, placeholder="e.g. Adults with sepsis")
+    with c2: st.text_input("Intervention (I)", key="p2_i", on_change=sync_p2_pico, placeholder="e.g. 30ml/kg fluids")
+    with c3: st.text_input("Comparison (C)", key="p2_c", on_change=sync_p2_pico, placeholder="e.g. Early vasopressors")
+    with c4: st.text_input("Outcome (O)", key="p2_o", on_change=sync_p2_pico, placeholder="e.g. Mortality")
+
+    if st.button("Generate Search Query"):
+        p, i, c, o = st.session_state.p2_p, st.session_state.p2_i, st.session_state.p2_c, st.session_state.p2_o
+        if p or i:
+            with st.spinner("Constructing query..."):
+                prompt = f"Create a valid PubMed search query string using MeSH terms and boolean operators for: Patient={p}, Intervention={i}, Comparison={c}, Outcome={o}."
+                query = get_gemini_response(prompt)
+                if query:
+                    st.session_state.data['phase2']['mesh_query'] = query.strip('"')
+                    st.rerun()
+        else:
+            st.warning("Please enter at least a Patient population or Intervention.")
+
+    st.divider()
+    
     col_q, col_btn = st.columns([3, 1])
     with col_q:
-        default_q = st.session_state.data['phase2'].get('mesh_query', '')
-        if not default_q and st.session_state.data['phase1']['condition']:
-            default_q = f"managing patients with {st.session_state.data['phase1']['condition']} in {st.session_state.data['phase1'].get('setting', '')}"
-        q = st.text_input("PubMed Search Query", value=default_q)
+        q = st.text_input("PubMed Search Query", value=st.session_state.data['phase2'].get('mesh_query', ''), key="p2_search_input")
     with col_btn:
         st.write(""); st.write("")
-        if st.button("Search PubMed", type="primary", width="stretch"):
+        if st.button("Search PubMed", type="primary", use_container_width=True):
             st.session_state.data['phase2']['mesh_query'] = q
             with st.spinner("Searching..."):
                 st.session_state.data['phase2']['evidence'] = search_pubmed(q)
@@ -720,7 +789,7 @@ elif "Phase 2" in phase:
                 "authors": None,
                 "abstract": None
             }, 
-            hide_index=True, width="stretch", key="ev_editor"
+            hide_index=True, use_container_width=True, key="ev_editor"
         )
         export_widget(edited_ev.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
     render_bottom_navigation()
@@ -729,7 +798,7 @@ elif "Phase 2" in phase:
 elif "Phase 3" in phase:
     col_tools, col_editor = st.columns([1, 3])
     with col_tools:
-        if st.button("Auto-Draft Logic (AI)", type="primary", width="stretch"):
+        if st.button("Auto-Draft Logic (AI)", type="primary", use_container_width=True):
             cond = st.session_state.data['phase1']['condition']
             with st.spinner("Drafting..."):
                 prompt = f"Act as Clinical Decision Scientist. Create pathway for {cond}. Return JSON LIST. Objects: id, type (Start|Decision|Process|End), label, detail, labs, imaging, medications, dosage, branches."
@@ -737,11 +806,11 @@ elif "Phase 3" in phase:
                 if nodes:
                     st.session_state.data['phase3']['nodes'] = harden_nodes(nodes)
                     st.rerun()
-        if st.button("Clear All", width="stretch"):
+        if st.button("Clear All", use_container_width=True):
             st.session_state.data['phase3']['nodes'] = []
             st.rerun()
         st.write("")
-        if st.button("Auto-Populate Evidence", width="stretch"):
+        if st.button("Auto-Populate Evidence", use_container_width=True):
              with st.spinner("Matching..."):
                  ev_titles = [f"{e['id']}: {e['title']}" for e in st.session_state.data['phase2']['evidence']]
                  for node in st.session_state.data['phase3']['nodes']:
@@ -756,7 +825,7 @@ elif "Phase 3" in phase:
         edited_nodes = st.data_editor(
             df_nodes, 
             num_rows="dynamic", 
-            width="stretch", 
+            use_container_width=True, 
             key="p3_editor",
             column_config={
                 "type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "End"]),
@@ -786,7 +855,7 @@ elif "Phase 4" in phase:
         components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
         with st.expander("Edit Pathway Data", expanded=False):
             df_p4 = pd.DataFrame(nodes)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", width="stretch")
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
             if not df_p4.equals(edited_p4):
                 st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
                 st.rerun()
