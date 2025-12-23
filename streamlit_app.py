@@ -708,7 +708,8 @@ if "Phase 1" in phase:
             3. "problem": A problem statement referencing care variation.
             4. "objectives": 3 SMART objectives (formatted as a numbered list).
             """
-            data = get_gemini_response(prompt, json_mode=True)
+            with ai_activity("Drafting Phase 1 content…"):
+                data = get_gemini_response(prompt, json_mode=True)
             if data:
                 # Use the helper to enforce numbered lists formatting
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
