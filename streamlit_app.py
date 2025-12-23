@@ -181,46 +181,11 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 # 2. HELPER FUNCTIONS
 # ==========================================
 
-def format_as_numbered_list(items):
-    """Helper to ensure lists are strings with numbers."""
-    if isinstance(items, list):
-        # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
-        clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
-        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
-    return str(items)
-
-def get_gemini_response(prompt, json_mode=False, stream_container=None):
-    if not gemini_api_key: return None
-    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
-    response = None
-    for model_name in candidates:
-        try:
-            model = genai.GenerativeModel(model_name)
-            is_stream = stream_container is not None
-            response = model.generate_content(prompt, stream=is_stream)
-            if response: break 
-        except Exception: time.sleep(0.5); continue
-    if not response: st.error("AI Error. Please check API Key."); return None
-    try:
-        if stream_container:
-            text = ""
-            for chunk in response:
-                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
-            stream_container.markdown(text) 
-        else: text = response.text
-        if json_mode:
-            text = text.replace('```json', '').replace('```', '').strip()
-            match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
-            if match: text = match.group(0)
-            try: return json.loads(text)
-            except: return None
-        return text
-    except Exception: return None
-
 # --- NAVIGATION CONTROLLER ---
 def change_phase(new_phase):
     st.session_state.current_phase_label = new_phase
-
+    # No explicit rerun needed if inside callback, but good practice if state desyncs
+    
 def render_bottom_navigation():
     """Renders Previous/Next buttons at the bottom of the page."""
     if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
@@ -230,7 +195,6 @@ def render_bottom_navigation():
         with col1:
             if current_idx > 0:
                 prev_phase = PHASES[current_idx - 1]
-                # Using on_click callback prevents reload issues
                 st.button(f"← {prev_phase.split(':')[0]}", key="bottom_prev", use_container_width=True, on_click=change_phase, args=(prev_phase,))
                     
         with col3:
@@ -280,6 +244,7 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
 
 def generate_gantt_image(schedule):
     if not schedule: return None
+    # Safety check if matplotlib is not installed/imported
     if 'plt' not in globals() or 'mdates' not in globals() or plt is None: return None
     try:
         df = pd.DataFrame(schedule)
@@ -290,6 +255,7 @@ def generate_gantt_image(schedule):
         y_pos = range(len(df))
         ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#00695C', alpha=0.8)
         ax.set_yticks(y_pos)
+        # Use 'Stage' column for labels if available
         labels = df['Stage'].tolist() if 'Stage' in df.columns else df['Phase'].tolist()
         ax.set_yticklabels(labels, fontsize=9)
         ax.invert_yaxis()
@@ -352,7 +318,26 @@ def create_word_docx(data):
     doc.add_paragraph(ihi.get('barriers', ''))
     
     doc.add_heading('Boundaries', level=2)
-    doc.add_paragraph(ihi.get('boundaries', ihi.get('Boundaries', '')))
+    # Check both cases for boundaries key
+    boundaries = ihi.get('boundaries', ihi.get('Boundaries', ''))
+    if isinstance(boundaries, dict):
+        # Format dictionary nicely (In Scope / Out of Scope)
+        in_scope = boundaries.get('in_scope', boundaries.get('In Scope', ''))
+        out_scope = boundaries.get('out_of_scope', boundaries.get('Out of Scope', ''))
+        
+        if in_scope:
+            p = doc.add_paragraph()
+            run = p.add_run("In Scope: ")
+            run.bold = True
+            p.add_run(str(in_scope))
+            
+        if out_scope:
+            p = doc.add_paragraph()
+            run = p.add_run("Out of Scope: ")
+            run.bold = True
+            p.add_run(str(out_scope))
+    else:
+        doc.add_paragraph(str(boundaries))
     
     doc.add_heading('Project Timeline', level=1)
     schedule = data.get('schedule', [])
@@ -437,10 +422,38 @@ def generate_mermaid_code(nodes, orientation="TD"):
         elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
     return code
 
+def get_gemini_response(prompt, json_mode=False, stream_container=None):
+    if not gemini_api_key: return None
+    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
+    response = None
+    for model_name in candidates:
+        try:
+            model = genai.GenerativeModel(model_name)
+            is_stream = stream_container is not None
+            response = model.generate_content(prompt, stream=is_stream)
+            if response: break 
+        except Exception: time.sleep(0.5); continue
+    if not response: st.error("AI Error. Please check API Key."); return None
+    try:
+        if stream_container:
+            text = ""
+            for chunk in response:
+                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
+            stream_container.markdown(text) 
+        else: text = response.text
+        if json_mode:
+            text = text.replace('```json', '').replace('```', '').strip()
+            match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
+            if match: text = match.group(0)
+            try: return json.loads(text)
+            except: return None
+        return text
+    except Exception: return None
+
 def search_pubmed(query):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
-        search_params = {'db': 'pubmed', 'term': f"{query} AND (\"last 5 years\"[dp])", 'retmode': 'json', 'retmax': 20, 'sort': 'relevance'}
+        search_params = {'db': 'pubmed', 'term': f"{query}", 'retmode': 'json', 'retmax': 20, 'sort': 'relevance'}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response: id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
         if not id_list: return []
@@ -478,6 +491,14 @@ def search_pubmed(query):
         return citations
     except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
 
+def format_as_numbered_list(items):
+    """Helper to ensure lists are strings with numbers."""
+    if isinstance(items, list):
+        # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
+        clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
+        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
+    return str(items)
+
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
 # ==========================================
@@ -499,15 +520,16 @@ with st.sidebar:
     if gemini_api_key: genai.configure(api_key=gemini_api_key); st.success("AI Connected")
     st.divider()
     
-    if "current_phase_label" not in st.session_state: st.session_state.current_phase_label = PHASES[0]
-    
-    if gemini_api_key:
-        for p in PHASES:
-            is_active = (p == st.session_state.current_phase_label)
-            st.button(p, key=f"nav_{p}", type="primary" if is_active else "secondary", use_container_width=True, on_click=change_phase, args=(p,))
-        st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.current_phase_label}</span></div>""", unsafe_allow_html=True)
-        st.divider()
-        st.progress(calculate_granular_progress())
+    # Navigation Logic for sidebar buttons
+    for p in PHASES:
+        # Use on_click to directly update session state
+        st.button(p, key=f"nav_{p}", use_container_width=True, 
+                  type="primary" if st.session_state.get('current_phase_label') == p else "secondary",
+                  on_click=change_phase, args=(p,))
+        
+    st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.get('current_phase_label', PHASES[0])}</span></div>""", unsafe_allow_html=True)
+    st.divider()
+    st.progress(calculate_granular_progress())
 
 # LANDING PAGE LOGIC
 if not gemini_api_key:
@@ -516,23 +538,33 @@ if not gemini_api_key:
     st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
 
+if "current_phase_label" not in st.session_state:
+    st.session_state.current_phase_label = PHASES[0]
+
 if "data" not in st.session_state:
     st.session_state.data = {
         "phase1": {"condition": "", "setting": "", "inclusion": "", "exclusion": "", "problem": "", "objectives": "", "schedule": []},
-        "phase2": {"evidence": [], "mesh_query": "", "pico_p": "", "pico_i": "", "pico_c": "", "pico_o": ""},
+        "phase2": {"evidence": [], "mesh_query": ""},
         "phase3": {"nodes": []},
         "phase4": {"heuristics_data": {}},
         "phase5": {"exec_summary": "", "beta_html": "", "expert_html": "", "edu_html": ""}
     }
+# --- FORCE MIGRATION FOR OLD DATA ---
+if "pico_p" in st.session_state.data["phase2"]:
+    # Old PICO structure detected; clear Phase 2 data to force new layout
+    st.session_state.data["phase2"] = {"evidence": [], "mesh_query": ""}
+    # Optional: trigger a rerun if you want immediate effect, usually not needed if logic below is safe
 
 # ==========================================
 # 4. MAIN WORKFLOW LOGIC
 # ==========================================
+# Determine current phase index safely
 try:
     radio_index = PHASES.index(st.session_state.current_phase_label)
 except ValueError:
     radio_index = 0
 
+# Connect radio to session state key to allow programmatic updates
 phase = st.radio("Workflow Phase", PHASES, index=radio_index, horizontal=True, label_visibility="collapsed", key="top_nav_radio", on_change=lambda: change_phase(st.session_state.top_nav_radio))
 st.divider()
 
@@ -587,7 +619,6 @@ if "Phase 1" in phase:
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
                 
-                # Force update keys used by widgets
                 st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
                 st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                 st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
@@ -631,13 +662,13 @@ if "Phase 1" in phase:
         st.subheader("4. Goals")
         st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
 
-    # Manual Trigger Button using Callback (Fixes StreamlitAPIException)
+    # Manual Trigger Button using Callback
     if st.button("Regenerate Draft", on_click=trigger_p1_draft):
          pass
 
     st.divider()
     
-    # NEW: Natural Language Refinement Section
+    # Natural Language Refinement Section
     st.subheader("Refine Content")
     st.text_area("Custom Refinement", placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...", key="p1_refine_input")
     if st.button("Apply Refinements", type="primary", on_click=apply_refinements):
@@ -662,7 +693,7 @@ if "Phase 1" in phase:
             {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
         ]
     df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", use_container_width=True, key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
     if not edited_sched.empty:
         st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
         chart_data = edited_sched.copy()
@@ -673,9 +704,9 @@ if "Phase 1" in phase:
             chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Start', title='Date'), x2='End', y=alt.Y('Stage', sort=None), color='Owner', tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
     
-    if st.button("Generate Project Charter", type="primary", use_container_width=True):
+    if st.button("Generate Project Charter", type="primary", width="stretch"):
         sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
@@ -693,112 +724,101 @@ if "Phase 1" in phase:
 
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
-    st.markdown("### 1. PICO Framework")
-    styled_info("<b>Tip:</b> Define your clinical question using the PICO framework (Patient, Intervention, Comparison, Outcome) to generate a precise search query.")
-    
-    # Sync functions for PICO inputs
-    def sync_p2_pico():
-        st.session_state.data['phase2']['pico_p'] = st.session_state.p2_p
-        st.session_state.data['phase2']['pico_i'] = st.session_state.p2_i
-        st.session_state.data['phase2']['pico_c'] = st.session_state.p2_c
-        st.session_state.data['phase2']['pico_o'] = st.session_state.p2_o
-
-    # Initialize from session state
-    if 'p2_p' not in st.session_state: st.session_state.p2_p = st.session_state.data['phase2'].get('pico_p', '')
-    if 'p2_i' not in st.session_state: st.session_state.p2_i = st.session_state.data['phase2'].get('pico_i', '')
-    if 'p2_c' not in st.session_state: st.session_state.p2_c = st.session_state.data['phase2'].get('pico_c', '')
-    if 'p2_o' not in st.session_state: st.session_state.p2_o = st.session_state.data['phase2'].get('pico_o', '')
-
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: st.text_input("Patient (P)", key="p2_p", on_change=sync_p2_pico, placeholder="e.g. Adults with sepsis")
-    with c2: st.text_input("Intervention (I)", key="p2_i", on_change=sync_p2_pico, placeholder="e.g. 30ml/kg fluids")
-    with c3: st.text_input("Comparison (C)", key="p2_c", on_change=sync_p2_pico, placeholder="e.g. Early vasopressors")
-    with c4: st.text_input("Outcome (O)", key="p2_o", on_change=sync_p2_pico, placeholder="e.g. Mortality")
-
-    if st.button("Generate Search Query"):
-        p, i, c, o = st.session_state.p2_p, st.session_state.p2_i, st.session_state.p2_c, st.session_state.p2_o
-        if p or i:
-            with st.spinner("Constructing query..."):
-                prompt = f"Create a valid PubMed search query string using MeSH terms and boolean operators for: Patient={p}, Intervention={i}, Comparison={c}, Outcome={o}."
-                query = get_gemini_response(prompt)
-                if query:
-                    st.session_state.data['phase2']['mesh_query'] = query.strip('"')
-                    st.rerun()
-        else:
-            st.warning("Please enter at least a Patient population or Intervention.")
-
-    st.divider()
-    
     col_q, col_btn = st.columns([3, 1])
     with col_q:
-        q = st.text_input("PubMed Search Query", value=st.session_state.data['phase2'].get('mesh_query', ''), key="p2_search_input")
+        default_q = st.session_state.data['phase2'].get('mesh_query', '')
+        # Auto-generate query based on Phase 1 inputs if empty
+        if not default_q and st.session_state.data['phase1']['condition']:
+             c = st.session_state.data['phase1']['condition']
+             s = st.session_state.data['phase1']['setting']
+             default_q = f"managing patients with {c} in {s}"
+        
+        q = st.text_input("PubMed Search Query", value=default_q, key="p2_query_input")
+        
     with col_btn:
         st.write(""); st.write("")
-        if st.button("Search PubMed", type="primary", use_container_width=True):
-            st.session_state.data['phase2']['mesh_query'] = q
-            with st.spinner("Searching..."):
-                st.session_state.data['phase2']['evidence'] = search_pubmed(q)
-                st.rerun()
+        if st.button("Search PubMed", type="primary", width="stretch"):
+            # Append last 5 years logic implicitly
+            full_query = f"{q} AND (\"last 5 years\"[dp])"
+            st.session_state.data['phase2']['mesh_query'] = q # Store display version
+            
+            with st.spinner("Searching & Auto-Grading..."):
+                results = search_pubmed(full_query)
+                st.session_state.data['phase2']['evidence'] = results
+                
+                # Auto-Grade immediately
+                if results:
+                    prompt = f"Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: {json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. Return JSON {{ID: {{grade, rationale}}}}"
+                    grades = get_gemini_response(prompt, json_mode=True)
+                    if grades:
+                        for e in st.session_state.data['phase2']['evidence']:
+                            if e['id'] in grades: e.update(grades[e['id']])
+            st.rerun()
 
     if st.session_state.data['phase2']['evidence']:
         st.markdown("### Evidence Table")
         
-        styled_info("<b>Tip:</b> GRADE (Grading of Recommendations, Assessment, Development and Evaluations) is a framework for rating the quality of evidence (High, Moderate, Low, Very Low) and strength of recommendations.")
-        
-        styled_info("<b>Tip:</b> The table below shows key details. Download the CSV to see the <b>full abstract, authors, journal, and year</b>.")
+        # TOP TIP: GRADE DEFINITIONS
+        styled_info("""<b>Tip: GRADE Criteria Guide</b><br>
+        - <b>High (A):</b> Further research is very unlikely to change our confidence in the estimate of effect.<br>
+        - <b>Moderate (B):</b> Further research is likely to have an important impact on our confidence in the estimate of effect and may change the estimate.<br>
+        - <b>Low (C):</b> Further research is very likely to have an important impact on our confidence in the estimate of effect and is likely to change the estimate.<br>
+        - <b>Very Low (D):</b> We are very uncertain about the estimate.""")
 
         col_filter, col_clear, col_regrade = st.columns([3, 1, 2])
         with col_filter:
+            # Default filters set to High, Moderate, Low
             selected_grades = st.multiselect("Filter by GRADE:", ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], default=["High (A)", "Moderate (B)", "Low (C)"])
         with col_clear:
             if st.button("Clear List"):
                 st.session_state.data['phase2']['evidence'] = []
                 st.rerun()
-        with col_regrade:
-            if st.button("AI-Grade All"):
-                with st.status("Grading...", expanded=True):
-                    ev_list = st.session_state.data['phase2']['evidence']
-                    for i in range(0, len(ev_list), 5):
-                        batch = ev_list[i:i+5]
-                        prompt = f"Assign GRADE (High/Mod/Low) and Rationale for: {json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in batch])}. Return JSON {{ID: {{grade, rationale}}}}"
-                        res = get_gemini_response(prompt, json_mode=True)
-                        if res:
-                            for e in batch:
-                                if e['id'] in res: e.update(res[e['id']])
-                    st.rerun()
         
-        df_ev = pd.DataFrame(st.session_state.data['phase2']['evidence'])
+        # Sort Logic: High to Low
+        grade_order = {"High (A)": 0, "Moderate (B)": 1, "Low (C)": 2, "Very Low (D)": 3, "Un-graded": 4}
+        
+        evidence_data = st.session_state.data['phase2']['evidence']
+        # Apply Sorting
+        evidence_data.sort(key=lambda x: grade_order.get(x.get('grade', 'Un-graded'), 4))
+        
+        # Filter for Display
+        display_data = [e for e in evidence_data if e.get('grade', 'Un-graded') in selected_grades]
+        df_ev = pd.DataFrame(display_data)
+        
         if not df_ev.empty:
-            if 'grade' not in df_ev.columns: df_ev['grade'] = 'Un-graded'
-            df_ev = df_ev[df_ev['grade'].isin(selected_grades)]
-        
-        if st.session_state.data['phase2'].get('mesh_query'):
-            search_q = st.session_state.data['phase2']['mesh_query']
-            st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(search_q)}", type="secondary")
+            if st.session_state.data['phase2'].get('mesh_query'):
+                search_q = st.session_state.data['phase2']['mesh_query']
+                full_q = f"{search_q} AND (\"last 5 years\"[dp])"
+                st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
 
-        edited_ev = st.data_editor(
-            df_ev, 
-            column_config={
-                "id": st.column_config.TextColumn("PMID", disabled=True),
-                "title": st.column_config.TextColumn("Title", width="medium"),
-                "year": st.column_config.TextColumn("Year", width="small"),
-                "journal": st.column_config.TextColumn("Journal", width="small"),
-                "url": st.column_config.LinkColumn("Link"), 
-                "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"]),
-                "rationale": st.column_config.TextColumn("Rationale", width="large"),
-                "authors": None,
-                "abstract": None
-            }, 
-            hide_index=True, use_container_width=True, key="ev_editor"
-        )
-        export_widget(edited_ev.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
+            edited_ev = st.data_editor(
+                df_ev, 
+                column_config={
+                    "id": st.column_config.TextColumn("PMID", disabled=True, width="small"),
+                    "title": st.column_config.TextColumn("Title", width="medium"),
+                    "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small"),
+                    "rationale": st.column_config.TextColumn("Rationale", width="large"),
+                    # Hide other columns from view but keep in data
+                    "year": None, "journal": None, "authors": None, "abstract": None, "url": None
+                }, 
+                column_order=["id", "title", "grade", "rationale"],
+                hide_index=True, width="stretch", key="ev_editor"
+            )
+            
+            # BOTTOM TIP
+            styled_info("<b>Tip:</b> The table above shows key details. Download the CSV below to see the <b>full abstract, authors, journal, and year</b>.")
+            
+            # Export Full Data (Not just visible)
+            full_df = pd.DataFrame(evidence_data)
+            export_widget(full_df.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
+            
     render_bottom_navigation()
 
 # --- PHASE 3 ---
 elif "Phase 3" in phase:
     col_tools, col_editor = st.columns([1, 3])
     with col_tools:
-        if st.button("Auto-Draft Logic (AI)", type="primary", use_container_width=True):
+        if st.button("Auto-Draft Logic (AI)", type="primary", width="stretch"):
             cond = st.session_state.data['phase1']['condition']
             with st.spinner("Drafting..."):
                 prompt = f"Act as Clinical Decision Scientist. Create pathway for {cond}. Return JSON LIST. Objects: id, type (Start|Decision|Process|End), label, detail, labs, imaging, medications, dosage, branches."
@@ -806,11 +826,11 @@ elif "Phase 3" in phase:
                 if nodes:
                     st.session_state.data['phase3']['nodes'] = harden_nodes(nodes)
                     st.rerun()
-        if st.button("Clear All", use_container_width=True):
+        if st.button("Clear All", width="stretch"):
             st.session_state.data['phase3']['nodes'] = []
             st.rerun()
         st.write("")
-        if st.button("Auto-Populate Evidence", use_container_width=True):
+        if st.button("Auto-Populate Evidence", width="stretch"):
              with st.spinner("Matching..."):
                  ev_titles = [f"{e['id']}: {e['title']}" for e in st.session_state.data['phase2']['evidence']]
                  for node in st.session_state.data['phase3']['nodes']:
@@ -825,7 +845,7 @@ elif "Phase 3" in phase:
         edited_nodes = st.data_editor(
             df_nodes, 
             num_rows="dynamic", 
-            use_container_width=True, 
+            width="stretch", 
             key="p3_editor",
             column_config={
                 "type": st.column_config.SelectboxColumn("Type", options=["Start", "Decision", "Process", "End"]),
@@ -855,7 +875,7 @@ elif "Phase 4" in phase:
         components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
         with st.expander("Edit Pathway Data", expanded=False):
             df_p4 = pd.DataFrame(nodes)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", width="stretch")
             if not df_p4.equals(edited_p4):
                 st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
                 st.rerun()
