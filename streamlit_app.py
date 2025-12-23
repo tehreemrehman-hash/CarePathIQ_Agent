@@ -42,6 +42,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Hide detailed Python tracebacks from end users
+try:
+    st.set_option('client.showErrorDetails', False)
+except Exception:
+    pass
+
 # --- CUSTOM CSS ---
 # Force-clear Streamlit caches once per user session to avoid stale views
 if "cleared_cache_once" not in st.session_state:
@@ -263,14 +269,16 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
 
 @contextmanager
 def ai_activity(label="Working with the AI agent…"):
-    """Unified, clean status UI for AI tasks."""
+    """Unified, clean status UI for AI tasks; suppresses tracebacks."""
     with st.status(label, expanded=False) as status:
         try:
             yield status
             status.update(label="Ready!", state="complete")
         except Exception:
-            status.update(label="AI error", state="error")
-            raise
+            status.update(label="There was a problem completing this step.", state="error")
+            st.error("Please try again or adjust your input.")
+            # Swallow exception to avoid exposing internals
+            return
 
 @st.cache_data(ttl=3600)
 def generate_gantt_image(schedule):
