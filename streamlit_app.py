@@ -15,6 +15,7 @@ import os
 import copy
 import xml.etree.ElementTree as ET
 import altair as alt
+from contextlib import contextmanager
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
@@ -247,6 +248,17 @@ def export_widget(content, filename, mime_type="text/plain", label="Download"):
         if isinstance(content, str):
             final_content = content + COPYRIGHT_MD
     st.download_button(label, final_content, filename, mime_type)
+
+@contextmanager
+def ai_activity(label="Working with the AI agent…"):
+    """Unified, clean status UI for AI tasks."""
+    with st.status(label, expanded=False) as status:
+        try:
+            yield status
+            status.update(label="Ready!", state="complete")
+        except Exception:
+            status.update(label="AI error", state="error")
+            raise
 
 @st.cache_data(ttl=3600)
 def generate_gantt_image(schedule):
@@ -779,7 +791,7 @@ elif "Phase 2" in phase:
     ):
         st.session_state.data['phase2']['mesh_query'] = default_q
         full_query = f"{default_q} AND (\"last 5 years\"[dp])"
-        with st.spinner("Searching PubMed and auto-grading…"):
+        with ai_activity("Searching PubMed and auto‑grading…"):
             results = search_pubmed(full_query)
             st.session_state.data['phase2']['evidence'] = results
             if results:
@@ -802,7 +814,7 @@ elif "Phase 2" in phase:
         if st.button("Search PubMed", type="primary", key="p2_search_btn"):
             full_query = f"{q} AND (\"last 5 years\"[dp])"
             st.session_state.data['phase2']['mesh_query'] = q
-            with st.spinner("Searching & Auto-Grading…"):
+            with ai_activity("Searching PubMed and auto‑grading…"):
                 results = search_pubmed(full_query)
                 st.session_state.data['phase2']['evidence'] = results
                 if results:
@@ -887,7 +899,7 @@ elif "Phase 3" in phase:
     with col_tools:
         if st.button("Auto-Draft Logic (AI)", type="primary", width="stretch"):
             cond = st.session_state.data['phase1']['condition']
-            with st.spinner("Drafting..."):
+            with ai_activity("Drafting pathway with the AI agent…"):
                 prompt = f"Act as Clinical Decision Scientist. Create pathway for {cond}. Return JSON LIST. Objects: id, type (Start|Decision|Process|End), label, detail, labs, imaging, medications, dosage, branches."
                 nodes = get_gemini_response(prompt, json_mode=True)
                 if nodes:
@@ -898,7 +910,7 @@ elif "Phase 3" in phase:
             st.rerun()
         st.write("")
         if st.button("Auto-Populate Evidence", width="stretch"):
-             with st.spinner("Matching..."):
+             with ai_activity("Matching pathway steps to evidence…"):
                  ev_titles = [f"{e['id']}: {e['title']}" for e in st.session_state.data['phase2']['evidence']]
                  for node in st.session_state.data['phase3']['nodes']:
                      if not node.get('evidence'):
@@ -953,8 +965,9 @@ elif "Phase 4" in phase:
     with col_heuristics:
         st.subheader("Heuristics")
         if st.button("Analyze Risks"):
-            prompt = f"Analyze logic {json.dumps(nodes)} for Nielsen's Heuristics. Return JSON {{H1: critique...}}"
-            res = get_gemini_response(prompt, json_mode=True)
+            with ai_activity("Analyzing usability heuristics…"):
+                prompt = f"Analyze logic {json.dumps(nodes)} for Nielsen's Heuristics. Return JSON {{H1: critique...}}"
+                res = get_gemini_response(prompt, json_mode=True)
             if res:
                 st.session_state.data['phase4']['heuristics_data'] = res
                 st.rerun()
@@ -963,7 +976,7 @@ elif "Phase 4" in phase:
             with st.expander(k): 
                 st.write(v)
                 if st.button(f"Apply Fix ({k})", key=f"fix_{k}"):
-                    with st.spinner("Applying AI Fix..."):
+                    with ai_activity("Applying AI‑recommended fix…"):
                         p_fix = f"Update this JSON to fix {k} ({v}): {json.dumps(nodes)}. Return JSON."
                         new_nodes = get_gemini_response(p_fix, json_mode=True)
                         if new_nodes:
@@ -972,7 +985,7 @@ elif "Phase 4" in phase:
     st.divider()
     custom_edit = st.text_area("Custom Refinement", placeholder="E.g., 'Add a blood pressure check after triage'", label_visibility="collapsed")
     if st.button("Apply Changes", type="primary"):
-         with st.spinner("Applying..."):
+         with ai_activity("Applying your changes…"):
              p_cust = f"Update logic based on: {custom_edit}. Current: {json.dumps(nodes)}. Return JSON."
              new_nodes = get_gemini_response(p_cust, json_mode=True)
              if new_nodes:
@@ -1010,7 +1023,7 @@ elif "Phase 5" in phase:
     with c1:
         st.markdown("#### 1. Expert Panel Feedback Form")
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_expert_gen"):
-            with st.spinner("Generating..."):
+            with ai_activity("Generating expert feedback form…"):
                 nodes = st.session_state.data['phase3']['nodes']
                 s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
                 p_nodes = [n for n in nodes if n.get('type') == 'Process']
@@ -1044,14 +1057,15 @@ elif "Phase 5" in phase:
             with st.expander("Refine Form"):
                 refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed")
                 if st.button("Update Form", use_container_width=True, key="update_expert"):
-                    new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
+                    with ai_activity("Updating expert feedback form…"):
+                        new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
                     if new_html: st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
     # 2. Beta Testing Form
     with c2:
         st.markdown("#### 2. Beta Testing Form")
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_beta_gen"):
-            with st.spinner("Generating..."):
+            with ai_activity("Generating beta testing form…"):
                 prompt = f"""
                 Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}. 
                 Form Action: 'https://formsubmit.co/{email_target}'.
@@ -1072,14 +1086,15 @@ elif "Phase 5" in phase:
             with st.expander("Refine Form"):
                 refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed")
                 if st.button("Update Form", use_container_width=True, key="update_beta"):
-                    new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
+                    with ai_activity("Updating beta testing form…"):
+                        new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
                     if new_html: st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
     # 3. Staff Education Module
     with c3:
         st.markdown("#### 3. Staff Education Module")
         if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
-            with st.spinner("Generating..."):
+            with ai_activity("Generating education module…"):
                 prompt = f"""
                 Create HTML Education Module for {cond}. Audience: {audience}.
                 1. Key Clinical Points (summary section)
@@ -1100,7 +1115,8 @@ elif "Phase 5" in phase:
             with st.expander("Refine Module"):
                 refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed")
                 if st.button("Update Module", use_container_width=True, key="update_edu"):
-                    new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
+                    with ai_activity("Updating education module…"):
+                        new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
                     if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
     st.divider()
@@ -1110,7 +1126,7 @@ elif "Phase 5" in phase:
     col_gen, col_space = st.columns([1, 3])
     with col_gen:
         if st.button("Draft Executive Summary", type="primary", use_container_width=True):
-            with st.spinner("Drafting..."):
+            with ai_activity("Drafting executive summary…"):
                 st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
 
     if st.session_state.data['phase5'].get('exec_summary'):
@@ -1120,7 +1136,8 @@ elif "Phase 5" in phase:
         with st.expander("Refine Summary"):
             refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed")
             if st.button("Update Summary"):
-                new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
+                with ai_activity("Updating executive summary…"):
+                    new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
                 if new_sum: st.session_state.data['phase5']['exec_summary'] = new_sum; st.rerun()
 
     render_bottom_navigation()
