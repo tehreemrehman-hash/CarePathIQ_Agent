@@ -114,11 +114,17 @@ st.markdown("""
     /* RADIO BUTTONS */
     div[role="radiogroup"] label > div:first-child {
         background-color: white !important;
-        border-color: #5D4037 !important;
+        border: 2px solid #5D4037 !important;
+        border-radius: 50% !important;
+        width: 20px !important;
+        height: 20px !important;
+        margin-right: 8px !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     div[role="radiogroup"] label[data-checked="true"] > div:first-child {
         background-color: #5D4037 !important;
-        border-color: #5D4037 !important;
+        border: 2px solid #5D4037 !important;
+        box-shadow: 0 2px 4px rgba(93,64,55,0.15);
     }
     
     /* SPINNER */
@@ -184,6 +190,7 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 # --- NAVIGATION CONTROLLER ---
 def change_phase(new_phase):
     st.session_state.current_phase_label = new_phase
+    st.session_state.top_nav_radio = new_phase  # Sync radio button value
 
 def render_bottom_navigation():
     """Renders Previous/Next buttons at the bottom of the page."""
@@ -514,7 +521,10 @@ with st.sidebar:
 
     st.title("AI Agent")
     st.divider()
-    default_key = st.secrets.get("GEMINI_API_KEY", "")
+    try:
+        default_key = st.secrets.get("GEMINI_API_KEY", "")
+    except:
+        default_key = ""
     gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
@@ -536,6 +546,7 @@ with st.sidebar:
 # LANDING PAGE LOGIC
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
+    st.markdown('<p style="font-size: 1.2em; color: #00695C; margin-top: -10px; margin-bottom: 20px;">Intelligently build and deploy clinical pathways</p>', unsafe_allow_html=True)
     st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
@@ -545,12 +556,14 @@ if "current_phase_label" not in st.session_state:
 
 if "data" not in st.session_state:
     st.session_state.data = {
-        "phase1": {"condition": "", "setting": "", "inclusion": "", "exclusion": "", "problem": "", "objectives": "", "schedule": []},
+        "phase1": {"condition": "", "setting": "", "inclusion": "", "exclusion": "", "problem": "", "objectives": "", "schedule": [], "population": ""},
         "phase2": {"evidence": [], "mesh_query": ""},
         "phase3": {"nodes": []},
         "phase4": {"heuristics_data": {}},
         "phase5": {"exec_summary": "", "beta_html": "", "expert_html": "", "edu_html": ""}
     }
+if "suggestions" not in st.session_state:
+    st.session_state.suggestions = {}
 # --- FORCE MIGRATION FOR OLD DATA ---
 if "pico_p" in st.session_state.data.get("phase2", {}):
     # Old PICO structure detected; clear Phase 2 data to force new layout
@@ -560,14 +573,25 @@ if "pico_p" in st.session_state.data.get("phase2", {}):
 # ==========================================
 # 4. MAIN WORKFLOW LOGIC
 # ==========================================
-# Determine current phase index safely
+## --- PHASE NAVIGATION ---
 try:
     radio_index = PHASES.index(st.session_state.current_phase_label)
 except ValueError:
     radio_index = 0
 
-# Connect radio to session state key to allow programmatic updates
-phase = st.radio("Workflow Phase", PHASES, index=radio_index, horizontal=True, label_visibility="collapsed", key="top_nav_radio", on_change=lambda: change_phase(st.session_state.top_nav_radio))
+# Use a callback to sync radio selection to current_phase_label
+def sync_radio_to_phase():
+    st.session_state.current_phase_label = st.session_state.top_nav_radio
+
+phase = st.radio(
+    "Workflow Phase",
+    PHASES,
+    index=radio_index,
+    horizontal=True,
+    label_visibility="visible",
+    key="top_nav_radio",
+    on_change=sync_radio_to_phase
+)
 st.divider()
 
 # --- PHASE 1 ---
@@ -643,7 +667,7 @@ if "Phase 1" in phase:
     if 'p1_prob' not in st.session_state: st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     if 'p1_obj' not in st.session_state: st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
 
-    # UPDATED TIP TEXT
+    st.title("Phase 1: Scoping & Charter")
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
     col1, col2 = st.columns([1, 1])
@@ -709,7 +733,6 @@ if "Phase 1" in phase:
             st.altair_chart(chart, use_container_width=True)
     
     if st.button("Generate Project Charter", type="primary", use_container_width=True):
-        sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
@@ -726,6 +749,9 @@ if "Phase 1" in phase:
 
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
+    st.title("Phase 2: Rapid Evidence Appraisal")
+    styled_info("<b>Tip:</b> Enter a search query or let it auto-generate from Phase 1. Results will be automatically GRADE-scored by the AI agent.")
+    
     col_q, col_btn = st.columns([3, 1])
     with col_q:
         default_q = st.session_state.data['phase2'].get('mesh_query', '')
@@ -818,6 +844,9 @@ elif "Phase 2" in phase:
 
 # --- PHASE 3 ---
 elif "Phase 3" in phase:
+    st.title("Phase 3: Decision Science")
+    styled_info("<b>Tip:</b> Build your clinical pathway logic. Use the AI agent to auto-draft nodes or manually edit the table.")
+    
     col_tools, col_editor = st.columns([1, 3])
     with col_tools:
         if st.button("Auto-Draft Logic (AI)", type="primary", width="stretch"):
@@ -865,6 +894,9 @@ elif "Phase 3" in phase:
 
 # --- PHASE 4 ---
 elif "Phase 4" in phase:
+    st.title("Phase 4: User Interface Design")
+    styled_info("<b>Tip:</b> Evaluate your pathway against Nielsen's 10 Usability Heuristics. The AI agent can provide suggestions for each criterion.")
+    
     nodes = st.session_state.data['phase3']['nodes']
     col_vis, col_heuristics = st.columns([2, 1])
     with col_vis:
@@ -914,111 +946,146 @@ elif "Phase 4" in phase:
 
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
-    st.markdown("### Operational Toolkit & Deployment")
+    st.title("Phase 5: Operationalize")
+    styled_info("<b>Tip:</b> Generate deployment materials for different audiences. The AI agent creates executive summaries, expert guides, and education plans.")
+    
+    st.markdown("### Operational Toolkit")
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     
+    # Configuration Row
     col_a, col_e = st.columns(2)
     with col_a:
         st.write("Target Audience")
-        audience_sel = st.pills("Select Audience", ["Multidisciplinary Team", "Physicians", "Nurses", "Informaticists"], default="Multidisciplinary Team")
-        audience = st.text_input("Custom Audience", value=audience_sel if audience_sel else "Multidisciplinary Team")
+        audience_options = ["Multidisciplinary Team", "Physicians", "Nurses", "Informaticists"]
+        audience_sel = st.selectbox("Select or type custom audience", [""] + audience_options, index=0, label_visibility="collapsed")
+        if audience_sel:
+            audience = st.text_input("Audience (edit if needed)", value=audience_sel, label_visibility="collapsed")
+        else:
+            audience = st.text_input("Enter custom audience", placeholder="e.g., Nurse Practitioners", label_visibility="collapsed")
     with col_e:
-        email_target = st.text_input("Results Recipient Email (for forms)", placeholder="you@hospital.org")
+        email_target = st.text_input("Recipient Email (for forms and certificates)", placeholder="you@hospital.org")
 
     st.divider()
     
-    # 1. Expert Panel
-    st.subheader("1. Expert Panel Feedback Form")
-    if st.button("Generate Expert Form", key="btn_expert"):
-        with st.spinner("Generating..."):
-            nodes = st.session_state.data['phase3']['nodes']
-            s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
-            p_nodes = [n for n in nodes if n.get('type') == 'Process']
-            d_nodes = [n for n in nodes if n.get('type') == 'Decision']
-            s_e_str = "\n".join([f"- {n.get('label')}" for n in s_e_nodes])
-            p_str = "\n".join([f"- {n.get('label')}" for n in p_nodes])
-            d_str = "\n".join([f"- {n.get('label')}" for n in d_nodes])
-
-            prompt = f"""
-            Create HTML5 Form for Expert Panel. Audience: {audience}.
-            Intro: "Thank you for serving on the expert panel for {cond}."
-            Logic:
-            Iterate through these nodes:
-            Start/End: {s_e_str}
-            Decisions: {d_str}
-            Process: {p_str}
-            For EACH node, create a Checkbox. If checked, show:
-            1. "Proposed Change" (Textarea)
-            2. "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Resource Limitations, None)
-            3. "Justification Detail" (Textarea)
-            Form Action: 'https://formsubmit.co/{email_target}'
-            """
-            st.session_state.data['phase5']['expert_html'] = get_gemini_response(prompt)
-            if st.session_state.data['phase5']['expert_html']: 
-                st.session_state.data['phase5']['expert_html'] += COPYRIGHT_HTML_FOOTER
+    # 3-COLUMN HORIZONTAL LAYOUT
+    c1, c2, c3 = st.columns(3)
     
-    if st.session_state.data['phase5'].get('expert_html'):
-        st.download_button("Download Expert Form (.html)", st.session_state.data['phase5']['expert_html'], "ExpertForm.html")
-        refine_expert = st.text_area("Refine Expert Form", height=70, key="ref_expert")
-        if st.button("Update Expert Form"):
-             new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
-             if new_html: st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+    # 1. Expert Panel Feedback Form
+    with c1:
+        st.markdown("#### 1. Expert Panel Feedback Form")
+        if st.button("Generate Form", type="primary", use_container_width=True, key="btn_expert_gen"):
+            with st.spinner("Generating..."):
+                nodes = st.session_state.data['phase3']['nodes']
+                s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
+                p_nodes = [n for n in nodes if n.get('type') == 'Process']
+                d_nodes = [n for n in nodes if n.get('type') == 'Decision']
+                s_e_str = "\n".join([f"- {n.get('label')}" for n in s_e_nodes])
+                p_str = "\n".join([f"- {n.get('label')}" for n in p_nodes])
+                d_str = "\n".join([f"- {n.get('label')}" for n in d_nodes])
 
-    st.divider()
-
-    # 2. Beta Feedback
-    st.subheader("2. Beta Testing Feedback")
-    if st.button("Generate Beta Form", key="btn_beta"):
-        with st.spinner("Generating..."):
-            prompt = f"Create HTML Form. Title: 'Beta Testing Feedback'. Audience: {audience}. Action: 'https://formsubmit.co/{email_target}'. Questions: Usability, Bugs, Workflow Fit."
-            st.session_state.data['phase5']['beta_html'] = get_gemini_response(prompt)
-            if st.session_state.data['phase5']['beta_html']: st.session_state.data['phase5']['beta_html'] += COPYRIGHT_HTML_FOOTER
-
-    if st.session_state.data['phase5'].get('beta_html'):
-        st.download_button("Download Beta Form (.html)", st.session_state.data['phase5']['beta_html'], "BetaForm.html")
-        refine_beta = st.text_area("Refine Beta Form", height=70, key="ref_beta")
-        if st.button("Update Beta Form"):
-             new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
-             if new_html: st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
-
-    st.divider()
-
-    # 3. Education Module
-    st.subheader("3. Staff Education & Certificate")
-    if st.button("Generate Education Module", key="btn_edu"):
-        with st.spinner("Generating..."):
-            prompt = f"""
-            Create HTML Education Module for {cond}. Audience: {audience}.
-            1. Key Clinical Points.
-            2. 5 Question Quiz. JS Logic: Show explanation for CORRECT and INCORRECT answers immediately.
-            3. Certificate: Input Name -> Click 'Submit' -> Generate Certificate Div (Printable).
-            """
-            st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
-            if st.session_state.data['phase5']['edu_html']: st.session_state.data['phase5']['edu_html'] += COPYRIGHT_HTML_FOOTER
-
-    if st.session_state.data['phase5'].get('edu_html'):
-        st.download_button("Download Education Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html")
-        refine_edu = st.text_area("Refine Education Module", height=70, key="ref_edu")
-        if st.button("Update Education Module"):
-             new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
-             if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+                prompt = f"""
+                Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
+                Intro: "Thank you for serving on the expert panel for {cond}."
+                Logic:
+                Iterate through these nodes:
+                Start/End: {s_e_str}
+                Decisions: {d_str}
+                Process: {p_str}
+                For EACH node, create a Checkbox. If checked, show:
+                1. "Proposed Change" (Textarea)
+                2. "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Resource Limitations, None)
+                3. "Justification Detail" (Textarea)
+                Form Action: 'https://formsubmit.co/{email_target}'
+                Add hidden input: <input type="hidden" name="_subject" value="Expert Panel Feedback - {cond}">
+                """
+                st.session_state.data['phase5']['expert_html'] = get_gemini_response(prompt)
+                if st.session_state.data['phase5']['expert_html']: 
+                    st.session_state.data['phase5']['expert_html'] += COPYRIGHT_HTML_FOOTER
+        
+        if st.session_state.data['phase5'].get('expert_html'):
+            st.download_button("Download Form (.html)", st.session_state.data['phase5']['expert_html'], "ExpertPanelForm.html", use_container_width=True)
+            st.info("📧 Form submissions will be sent to the email address provided above.")
+            with st.expander("Refine Form"):
+                refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed")
+                if st.button("Update Form", use_container_width=True, key="update_expert"):
+                    new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
+                    if new_html: st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+    
+    # 2. Beta Testing Form
+    with c2:
+        st.markdown("#### 2. Beta Testing Form")
+        if st.button("Generate Form", type="primary", use_container_width=True, key="btn_beta_gen"):
+            with st.spinner("Generating..."):
+                prompt = f"""
+                Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}. 
+                Form Action: 'https://formsubmit.co/{email_target}'.
+                Questions: 
+                1. Usability Rating (1-5 scale)
+                2. Bugs/Issues Encountered (Textarea)
+                3. Workflow Integration (Select: Excellent, Good, Fair, Poor)
+                4. Additional Feedback (Textarea)
+                Add hidden input: <input type="hidden" name="_subject" value="Beta Testing Feedback - {cond}">
+                """
+                st.session_state.data['phase5']['beta_html'] = get_gemini_response(prompt)
+                if st.session_state.data['phase5']['beta_html']: 
+                    st.session_state.data['phase5']['beta_html'] += COPYRIGHT_HTML_FOOTER
+        
+        if st.session_state.data['phase5'].get('beta_html'):
+            st.download_button("Download Form (.html)", st.session_state.data['phase5']['beta_html'], "BetaTestingForm.html", use_container_width=True)
+            st.info("📧 Form submissions will be sent to the email address provided above.")
+            with st.expander("Refine Form"):
+                refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed")
+                if st.button("Update Form", use_container_width=True, key="update_beta"):
+                    new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
+                    if new_html: st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+    
+    # 3. Staff Education Module
+    with c3:
+        st.markdown("#### 3. Staff Education Module")
+        if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
+            with st.spinner("Generating..."):
+                prompt = f"""
+                Create HTML Education Module for {cond}. Audience: {audience}.
+                1. Key Clinical Points (summary section)
+                2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
+                3. Certificate of Completion: 
+                   - User enters Name and Email
+                   - On completion, display printable certificate
+                   - Submit form to: 'https://formsubmit.co/{email_target}' to send certificate copy to admin
+                   - Add hidden input: <input type="hidden" name="_subject" value="Education Certificate - {cond}">
+                """
+                st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
+                if st.session_state.data['phase5']['edu_html']: 
+                    st.session_state.data['phase5']['edu_html'] += COPYRIGHT_HTML_FOOTER
+        
+        if st.session_state.data['phase5'].get('edu_html'):
+            st.download_button("Download Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html", use_container_width=True)
+            st.info("🎓 Certificates will be emailed to both the learner and the address provided above.")
+            with st.expander("Refine Module"):
+                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed")
+                if st.button("Update Module", use_container_width=True, key="update_edu"):
+                    new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
+                    if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
     st.divider()
     
-    # 4. Exec Summary
+    # 4. Executive Summary (Full Width)
     st.subheader("4. Executive Summary")
-    if st.button("Draft Executive Summary"):
-        with st.spinner("Drafting..."):
-            st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
+    col_gen, col_space = st.columns([1, 3])
+    with col_gen:
+        if st.button("Draft Executive Summary", type="primary", use_container_width=True):
+            with st.spinner("Drafting..."):
+                st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
 
     if st.session_state.data['phase5'].get('exec_summary'):
         st.markdown(st.session_state.data['phase5']['exec_summary'])
         doc = create_exec_summary_docx(st.session_state.data['phase5']['exec_summary'], cond)
         if doc: st.download_button("Download Executive Summary (.docx)", doc, "ExecSummary.docx")
-        refine_exec = st.text_area("Refine Summary", height=70, key="ref_exec")
-        if st.button("Update Summary"):
-             new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
-             if new_sum: st.session_state.data['phase5']['exec_summary'] = new_sum; st.rerun()
+        with st.expander("Refine Summary"):
+            refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed")
+            if st.button("Update Summary"):
+                new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
+                if new_sum: st.session_state.data['phase5']['exec_summary'] = new_sum; st.rerun()
 
     render_bottom_navigation()
 
