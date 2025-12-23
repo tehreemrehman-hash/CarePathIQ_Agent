@@ -474,7 +474,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
 def search_pubmed(query):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     try:
-        search_params = {'db': 'pubmed', 'term': f"{query}", 'retmode': 'json', 'retmax': 20, 'sort': 'relevance'}
+        search_params = {'db': 'pubmed', 'term': f"{query}", 'retmode': 'json', 'retmax': 50, 'sort': 'relevance'}
         url = base_url + "esearch.fcgi?" + urllib.parse.urlencode(search_params)
         with urllib.request.urlopen(url) as response: id_list = json.loads(response.read().decode()).get('esearchresult', {}).get('idlist', [])
         if not id_list: return []
@@ -807,10 +807,9 @@ elif "Phase 2" in phase:
                             e.update(grades[e['id']])
         st.session_state['p2_last_autorun_query'] = default_q
 
-    # Compact query controls: show current and allow refinement
-    st.caption(f"Current query: {default_q or 'Not set'}")
-    with st.expander("Refine search query", expanded=False):
-        q = st.text_input("PubMed Search Query", value=default_q, key="p2_query_input")
+    # Hide the query by default; optional advanced refinement
+    with st.expander("Advanced: refine search (optional)", expanded=False):
+        q = st.text_input("PubMed Search Query", value="", placeholder="Enter a custom query (optional)", key="p2_query_input")
         if st.button("Search PubMed", type="primary", key="p2_search_btn"):
             full_query = f"{q} AND (\"last 5 years\"[dp])"
             st.session_state.data['phase2']['mesh_query'] = q
