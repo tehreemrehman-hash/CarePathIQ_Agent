@@ -763,37 +763,60 @@ if "Phase 1" in phase:
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
     st.title("Phase 2: Rapid Evidence Appraisal")
-    styled_info("<b>Tip:</b> Enter a search query or let it auto-generate from Phase 1. Results will be automatically GRADE-scored by the AI agent.")
-    
-    col_q, col_btn = st.columns([3, 1])
-    with col_q:
-        default_q = st.session_state.data['phase2'].get('mesh_query', '')
-        # Auto-generate query based on Phase 1 inputs if empty
-        if not default_q and st.session_state.data['phase1']['condition']:
-             c = st.session_state.data['phase1']['condition']
-             s = st.session_state.data['phase1']['setting']
-             default_q = f"managing patients with {c} in {s}"
-        
+
+    # Build default query from Phase 1 if none saved
+    default_q = st.session_state.data['phase2'].get('mesh_query', '')
+    if not default_q and st.session_state.data['phase1']['condition']:
+        c = st.session_state.data['phase1']['condition']
+        s = st.session_state.data['phase1']['setting']
+        default_q = f"managing patients with {c} in {s}"
+
+    # Auto-run search once per distinct default query when evidence is empty
+    if (
+        not st.session_state.data['phase2']['evidence']
+        and default_q
+        and st.session_state.get('p2_last_autorun_query') != default_q
+    ):
+        st.session_state.data['phase2']['mesh_query'] = default_q
+        full_query = f"{default_q} AND (\"last 5 years\"[dp])"
+        with st.spinner("Searching PubMed and auto-grading…"):
+            results = search_pubmed(full_query)
+            st.session_state.data['phase2']['evidence'] = results
+            if results:
+                prompt = (
+                    "Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: "
+                    f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
+                    "Return JSON {ID: {grade, rationale}}"
+                )
+                grades = get_gemini_response(prompt, json_mode=True)
+                if grades:
+                    for e in st.session_state.data['phase2']['evidence']:
+                        if e['id'] in grades:
+                            e.update(grades[e['id']])
+        st.session_state['p2_last_autorun_query'] = default_q
+
+    # Compact query controls: show current and allow refinement
+    st.caption(f"Current query: {default_q or 'Not set'}")
+    with st.expander("Refine search query", expanded=False):
         q = st.text_input("PubMed Search Query", value=default_q, key="p2_query_input")
-        
-    with col_btn:
-        st.write(""); st.write("")
-        if st.button("Search PubMed", type="primary", width="stretch"):
-            # Append last 5 years logic implicitly
+        if st.button("Search PubMed", type="primary", key="p2_search_btn"):
             full_query = f"{q} AND (\"last 5 years\"[dp])"
-            st.session_state.data['phase2']['mesh_query'] = q # Store display version
-            
-            with st.spinner("Searching & Auto-Grading..."):
+            st.session_state.data['phase2']['mesh_query'] = q
+            with st.spinner("Searching & Auto-Grading…"):
                 results = search_pubmed(full_query)
                 st.session_state.data['phase2']['evidence'] = results
-                
-                # Auto-Grade immediately
                 if results:
-                    prompt = f"Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: {json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. Return JSON {{ID: {{grade, rationale}}}}"
+                    prompt = (
+                        "Assign GRADE (High/Mod/Low/Very Low) and short Rationale for: "
+                        f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
+                        "Return JSON {ID: {grade, rationale}}"
+                    )
                     grades = get_gemini_response(prompt, json_mode=True)
                     if grades:
                         for e in st.session_state.data['phase2']['evidence']:
-                            if e['id'] in grades: e.update(grades[e['id']])
+                            if e['id'] in grades:
+                                e.update(grades[e['id']])
+            st.session_state['p2_last_autorun_query'] = q
             st.rerun()
 
     if st.session_state.data['phase2']['evidence']:
