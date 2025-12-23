@@ -533,15 +533,38 @@ def search_pubmed(query):
     except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
 
 def format_as_numbered_list(items):
-    """Helper to ensure lists are strings with numbers."""
+    """Ensure numbered list formatting with a blank line between items.
+    - Accepts list or string; outputs a string with "1. ..." and blank lines.
+    """
+    # If already a list, normalize and build with spacing
     if isinstance(items, list):
-        # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
-        clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
-        # Add a blank line between items for readability in the UI
+        clean_items = [re.sub(r'^\s*[\d\.\-\*]+\s*', '', str(item)).strip() for item in items if str(item).strip()]
         return "\n\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
-    return str(items)
 
-def compute_textarea_height(text: str, min_rows: int = 6, max_rows: int = 30, line_px: int = 24, padding_px: int = 16) -> int:
+    # If it's a string, try to detect existing items and rebuild
+    text = str(items or "").strip()
+    if not text:
+        return ""
+
+    lines = [ln.rstrip() for ln in text.split("\n")]
+    # Extract lines that look like items (start with number. or bullet)
+    item_lines = []
+    for ln in lines:
+        m = re.match(r"^\s*(\d+\.|[-\*])\s+(.*)$", ln)
+        if m:
+            item_lines.append(m.group(2).strip())
+        elif ln.strip():
+            item_lines.append(ln.strip())
+    # If we collected multiple logical items, rebuild with numbering + spacing
+    if len(item_lines) >= 2:
+        return "\n\n".join([f"{i+1}. {it}" for i, it in enumerate(item_lines)])
+
+    # Otherwise, ensure at least single paragraph return
+    # Also insert blank lines before any subsequent "N." occurrences
+    text = re.sub(r"\n(?=(\d+\.)\s)", "\n\n", text)
+    return text
+
+def compute_textarea_height(text: str, min_rows: int = 8, max_rows: int = 60, line_px: int = 22, padding_px: int = 18) -> int:
     """
     Estimate a textarea height in pixels based on current text content.
     Streamlit doesn't auto-resize text_areas, so we approximate by rows.
@@ -680,6 +703,7 @@ if "Phase 1" in phase:
                 st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                 st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
                 st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+                st.rerun()
 
     def apply_refinements():
         refinement_text = st.session_state.p1_refine_input
@@ -707,6 +731,7 @@ if "Phase 1" in phase:
                 st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                 st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
                 st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+                st.rerun()
 
     # 2. SYNC FUNCTION (General)
     def sync_p1_widgets():
