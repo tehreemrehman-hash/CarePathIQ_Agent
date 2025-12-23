@@ -564,16 +564,23 @@ def format_as_numbered_list(items):
     text = re.sub(r"\n(?=(\d+\.)\s)", "\n\n", text)
     return text
 
-def compute_textarea_height(text: str, min_rows: int = 8, max_rows: int = 60, line_px: int = 22, padding_px: int = 18) -> int:
+def compute_textarea_height(text: str, min_rows: int = 10, max_rows: int = 100, line_px: int = 22, padding_px: int = 18, chars_per_line: int = 70) -> int:
     """
     Estimate a textarea height in pixels based on current text content.
     Streamlit doesn't auto-resize text_areas, so we approximate by rows.
     """
     if text is None:
         text = ""
-    # Count visual lines; treat double newlines as two lines for spacing but avoid inflating too much
-    lines = sum(len(block.split("\n")) for block in text.split("\n\n"))
-    lines = max(min_rows, min(max_rows, lines if lines > 0 else min_rows))
+    # Estimate visual lines including wrapping
+    # Split on explicit newlines, then estimate wrapped rows per line
+    est_lines = 0
+    for block in text.split("\n\n"):
+        for ln in block.split("\n"):
+            length = len(ln.strip()) or 1
+            est_lines += max(1, (length + chars_per_line - 1) // chars_per_line)
+        # add one extra line between paragraphs for spacing
+        est_lines += 1
+    lines = max(min_rows, min(max_rows, est_lines or min_rows))
     return lines * line_px + padding_px
 
 # ==========================================
@@ -772,13 +779,13 @@ if "Phase 1" in phase:
         st.subheader("2. Target Population")
         st.text_area(
             "Inclusion Criteria",
-            height=compute_textarea_height(st.session_state.get('p1_inc', '')),
+            height=compute_textarea_height(st.session_state.get('p1_inc', ''), min_rows=14),
             key="p1_inc",
             on_change=sync_p1_widgets,
         )
         st.text_area(
             "Exclusion Criteria",
-            height=compute_textarea_height(st.session_state.get('p1_exc', '')),
+            height=compute_textarea_height(st.session_state.get('p1_exc', ''), min_rows=14),
             key="p1_exc",
             on_change=sync_p1_widgets,
         )
@@ -787,7 +794,7 @@ if "Phase 1" in phase:
         st.subheader("3. Clinical Gap / Problem Statement")
         st.text_area(
             "Problem Statement / Clinical Gap",
-            height=compute_textarea_height(st.session_state.get('p1_prob', '')),
+            height=compute_textarea_height(st.session_state.get('p1_prob', ''), min_rows=12),
             key="p1_prob",
             on_change=sync_p1_widgets,
             label_visibility="collapsed",
@@ -796,7 +803,7 @@ if "Phase 1" in phase:
         st.subheader("4. Goals")
         st.text_area(
             "Project Goals",
-            height=compute_textarea_height(st.session_state.get('p1_obj', '')),
+            height=compute_textarea_height(st.session_state.get('p1_obj', ''), min_rows=14),
             key="p1_obj",
             on_change=sync_p1_widgets,
             label_visibility="collapsed",
