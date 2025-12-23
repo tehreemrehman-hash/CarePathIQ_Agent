@@ -896,9 +896,17 @@ elif "Phase 2" in phase:
                             e.update(grades[e['id']])
         st.session_state['p2_last_autorun_query'] = default_q
 
-    # Hide the query by default; optional advanced refinement
+    # Optional advanced refinement with the current query prefilled
     with st.expander("Advanced: refine search (optional)", expanded=False):
-        q = st.text_input("PubMed Search Query", value="", placeholder="Enter a custom query (optional)", key="p2_query_input")
+        current_q = st.session_state.data['phase2'].get('mesh_query', default_q)
+        q = st.text_input(
+            "PubMed Search Query",
+            value=current_q or "",
+            placeholder="Enter a custom query (optional)",
+            key="p2_query_input",
+        )
+        if q:
+            st.caption("Note: The search applies a 'last 5 years' filter automatically.")
         if st.button("Search PubMed", type="primary", key="p2_search_btn"):
             full_query = f"{q} AND (\"last 5 years\"[dp])"
             st.session_state.data['phase2']['mesh_query'] = q
@@ -975,7 +983,13 @@ elif "Phase 2" in phase:
             # Export Full Data (Not just visible)
             full_df = pd.DataFrame(evidence_data)
             export_widget(full_df.to_csv(index=False).encode('utf-8'), "evidence_table.csv", "text/csv", label="Download Evidence Table (CSV)")
-            
+    else:
+        # If nothing to show, provide a helpful prompt and the PubMed link if available
+        st.info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
+        if st.session_state.data['phase2'].get('mesh_query'):
+            search_q = st.session_state.data['phase2']['mesh_query']
+            full_q = f"{search_q} AND (\"last 5 years\"[dp])"
+            st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
     render_bottom_navigation()
 
 # --- PHASE 3 ---
