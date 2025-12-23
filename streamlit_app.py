@@ -664,15 +664,26 @@ except ValueError:
 def sync_radio_to_phase():
     st.session_state.current_phase_label = st.session_state.top_nav_radio
 
-phase = st.radio(
-    "Workflow Phase",
-    PHASES,
-    index=radio_index,
-    horizontal=True,
-    label_visibility="visible",
-    key="top_nav_radio",
-    on_change=sync_radio_to_phase
-)
+# Avoid passing a default index when the session already has a value for this widget
+if "top_nav_radio" in st.session_state and st.session_state.top_nav_radio in PHASES:
+    phase = st.radio(
+        "Workflow Phase",
+        PHASES,
+        horizontal=True,
+        label_visibility="visible",
+        key="top_nav_radio",
+        on_change=sync_radio_to_phase,
+    )
+else:
+    phase = st.radio(
+        "Workflow Phase",
+        PHASES,
+        index=radio_index,
+        horizontal=True,
+        label_visibility="visible",
+        key="top_nav_radio",
+        on_change=sync_radio_to_phase,
+    )
 st.divider()
 
 # --- PHASE 1 ---
