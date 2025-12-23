@@ -43,6 +43,18 @@ st.set_page_config(
 )
 
 # --- CUSTOM CSS ---
+# Force-clear Streamlit caches once per user session to avoid stale views
+if "cleared_cache_once" not in st.session_state:
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
+    try:
+        st.cache_resource.clear()
+    except Exception:
+        pass
+    st.session_state.cleared_cache_once = True
+
 st.markdown("""
 <style>
     /* AGGRESSIVELY HIDE HEADER LINKS & ANCHORS */
