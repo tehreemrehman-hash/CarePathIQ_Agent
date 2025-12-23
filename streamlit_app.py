@@ -714,7 +714,6 @@ if "Phase 1" in phase:
                 st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                 st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
                 st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
-                st.rerun()
 
     def apply_refinements():
         refinement_text = st.session_state.p1_refine_input
@@ -742,7 +741,6 @@ if "Phase 1" in phase:
                 st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
                 st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
                 st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
-                st.rerun()
 
     # 2. SYNC FUNCTION (General)
     def sync_p1_widgets():
