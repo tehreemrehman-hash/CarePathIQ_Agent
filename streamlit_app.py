@@ -217,13 +217,15 @@ def render_bottom_navigation():
         current_idx = PHASES.index(st.session_state.current_phase_label)
         col1, col2, col3 = st.columns([1, 2, 1])
         
-        with col1:
-            if current_idx > 0:
-                prev_phase = PHASES[current_idx - 1]
-                st.button(f"← {prev_phase.split(':')[0]}", key="bottom_prev", use_container_width=True, on_click=change_phase, args=(prev_phase,))
-                    
-        with col3:
-            if current_idx < len(PHASES) - 1:
+        with col_q:
+            default_q = st.session_state.data['phase2'].get('mesh_query', '')
+            # Auto-generate robust PubMed query based on Phase 1 inputs if empty
+            if not default_q and st.session_state.data['phase1']['condition']:
+                 c = st.session_state.data['phase1']['condition']
+                 s = st.session_state.data['phase1']['setting']
+                 cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+                 set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
+                 default_q = f'({cond_q} AND {set_q}) AND english[lang]'
                 next_phase = PHASES[current_idx + 1]
                 st.button(f"{next_phase.split(':')[0]} →", key="bottom_next", use_container_width=True, type="primary", on_click=change_phase, args=(next_phase,))
 
@@ -988,12 +990,14 @@ elif "Phase 2" in phase:
                 column_config={
                     "id": st.column_config.TextColumn("PMID", disabled=True, width="small"),
                     "title": st.column_config.TextColumn("Title", width="medium"),
+                    "year": st.column_config.TextColumn("Year", width="small"),
+                    "journal": st.column_config.TextColumn("Journal", width="medium"),
                     "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small"),
                     "rationale": st.column_config.TextColumn("Rationale", width="large"),
                     # Hide other columns from view but keep in data
-                    "year": None, "journal": None, "authors": None, "abstract": None, "url": None
+                    "authors": None, "abstract": None, "url": None
                 }, 
-                column_order=["id", "title", "grade", "rationale"],
+                column_order=["id", "title", "year", "journal", "grade", "rationale"],
                 hide_index=True, width="stretch", key="ev_editor"
             )
             
