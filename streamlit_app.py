@@ -27,11 +27,13 @@ try:
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    import graphviz  # for diagram exports (SVG/PNG/DOT)
 except ImportError:
     # Safe fallback to prevent crash if libraries are missing
     Document = None
     plt = None
     mdates = None
+    graphviz = None
 
 # ==========================================
 # 1. PAGE CONFIGURATION & STYLING
@@ -458,6 +460,123 @@ def generate_mermaid_code(nodes, orientation="TD"):
                 if isinstance(t, (int, float)) and 0 <= t < len(valid_nodes): code += f"    {nid} --|{b.get('label', 'Yes')}| {node_id_map[int(t)]}\n"
         elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
     return code
+
+# --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
+def _escape_label(text: str) -> str:
+    if text is None:
+        return ""
+    # Escape quotes and backslashes for DOT labels
+    return str(text).replace("\\", "\\\\").replace("\"", "'").replace("\n", "\\n")
+
+def dot_from_nodes(nodes, orientation="TD") -> str:
+    """Generate Graphviz DOT source from pathway nodes. Does not require graphviz package."""
+    if not nodes:
+        return "digraph G {\n  // No nodes\n}"
+    valid_nodes = harden_nodes(nodes)
+    from collections import defaultdict
+    swimlanes = defaultdict(list)
+    for i, n in enumerate(valid_nodes):
+        swimlanes[n.get('role', 'Unassigned')].append((i, n))
+    rankdir = 'TB' if orientation == 'TD' else 'LR'
+    lines = ["digraph G {", f"  rankdir={rankdir};", "  node [fontname=Helvetica];", "  edge [fontname=Helvetica];"]
+    node_id_map = {}
+    # Clusters by role
+    for role, n_list in swimlanes.items():
+        cluster_name = re.sub(r"[^A-Za-z0-9_]", "_", str(role) or "Unassigned")
+        lines.append(f"  subgraph cluster_{cluster_name} {{")
+        lines.append(f"    label=\"{_escape_label(role)}\";")
+        lines.append("    style=filled; color=lightgrey;")
+        for i, n in n_list:
+            nid = f"N{i}"; node_id_map[i] = nid
+            label = _escape_label(n.get('label', 'Step'))
+            detail = _escape_label(n.get('detail', ''))
+            meds = _escape_label(n.get('medications', ''))
+            if meds:
+                detail = f"{detail}\\nMeds: {meds}" if detail else f"Meds: {meds}"
+            full_label = f"{label}\\n{detail}" if detail else label
+            ntype = n.get('type', 'Process')
+            if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
+            elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
+            else: shape, fill = 'box', '#FFF2CC'
+            lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
+        lines.append("  }")
+    # Edges
+    for i, n in enumerate(valid_nodes):
+        src = node_id_map.get(i)
+        if not src:
+            continue
+        if n.get('type') == 'Decision' and 'branches' in n:
+            for b in n.get('branches', []):
+                t = b.get('target')
+                lbl = _escape_label(b.get('label', 'Yes'))
+                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
+                    dst = node_id_map.get(int(t))
+                    if dst:
+                        lines.append(f"  {src} -> {dst} [label=\"{lbl}\"];")
+        elif i + 1 < len(valid_nodes):
+            dst = node_id_map.get(i + 1)
+            if dst:
+                lines.append(f"  {src} -> {dst};")
+    lines.append("}")
+    return "\n".join(lines)
+
+def build_graphviz_from_nodes(nodes, orientation="TD"):
+    """Build a graphviz.Digraph from nodes if graphviz is available; otherwise return None."""
+    if graphviz is None:
+        return None
+    valid_nodes = harden_nodes(nodes or [])
+    from collections import defaultdict
+    swimlanes = defaultdict(list)
+    for i, n in enumerate(valid_nodes):
+        swimlanes[n.get('role', 'Unassigned')].append((i, n))
+    rankdir = 'TB' if orientation == 'TD' else 'LR'
+    g = graphviz.Digraph(format='svg')
+    g.attr(rankdir=rankdir)
+    g.attr('node', fontname='Helvetica')
+    g.attr('edge', fontname='Helvetica')
+    node_id_map = {}
+    for role, n_list in swimlanes.items():
+        with g.subgraph(name=f"cluster_{re.sub(r'[^A-Za-z0-9_]', '_', str(role) or 'Unassigned')}") as c:
+            c.attr(label=str(role))
+            c.attr(style='filled', color='lightgrey')
+            for i, n in n_list:
+                nid = f"N{i}"; node_id_map[i] = nid
+                label = _escape_label(n.get('label', 'Step'))
+                detail = _escape_label(n.get('detail', ''))
+                meds = _escape_label(n.get('medications', ''))
+                if meds:
+                    detail = f"{detail}\\nMeds: {meds}" if detail else f"Meds: {meds}"
+                full_label = f"{label}\\n{detail}" if detail else label
+                ntype = n.get('type', 'Process')
+                if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
+                elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
+                else: shape, fill = 'box', '#FFF2CC'
+                c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
+    for i, n in enumerate(valid_nodes):
+        src = node_id_map.get(i)
+        if not src:
+            continue
+        if n.get('type') == 'Decision' and 'branches' in n:
+            for b in n.get('branches', []):
+                t = b.get('target'); lbl = _escape_label(b.get('label', 'Yes'))
+                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
+                    dst = node_id_map.get(int(t))
+                    if dst:
+                        g.edge(src, dst, label=lbl)
+        elif i + 1 < len(valid_nodes):
+            dst = node_id_map.get(i + 1)
+            if dst:
+                g.edge(src, dst)
+    return g
+
+def render_graphviz_bytes(graph, fmt="svg"):
+    """Render a graphviz.Digraph to bytes if possible, else return None."""
+    if graphviz is None or graph is None:
+        return None
+    try:
+        return graph.pipe(format=fmt)
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
@@ -1137,6 +1256,27 @@ elif "Phase 4" in phase:
             mermaid_orient = "TD" if "Vertical" in orientation else "LR"
         mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
         components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
+        # Diagram downloads (SVG/PNG/DOT) using server-side Graphviz while keeping Mermaid for display
+        with st.container(border=False):
+            c_dl_svg, c_dl_png, c_dl_dot = st.columns([1, 1, 1])
+            # Always offer DOT as a baseline (independent of graphviz package)
+            dot_text = dot_from_nodes(nodes, mermaid_orient)
+            with c_dl_dot:
+                st.download_button("📜 Download DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz")
+            # SVG/PNG via graphviz if available
+            g = build_graphviz_from_nodes(nodes, mermaid_orient)
+            svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+            png_bytes = render_graphviz_bytes(g, "png") if g else None
+            with c_dl_svg:
+                if svg_bytes:
+                    st.download_button("✏️ Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
+                else:
+                    st.caption("SVG unavailable (Graphviz not installed)")
+            with c_dl_png:
+                if png_bytes:
+                    st.download_button("🖼️ Download PNG", png_bytes, file_name="pathway.png", mime="image/png")
+                else:
+                    st.caption("PNG unavailable (Graphviz not installed)")
         with st.expander("Edit Pathway Data", expanded=False):
             df_p4 = pd.DataFrame(nodes)
             edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", width="stretch")
