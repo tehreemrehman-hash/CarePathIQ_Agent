@@ -529,19 +529,32 @@ with st.sidebar:
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
-    if gemini_api_key: genai.configure(api_key=gemini_api_key); st.success("AI Connected")
-    st.divider()
-    
-    # Navigation Logic for sidebar buttons
-    for p in PHASES:
-        # Use on_click to directly update session state
-        st.button(p, key=f"nav_{p}", use_container_width=True, 
-                  type="primary" if st.session_state.get('current_phase_label') == p else "secondary",
-                  on_click=change_phase, args=(p,))
-        
-    st.markdown(f"""<div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.get('current_phase_label', PHASES[0])}</span></div>""", unsafe_allow_html=True)
-    st.divider()
-    st.progress(calculate_granular_progress())
+    if gemini_api_key:
+        genai.configure(api_key=gemini_api_key)
+        st.success("AI Connected")
+        st.divider()
+
+        # Navigation Logic for sidebar buttons (only when activated)
+        for p in PHASES:
+            st.button(
+                p,
+                key=f"nav_{p}",
+                width="stretch",
+                type="primary" if st.session_state.get('current_phase_label') == p else "secondary",
+                on_click=change_phase,
+                args=(p,)
+            )
+
+        st.markdown(
+            f"""
+            <div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">
+                Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.get('current_phase_label', PHASES[0])}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.divider()
+        st.progress(calculate_granular_progress())
 
 # LANDING PAGE LOGIC
 if not gemini_api_key:
