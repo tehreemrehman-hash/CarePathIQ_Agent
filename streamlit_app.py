@@ -517,8 +517,21 @@ def format_as_numbered_list(items):
     if isinstance(items, list):
         # Clean existing numbering first to avoid double numbering (e.g. "1. 1. Goal")
         clean_items = [re.sub(r'^[\d\.\-\*]+\s*', '', str(item)).strip() for item in items]
-        return "\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
+        # Add a blank line between items for readability in the UI
+        return "\n\n".join([f"{i+1}. {item}" for i, item in enumerate(clean_items)])
     return str(items)
+
+def compute_textarea_height(text: str, min_rows: int = 6, max_rows: int = 30, line_px: int = 24, padding_px: int = 16) -> int:
+    """
+    Estimate a textarea height in pixels based on current text content.
+    Streamlit doesn't auto-resize text_areas, so we approximate by rows.
+    """
+    if text is None:
+        text = ""
+    # Count visual lines; treat double newlines as two lines for spacing but avoid inflating too much
+    lines = sum(len(block.split("\n")) for block in text.split("\n\n"))
+    lines = max(min_rows, min(max_rows, lines if lines > 0 else min_rows))
+    return lines * line_px + padding_px
 
 # ==========================================
 # 3. SIDEBAR & SESSION INITIALIZATION
@@ -703,15 +716,37 @@ if "Phase 1" in phase:
         setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=trigger_p1_draft)
         
         st.subheader("2. Target Population")
-        st.text_area("Inclusion Criteria", height=100, key="p1_inc", on_change=sync_p1_widgets)
-        st.text_area("Exclusion Criteria", height=100, key="p1_exc", on_change=sync_p1_widgets)
+        st.text_area(
+            "Inclusion Criteria",
+            height=compute_textarea_height(st.session_state.get('p1_inc', '')),
+            key="p1_inc",
+            on_change=sync_p1_widgets,
+        )
+        st.text_area(
+            "Exclusion Criteria",
+            height=compute_textarea_height(st.session_state.get('p1_exc', '')),
+            key="p1_exc",
+            on_change=sync_p1_widgets,
+        )
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
-        st.text_area("Problem Statement / Clinical Gap", height=100, key="p1_prob", on_change=sync_p1_widgets, label_visibility="collapsed")
+        st.text_area(
+            "Problem Statement / Clinical Gap",
+            height=compute_textarea_height(st.session_state.get('p1_prob', '')),
+            key="p1_prob",
+            on_change=sync_p1_widgets,
+            label_visibility="collapsed",
+        )
         
         st.subheader("4. Goals")
-        st.text_area("Project Goals", height=150, key="p1_obj", on_change=sync_p1_widgets, label_visibility="collapsed")
+        st.text_area(
+            "Project Goals",
+            height=compute_textarea_height(st.session_state.get('p1_obj', '')),
+            key="p1_obj",
+            on_change=sync_p1_widgets,
+            label_visibility="collapsed",
+        )
 
     # Manual Trigger Button using Callback
     if st.button("Regenerate Draft", on_click=trigger_p1_draft):
