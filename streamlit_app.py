@@ -527,6 +527,23 @@ def fix_edu_certificate_html(html: str) -> str:
     except Exception:
         return html
 
+def render_refine_suggestions(target_key: str, suggestions: list[str]):
+    """Render clickable suggestion buttons that pre-populate a refine text area.
+    Clicking a suggestion sets st.session_state[target_key] and reruns.
+    """
+    if not suggestions:
+        return
+    st.caption("Quick suggestions:")
+    # Render in rows of 3 buttons
+    for i in range(0, len(suggestions), 3):
+        row = suggestions[i:i+3]
+        cols = st.columns(len(row))
+        for idx, s in enumerate(row):
+            with cols[idx]:
+                if st.button(s, key=f"{target_key}_sugg_{i+idx}", use_container_width=True):
+                    st.session_state[target_key] = s
+                    st.rerun()
+
 @st.cache_data(ttl=3600)
 def generate_gantt_image(schedule):
     if not schedule: return None
@@ -2006,7 +2023,15 @@ elif "Phase 5" in phase:
             st.download_button("Download Form (.html)", st.session_state.data['phase5']['expert_html'], "ExpertPanelForm.html", use_container_width=True)
             
             with st.expander("Refine Form"):
-                refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed")
+                render_refine_suggestions("ref_expert", [
+                    "Make more detailed",
+                    "Simplify language for clinicians",
+                    "Streamline node checklist",
+                    "Add examples for rationale",
+                    "Align with national guidelines",
+                    "Improve section headings"
+                ])
+                refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add examples for rationale; Streamline node checklist…")
                 if st.button("Update Form", use_container_width=True, key="update_expert"):
                     with ai_activity("Updating expert feedback form…"):
                         new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
@@ -2060,7 +2085,15 @@ elif "Phase 5" in phase:
             st.download_button("Download Form (.html)", st.session_state.data['phase5']['beta_html'], "BetaTestingForm.html", use_container_width=True)
             
             with st.expander("Refine Form"):
-                refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed")
+                render_refine_suggestions("ref_beta", [
+                    "Make more detailed",
+                    "Expand usability questions",
+                    "Add severity field for bugs",
+                    "Clarify workflow integration scale",
+                    "Include example responses",
+                    "Improve instructions"
+                ])
+                refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add severity field for bugs; Improve instructions…")
                 if st.button("Update Form", use_container_width=True, key="update_beta"):
                     with ai_activity("Updating beta testing form…"):
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
@@ -2128,7 +2161,15 @@ elif "Phase 5" in phase:
             st.download_button("Download Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html", use_container_width=True)
             
             with st.expander("Refine Module"):
-                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed")
+                render_refine_suggestions("ref_edu", [
+                    "Make more detailed",
+                    "Add more quiz explanations",
+                    "Increase clarity and visuals",
+                    "Add clinical case examples",
+                    "Refine certificate typography",
+                    "Align with hospital policy"
+                ])
+                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add clinical case examples; Improve visuals…")
                 if st.button("Update Module", use_container_width=True, key="update_edu"):
                     with ai_activity("Updating education module…"):
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
@@ -2146,7 +2187,15 @@ elif "Phase 5" in phase:
             doc = create_exec_summary_docx(st.session_state.data['phase5']['exec_summary'], cond)
             if doc: st.download_button("Download Report (.docx)", doc, "ExecSummary.docx", use_container_width=True)
             with st.expander("Refine Summary"):
-                refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed")
+                render_refine_suggestions("ref_exec", [
+                    "Make more detailed",
+                    "Make more concise",
+                    "Add key metrics and timeline",
+                    "Highlight budget and resources",
+                    "Emphasize patient safety",
+                    "Strengthen executive call-to-action"
+                ])
+                refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed", placeholder="e.g., Make more concise; Add key metrics and timeline; Emphasize patient safety…")
                 if st.button("Update Summary", use_container_width=True, key="update_exec"):
                     with ai_activity("Updating executive summary…"):
                         new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
