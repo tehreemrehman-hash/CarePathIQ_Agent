@@ -1782,6 +1782,22 @@ elif "Phase 4" in phase:
         st.session_state.data['phase4']['nodes_history'] = []
     if 'heuristics_data' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['heuristics_data'] = {}
+    if 'auto_heuristics_done' not in st.session_state.data['phase4']:
+        st.session_state.data['phase4']['auto_heuristics_done'] = False
+
+    # Auto-run heuristics once if data exists but heuristics not yet generated
+    if nodes and not st.session_state.data['phase4']['heuristics_data'] and not st.session_state.data['phase4']['auto_heuristics_done']:
+        with ai_activity("Analyzing usability heuristics…"):
+            prompt = f"""
+            Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
+            For each heuristic (H1-H10), provide a specific, actionable critique and suggestion.
+            Pathway nodes: {json.dumps(nodes)}
+            Return ONLY a JSON object with keys H1-H10.
+            """
+            res = get_gemini_response(prompt, json_mode=True)
+            if res:
+                st.session_state.data['phase4']['heuristics_data'] = res
+        st.session_state.data['phase4']['auto_heuristics_done'] = True
     
     # FULL WIDTH: Graphviz Visualization (Vertical Only)
     st.subheader("Pathway Visualization (Graphviz)")
@@ -1917,10 +1933,15 @@ elif "Phase 4" in phase:
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
     st.title("Phase 5: Operationalize")
-    styled_info("<b>Tip:</b> Generate four deployment deliverables: Expert Panel Feedback Form, Beta Testing Form, Staff Education Module, and Executive Summary. Customize for your target audience.")
+    # Flash success banner for Phase 5 updates
+    if 'p5_flash' in st.session_state and st.session_state['p5_flash']:
+        st.success(st.session_state.pop('p5_flash'))
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     
+    # Prefer server-managed Netlify token when available
+    default_netlify_token = os.environ.get("NETLIFY_API_TOKEN") or getattr(st.secrets, "netlify_token", None)
+
     # Configuration Row - Target Audience, Email, and Netlify Token
     col_a, col_e, col_n = st.columns(3)
     with col_a:
@@ -1941,14 +1962,18 @@ elif "Phase 5" in phase:
         )
     with col_n:
         st.subheader("Netlify Token")
-        netlify_token = st.text_input(
-            "Netlify API Token",
-            type="password",
-            placeholder="Enter token for auto-deploy",
-            label_visibility="collapsed",
-            key="p5_netlify_token",
-            help="Get free token at netlify.com/docs/api"
-        )
+        if default_netlify_token:
+            netlify_token = default_netlify_token
+            st.caption("Using server-managed Netlify token.")
+        else:
+            netlify_token = st.text_input(
+                "Netlify API Token",
+                type="password",
+                placeholder="Enter token for auto-deploy",
+                label_visibility="collapsed",
+                key="p5_netlify_token",
+                help="Get free token at netlify.com/docs/api"
+            )
     
     if netlify_token:
         st.success("🚀 **One-Click Deploy:** Forms will be automatically deployed to Netlify with shareable links!")
@@ -1973,16 +1998,27 @@ elif "Phase 5" in phase:
                 p_str = "\n".join([f"- {n.get('label')}" for n in p_nodes])
                 d_str = "\n".join([f"- {n.get('label')}" for n in d_nodes])
 
+                # Build a numbered node reference table
+                se_table = "\n".join([f"SE{idx+1}: {n.get('label')}" for idx, n in enumerate(s_e_nodes)])
+                p_table = "\n".join([f"P{idx+1}: {n.get('label')}" for idx, n in enumerate(p_nodes)])
+                d_table = "\n".join([f"D{idx+1}: {n.get('label')}" for idx, n in enumerate(d_nodes)])
+                node_table = f"""
+Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_table}
+"""
+
                 prompt = f"""
-                Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
+                                Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
                 Intro: "Thank you for serving on the expert panel for {cond}."
                 IMPORTANT: Include an email field at the top of the form so respondents can specify where to send their feedback.
+                                Display the node reference table at the top, and reference node IDs (SE#, P#, D#) in the questions.
+                                Node Reference Table:
+                                {node_table}
                 Form structure:
                 1. Email field (required) - "Your Email Address"
                 2. For EACH pathway node (Start/End, Decisions, Process):
-                   - Checkbox for that node
+                                     - Checkbox for that node (identify node by its ID, e.g., P2, D1, SE1)
                    - If checked, show:
-                     a) "Proposed Change" (Textarea)
+                                         a) "Proposed Change" (Textarea, ask to cite the node ID)
                      b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
                      c) "Justification Detail" (Textarea)
                 Form nodes:
@@ -2045,12 +2081,14 @@ elif "Phase 5" in phase:
                 prompt = f"""
                 Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}.
                 IMPORTANT: Include an email field at the top so respondents can specify where to send their feedback.
+                Use Nielsen's heuristics and standard clinical informatics beta-testing frames (e.g., usability, safety, workflow fit, data quality). Include short guidance under each prompt to anchor responses.
                 Form Questions:
                 1. Respondent Email (required) - "Your Email Address"
-                2. Usability Rating (1-5 scale)
-                3. Bugs/Issues Encountered (Textarea)
-                4. Workflow Integration (Select: Excellent, Good, Fair, Poor)
-                5. Additional Feedback (Textarea)
+                2. Usability (Nielsen alignment) Rating (1-5 scale) with brief description
+                3. Bugs/Issues Encountered (Textarea) with severity and reproducibility hints
+                4. Workflow Integration (Select: Excellent, Good, Fair, Poor) with prompt for specific context
+                5. Safety or Data Quality Concerns (Textarea)
+                6. Additional Feedback (Textarea)
                 Form Action: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is replaced with user's email.
                 Add hidden input: <input type="hidden" name="_subject" value="Beta Testing Feedback - {cond}">
                 Add JavaScript to populate form action with the user's email when they submit.
@@ -2112,22 +2150,20 @@ elif "Phase 5" in phase:
                 prompt = f"""
                 Create HTML Education Module for {cond}. Audience: {audience}.
                 IMPORTANT:
-                - Include an email field for the Certificate of Completion so users can receive their certificate.
                 - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
                 - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
                 - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
                 - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
                 - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
+                - Content must be explicitly tailored to the stated audience ({audience}) and improve understanding of the {cond} pathway steps, decision points, and rationale.
+                - Emphasize clarity, concise language, and actionable takeaways for the target audience.
 
                 Module sections:
-                1. Email field (required) - "Your Email Address" (for certificate delivery)
-                2. Key Clinical Points (summary section with main takeaways)
-                3. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
-                4. Certificate of Completion: 
-                   - Display personalized printable certificate with user's name in a styled .cpq-certificate container
-                   - Submit form to: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is the user's email
-                   - Add hidden input: <input type="hidden" name="_subject" value="Education Certificate - {cond}">
-                   - Add JavaScript to populate form action with user's email
+                     1. Key Clinical Points (summary section with main takeaways tailored to the audience)
+                     2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
+                     3. Certificate of Completion: 
+                         - Display personalized printable certificate with user's name in a styled .cpq-certificate container
+                         - No email collection or email delivery is needed
                 Return valid standalone HTML.
                 """
                 st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
