@@ -5,3 +5,4 @@ graphviz
 python-docx
 python-pptx
 matplotlib
+requests

@@ -16,6 +16,8 @@ import copy
 import xml.etree.ElementTree as ET
 import altair as alt
 from contextlib import contextmanager
+import requests
+import hashlib
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
@@ -326,6 +328,106 @@ def ai_activity(label="Working with the AI agent…"):
             st.error("Please try again or adjust your input.")
             # Swallow exception to avoid exposing internals
             return
+
+def deploy_to_netlify(html_content, site_name, netlify_token):
+    """
+    Deploy HTML form to Netlify and return shareable URL.
+    
+    Args:
+        html_content: The HTML string to deploy
+        site_name: Name for the Netlify site (will be part of the URL)
+        netlify_token: Netlify Personal Access Token
+        
+    Returns:
+        tuple: (success: bool, url_or_error: str)
+    """
+    if not netlify_token or not html_content:
+        return False, "Missing token or content"
+    
+    try:
+        # Create a simple zip-like structure for Netlify
+        # Generate a unique site name with hash to avoid conflicts
+        hash_suffix = hashlib.md5(site_name.encode()).hexdigest()[:8]
+        site_slug = re.sub(r'[^a-z0-9-]', '', site_name.lower().replace(' ', '-'))[:20]
+        full_site_name = f"{site_slug}-{hash_suffix}"
+        
+        # Deploy using Netlify's Deploy API
+        headers = {
+            'Authorization': f'Bearer {netlify_token}',
+            'Content-Type': 'application/zip'
+        }
+        
+        # Create a simple deploy payload
+        import zipfile
+        from io import BytesIO
+        
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            zip_file.writestr('index.html', html_content)
+        
+        zip_buffer.seek(0)
+        zip_data = zip_buffer.read()
+        
+        # First, try to create or get the site
+        sites_url = 'https://api.netlify.com/api/v1/sites'
+        site_payload = {
+            'name': full_site_name
+        }
+        
+        site_response = requests.post(
+            sites_url,
+            json=site_payload,
+            headers={'Authorization': f'Bearer {netlify_token}'}
+        )
+        
+        if site_response.status_code in [200, 201]:
+            site_data = site_response.json()
+            site_id = site_data['site_id']
+        elif site_response.status_code == 422:
+            # Site name taken, try to find existing site
+            list_response = requests.get(
+                sites_url,
+                headers={'Authorization': f'Bearer {netlify_token}'}
+            )
+            if list_response.status_code == 200:
+                sites = list_response.json()
+                matching_site = next((s for s in sites if s['name'] == full_site_name), None)
+                if matching_site:
+                    site_id = matching_site['id']
+                else:
+                    # Add timestamp to make it unique
+                    timestamp = int(time.time())
+                    full_site_name = f"{site_slug}-{timestamp}"
+                    site_payload['name'] = full_site_name
+                    site_response = requests.post(sites_url, json=site_payload, headers={'Authorization': f'Bearer {netlify_token}'})
+                    if site_response.status_code in [200, 201]:
+                        site_data = site_response.json()
+                        site_id = site_data['site_id']
+                    else:
+                        return False, f"Could not create site: {site_response.text}"
+            else:
+                return False, f"Could not list sites: {list_response.text}"
+        else:
+            return False, f"Site creation failed: {site_response.text}"
+        
+        # Now deploy to the site
+        deploy_url = f'https://api.netlify.com/api/v1/sites/{site_id}/deploys'
+        
+        deploy_response = requests.post(
+            deploy_url,
+            data=zip_data,
+            headers=headers
+        )
+        
+        if deploy_response.status_code in [200, 201]:
+            deploy_data = deploy_response.json()
+            site_url = deploy_data.get('ssl_url') or deploy_data.get('url') or f"https://{full_site_name}.netlify.app"
+            return True, site_url
+        else:
+            return False, f"Deploy failed: {deploy_response.status_code} - {deploy_response.text}"
+            
+    except Exception as e:
+        return False, f"Deployment error: {str(e)}"
 
 @st.cache_data(ttl=3600)
 def generate_gantt_image(schedule):
@@ -1699,8 +1801,8 @@ elif "Phase 5" in phase:
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     
-    # Configuration Row - Target Audience and Email
-    col_a, col_e = st.columns(2)
+    # Configuration Row - Target Audience, Email, and Netlify Token
+    col_a, col_e, col_n = st.columns(3)
     with col_a:
         st.subheader("Target Audience")
         audience = st.text_input(
@@ -1717,8 +1819,21 @@ elif "Phase 5" in phase:
             label_visibility="collapsed",
             key="p5_email_input"
         )
+    with col_n:
+        st.subheader("Netlify Token")
+        netlify_token = st.text_input(
+            "Netlify API Token",
+            type="password",
+            placeholder="Enter token for auto-deploy",
+            label_visibility="collapsed",
+            key="p5_netlify_token",
+            help="Get free token at netlify.com/docs/api"
+        )
     
-    st.info("📧 **Form Sharing:** Users can download and share the HTML forms with others. Each form includes an email field so respondents can specify where to send their responses.")
+    if netlify_token:
+        st.success("🚀 **One-Click Deploy:** Forms will be automatically deployed to Netlify with shareable links!")
+    else:
+        st.info("💡 **Get Started:** [Create free Netlify account](https://app.netlify.com/signup) → User Settings → Applications → New Access Token → Paste above for instant form deployment!")
 
     st.divider()
     
@@ -1763,8 +1878,30 @@ elif "Phase 5" in phase:
                     st.session_state.data['phase5']['expert_html'] += COPYRIGHT_HTML_FOOTER
         
         if st.session_state.data['phase5'].get('expert_html'):
+            # Deploy button if token provided
+            if netlify_token:
+                if st.button("🚀 Deploy & Share", use_container_width=True, key="deploy_expert", type="primary"):
+                    with st.spinner("Deploying to Netlify..."):
+                        success, result = deploy_to_netlify(
+                            st.session_state.data['phase5']['expert_html'],
+                            f"expert-panel-{cond.lower().replace(' ', '-')}",
+                            netlify_token
+                        )
+                        if success:
+                            st.session_state.data['phase5']['expert_url'] = result
+                            st.rerun()
+                        else:
+                            st.error(f"Deployment failed: {result}")
+                
+                # Show URL if deployed
+                if st.session_state.data['phase5'].get('expert_url'):
+                    st.success("✅ Form deployed!")
+                    st.code(st.session_state.data['phase5']['expert_url'], language=None)
+                    st.markdown(f"[Open Form →]({st.session_state.data['phase5']['expert_url']})")
+            
+            # Always show download option
             st.download_button("Download Form (.html)", st.session_state.data['phase5']['expert_html'], "ExpertPanelForm.html", use_container_width=True)
-            st.info("📧 Form submissions will be sent to the email address provided above.")
+            
             with st.expander("Refine Form"):
                 refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed")
                 if st.button("Update Form", use_container_width=True, key="update_expert"):
@@ -1795,8 +1932,30 @@ elif "Phase 5" in phase:
                     st.session_state.data['phase5']['beta_html'] += COPYRIGHT_HTML_FOOTER
         
         if st.session_state.data['phase5'].get('beta_html'):
+            # Deploy button if token provided
+            if netlify_token:
+                if st.button("🚀 Deploy & Share", use_container_width=True, key="deploy_beta", type="primary"):
+                    with st.spinner("Deploying to Netlify..."):
+                        success, result = deploy_to_netlify(
+                            st.session_state.data['phase5']['beta_html'],
+                            f"beta-testing-{cond.lower().replace(' ', '-')}",
+                            netlify_token
+                        )
+                        if success:
+                            st.session_state.data['phase5']['beta_url'] = result
+                            st.rerun()
+                        else:
+                            st.error(f"Deployment failed: {result}")
+                
+                # Show URL if deployed
+                if st.session_state.data['phase5'].get('beta_url'):
+                    st.success("✅ Form deployed!")
+                    st.code(st.session_state.data['phase5']['beta_url'], language=None)
+                    st.markdown(f"[Open Form →]({st.session_state.data['phase5']['beta_url']})")
+            
+            # Always show download option
             st.download_button("Download Form (.html)", st.session_state.data['phase5']['beta_html'], "BetaTestingForm.html", use_container_width=True)
-            st.info("📧 Form submissions will be sent to the email address provided above.")
+            
             with st.expander("Refine Form"):
                 refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed")
                 if st.button("Update Form", use_container_width=True, key="update_beta"):
@@ -1832,8 +1991,30 @@ elif "Phase 5" in phase:
                     st.session_state.data['phase5']['edu_html'] += COPYRIGHT_HTML_FOOTER
         
         if st.session_state.data['phase5'].get('edu_html'):
+            # Deploy button if token provided
+            if netlify_token:
+                if st.button("🚀 Deploy & Share", use_container_width=True, key="deploy_edu", type="primary"):
+                    with st.spinner("Deploying to Netlify..."):
+                        success, result = deploy_to_netlify(
+                            st.session_state.data['phase5']['edu_html'],
+                            f"education-module-{cond.lower().replace(' ', '-')}",
+                            netlify_token
+                        )
+                        if success:
+                            st.session_state.data['phase5']['edu_url'] = result
+                            st.rerun()
+                        else:
+                            st.error(f"Deployment failed: {result}")
+                
+                # Show URL if deployed
+                if st.session_state.data['phase5'].get('edu_url'):
+                    st.success("✅ Module deployed!")
+                    st.code(st.session_state.data['phase5']['edu_url'], language=None)
+                    st.markdown(f"[Open Module →]({st.session_state.data['phase5']['edu_url']})")
+            
+            # Always show download option
             st.download_button("Download Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html", use_container_width=True)
-            st.info("🎓 Certificates will be emailed to both the learner and the address provided above.")
+            
             with st.expander("Refine Module"):
                 refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed")
                 if st.button("Update Module", use_container_width=True, key="update_edu"):
