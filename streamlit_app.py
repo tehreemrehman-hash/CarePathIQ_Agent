@@ -1711,12 +1711,12 @@ elif "Phase 5" in phase:
 
     st.divider()
     
-    # 3-COLUMN HORIZONTAL LAYOUT
-    c1, c2, c3 = st.columns(3)
+    # 2-COLUMN HORIZONTAL LAYOUT FOR DELIVERABLES
+    c1, c2 = st.columns(2)
     
-    # 1. Expert Panel Feedback Form
+    # Expert Panel Feedback Form
     with c1:
-        st.markdown("#### 1. Expert Panel Feedback Form")
+        st.markdown("#### Expert Panel Feedback Form")
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_expert_gen"):
             with ai_activity("Generating expert feedback form…"):
                 nodes = st.session_state.data['phase3']['nodes']
@@ -1756,9 +1756,9 @@ elif "Phase 5" in phase:
                         new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
                     if new_html: st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
-    # 2. Beta Testing Form
+    # Beta Testing Form
     with c2:
-        st.markdown("#### 2. Beta Testing Form")
+        st.markdown("#### Beta Testing Form")
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_beta_gen"):
             with ai_activity("Generating beta testing form…"):
                 prompt = f"""
@@ -1785,42 +1785,43 @@ elif "Phase 5" in phase:
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
                     if new_html: st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
-    # 3. Staff Education Module
-    with c3:
-        st.markdown("#### 3. Staff Education Module")
-        if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
-            with ai_activity("Generating education module…"):
-                prompt = f"""
-                Create HTML Education Module for {cond}. Audience: {audience}.
-                1. Key Clinical Points (summary section)
-                2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
-                3. Certificate of Completion: 
-                   - User enters Name and Email
-                   - On completion, display printable certificate
-                   - Submit form to: 'https://formsubmit.co/{email_target}' to send certificate copy to admin
-                   - Add hidden input: <input type="hidden" name="_subject" value="Education Certificate - {cond}">
-                """
-                st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
-                if st.session_state.data['phase5']['edu_html']: 
-                    st.session_state.data['phase5']['edu_html'] += COPYRIGHT_HTML_FOOTER
-        
-        if st.session_state.data['phase5'].get('edu_html'):
-            st.download_button("Download Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html", use_container_width=True)
-            st.info("🎓 Certificates will be emailed to both the learner and the address provided above.")
-            with st.expander("Refine Module"):
-                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed")
-                if st.button("Update Module", use_container_width=True, key="update_edu"):
-                    with ai_activity("Updating education module…"):
-                        new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
-                    if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+    st.divider()
+    
+    # Staff Education Module
+    st.subheader("Staff Education Module")
+    if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
+        with ai_activity("Generating education module…"):
+            prompt = f"""
+            Create HTML Education Module for {cond}. Audience: {audience}.
+            1. Key Clinical Points (summary section)
+            2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
+            3. Certificate of Completion: 
+               - User enters Name and Email
+               - On completion, display printable certificate
+               - Submit form to: 'https://formsubmit.co/{email_target}' to send certificate copy to admin
+               - Add hidden input: <input type="hidden" name="_subject" value="Education Certificate - {cond}">
+            """
+            st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
+            if st.session_state.data['phase5']['edu_html']: 
+                st.session_state.data['phase5']['edu_html'] += COPYRIGHT_HTML_FOOTER
+    
+    if st.session_state.data['phase5'].get('edu_html'):
+        st.download_button("Download Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html", use_container_width=True)
+        st.info("🎓 Certificates will be emailed to both the learner and the address provided above.")
+        with st.expander("Refine Module"):
+            refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed")
+            if st.button("Update Module", use_container_width=True, key="update_edu"):
+                with ai_activity("Updating education module…"):
+                    new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
+                if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
     
     st.divider()
     
-    # 4. Executive Summary (Full Width)
-    st.subheader("4. Executive Summary")
+    # Executive Summary (Full Width)
+    st.subheader("Executive Summary")
     col_gen, col_space = st.columns([1, 3])
     with col_gen:
-        if st.button("Draft Executive Summary", type="primary", use_container_width=True):
+        if st.button("Generate Report", type="primary", use_container_width=True):
             with ai_activity("Drafting executive summary…"):
                 st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
 
