@@ -215,6 +215,39 @@ st.markdown("""
         vertical-align: middle !important;
     }
     
+    /* PHASE 2 EXPORT SECTION ALIGNMENT */
+    div[data-testid="stColumn"] > div > div[data-testid="stVerticalBlock"] {
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+    }
+    
+    /* SUBHEADER AND SELECTBOX ALIGNMENT */
+    div[data-testid="stColumn"] h3 {
+        margin-bottom: 0 !important;
+        line-height: 1.2 !important;
+    }
+    
+    div[data-testid="stColumn"] div[data-baseweb="select"] {
+        margin-top: 0 !important;
+    }
+    
+    /* RADIO BUTTON LABEL ALIGNMENT */
+    div[role="radiogroup"] label {
+        display: flex !important;
+        align-items: center !important;
+        margin-bottom: 0.5rem !important;
+    }
+    
+    /* DOWNLOAD BUTTON CONSISTENT HEIGHT */
+    div.stDownloadButton > button,
+    div.stButton > button {
+        min-height: 38px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
     /* BOTTOM NAVIGATION */
     footer {
         visibility: hidden;
@@ -1362,10 +1395,12 @@ elif "Phase 2" in phase:
                 st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
 
             with c2:
-                col_cit_header = st.columns([1, 2])
-                with col_cit_header[0]:
+                # Header and citation style in aligned columns
+                col_header, col_dropdown = st.columns([2, 1])
+                with col_header:
                     st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
-                with col_cit_header[1]:
+                with col_dropdown:
+                    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
                     citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
                 
                 references_source = display_data if display_data else evidence_data
@@ -1391,6 +1426,8 @@ elif "Phase 2" in phase:
         # Offer quick broaden options
         c = st.session_state.data['phase1'].get('condition', '')
         s = st.session_state.data['phase1'].get('setting', '')
+        
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
         col_b1, col_b2 = st.columns([1, 1])
         with col_b1:
             if c and st.button("Broaden: drop setting", key="p2_broaden_drop_setting"):
