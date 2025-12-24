@@ -1545,84 +1545,60 @@ elif "Phase 4" in phase:
     
     nodes = st.session_state.data['phase3']['nodes']
     
+    # GUARD: Check if nodes exist, prevent Phase 3 bleed
+    if not nodes:
+        st.warning("No pathway nodes found. Please complete Phase 3 first.")
+        render_bottom_navigation()
+        st.stop()
+    
     # Initialize Phase 4 data structure
     if 'nodes_history' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['nodes_history'] = []
     if 'heuristics_data' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['heuristics_data'] = {}
     
-    col_vis, col_heuristics = st.columns([2, 1])
+    # FULL WIDTH: Graphviz Visualization (Vertical Only)
+    st.subheader("Pathway Visualization (Graphviz)")
+    g = build_graphviz_from_nodes(nodes, "TD")
+    if g:
+        svg_bytes = render_graphviz_bytes(g, "svg")
+        if svg_bytes:
+            components.html(svg_bytes.decode('utf-8'), height=600, scrolling=True)
     
-    # LEFT COLUMN: Visualization + Downloads
-    with col_vis:
-        st.subheader("Pathway Visualization")
-        
-        # Visualization style selector
-        vis_style = st.radio(
-            "Visualization Style",
-            ["Mermaid (Web)", "Graphviz (Diagram)"],
-            horizontal=True,
-            index=0
-        )
-        
-        c_view1, c_view2 = st.columns([1, 2])
-        with c_view1:
-            orientation = st.selectbox("Orientation", ["Vertical (TD)", "Horizontal (LR)"], index=0)
-            mermaid_orient = "TD" if "Vertical" in orientation else "LR"
-        
-        # Display visualization based on selected style
-        if vis_style == "Mermaid (Web)":
-            mermaid_code = generate_mermaid_code(nodes, mermaid_orient)
-            components.html(f'<div class="mermaid">{mermaid_code}</div><script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script><script>mermaid.initialize({{startOnLoad:true}});</script>', height=600, scrolling=True)
-        else:  # Graphviz
-            g = build_graphviz_from_nodes(nodes, mermaid_orient)
-            if g:
-                svg_bytes = render_graphviz_bytes(g, "svg")
-                if svg_bytes:
-                    components.html(svg_bytes.decode('utf-8'), height=600, scrolling=True)
-                else:
-                    st.info("Graphviz rendering not available. Try Mermaid style instead.")
-            else:
-                st.info("Graphviz rendering not available. Try Mermaid style instead.")
-        
-        # Download buttons (always available)
-        with st.container(border=False):
-            c_dl_svg, c_dl_png, c_dl_dot = st.columns([1, 1, 1])
-            
-            # DOT file (always available)
-            dot_text = dot_from_nodes(nodes, mermaid_orient)
-            with c_dl_dot:
-                st.download_button("Download DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz")
-            
-            # SVG/PNG via Graphviz if available
-            g = build_graphviz_from_nodes(nodes, mermaid_orient)
-            svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-            png_bytes = render_graphviz_bytes(g, "png") if g else None
-            with c_dl_svg:
-                if svg_bytes:
-                    st.download_button("Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
-                else:
-                    st.caption("SVG unavailable (Graphviz not installed)")
-            with c_dl_png:
-                if png_bytes:
-                    st.download_button("Download PNG", png_bytes, file_name="pathway.png", mime="image/png")
-                else:
-                    st.caption("PNG unavailable (Graphviz not installed)")
-        
-        # Edit pathway data
-        with st.expander("Edit Pathway Data", expanded=False):
-            df_p4 = pd.DataFrame(nodes)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", width="stretch")
-            if not df_p4.equals(edited_p4):
-                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
-                st.rerun()
-
-    # RIGHT COLUMN: Heuristics Analysis
-    with col_heuristics:
-        st.subheader("Heuristics Analysis")
-        
-        # Analyze Heuristics button
-        if st.button("Analyze Heuristics", key="p4_analyze_btn"):
+    # Download buttons (DOT, SVG, PNG)
+    col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
+    dot_text = dot_from_nodes(nodes, "TD")
+    with col_dl_dot:
+        st.download_button("Download DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
+    
+    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+    png_bytes = render_graphviz_bytes(g, "png") if g else None
+    with col_dl_svg:
+        if svg_bytes:
+            st.download_button("Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+        else:
+            st.caption("SVG unavailable (Graphviz not installed)")
+    with col_dl_png:
+        if png_bytes:
+            st.download_button("Download PNG", png_bytes, file_name="pathway.png", mime="image/png", use_container_width=True)
+        else:
+            st.caption("PNG unavailable (Graphviz not installed)")
+    
+    # Edit pathway data
+    with st.expander("Edit Pathway Data", expanded=False):
+        df_p4 = pd.DataFrame(nodes)
+        edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+        if not df_p4.equals(edited_p4):
+            st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+            st.rerun()
+    
+    st.divider()
+    
+    # HEURISTICS ANALYSIS SECTION (Full Width)
+    st.subheader("Nielsen's 10 Usability Heuristics Analysis")
+    col_analyze, col_clear = st.columns([1, 1])
+    with col_analyze:
+        if st.button("Analyze Heuristics", type="primary", use_container_width=True, key="p4_analyze_btn"):
             with ai_activity("Analyzing usability heuristics…"):
                 prompt = f"""
                 Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
@@ -1648,97 +1624,42 @@ elif "Phase 4" in phase:
                 if res:
                     st.session_state.data['phase4']['heuristics_data'] = res
                     st.rerun()
-        
-        # Display heuristics with expanders
-        h_data = st.session_state.data['phase4'].get('heuristics_data', {})
-        if h_data:
-            for heuristic_key in sorted(h_data.keys()):
-                insight = h_data[heuristic_key]
-                # Extract first 40 chars for preview
-                preview = insight[:40] + "..." if len(insight) > 40 else insight
-                definition = HEURISTIC_DEFS.get(heuristic_key, "")
-                
-                with st.expander(f"{heuristic_key}: {preview}"):
-                    st.write(f"**Insight:** {insight}")
-                    if definition:
-                        st.caption(definition)
+    
+    # Display heuristics (expanders for each H1-H10 with Apply Fix buttons)
+    h_data = st.session_state.data['phase4'].get('heuristics_data', {})
+    if h_data:
+        st.markdown("### Analysis Results")
+        for heuristic_key in sorted(h_data.keys()):
+            insight = h_data[heuristic_key]
+            definition = HEURISTIC_DEFS.get(heuristic_key, "")
+            with st.expander(f"{heuristic_key}: {definition.split(':')[0] if ':' in definition else definition}"):
+                st.write(f"**Definition:** {definition}")
+                st.write(f"**Critique:** {insight}")
+                if st.button(f"Apply Fix", key=f"p4_fix_{heuristic_key}", use_container_width=True):
+                    st.session_state.data['phase4']['nodes_history'] = [copy.deepcopy(nodes)]
                     
-                    # Apply Fix button
-                    if st.button(f"Apply Fix", key=f"p4_fix_{heuristic_key}"):
-                        # Save current nodes to history for undo
-                        st.session_state.data['phase4']['nodes_history'] = [copy.deepcopy(nodes)]
+                    with ai_activity(f"Applying fix for {heuristic_key}…"):
+                        p_fix = f"""
+                        Update this clinical pathway JSON to address this heuristic issue:
+                        {heuristic_key}: {insight}
                         
-                        with ai_activity(f"Applying fix for {heuristic_key}…"):
-                            p_fix = f"""
-                            Update this clinical pathway JSON to address this heuristic issue:
-                            {heuristic_key}: {insight}
-                            
-                            Current pathway: {json.dumps(nodes)}
-                            
-                            Return ONLY the updated JSON array.
-                            """
-                            new_nodes = get_gemini_response(p_fix, json_mode=True)
-                            if new_nodes and isinstance(new_nodes, list):
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                st.rerun()
-        else:
-            st.info("Click 'Analyze Heuristics' to begin evaluation.")
+                        Current pathway: {json.dumps(nodes)}
+                        
+                        Return ONLY the updated JSON array.
+                        """
+                        new_nodes = get_gemini_response(p_fix, json_mode=True)
+                        if new_nodes and isinstance(new_nodes, list):
+                            st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                            st.rerun()
+    else:
+        st.info("Click 'Analyze Heuristics' to begin evaluation.")
     
     st.divider()
     
     # APPLY CHANGES section
-    st.subheader("Apply Changes?")
-    apply_choice = st.radio(
-        "Commit changes to the pathway?",
-        ["Skip", "Apply"],
-        horizontal=True,
-        index=0,
-        key="p4_apply_choice"
-    )
-    
-    if apply_choice == "Apply":
-        st.success("Changes applied")
-        if st.session_state.data['phase4'].get('nodes_history'):
-            if st.button("Undo last change", key="p4_undo_btn"):
-                if st.session_state.data['phase4']['nodes_history']:
-                    old_nodes = st.session_state.data['phase4']['nodes_history'].pop(0)
-                    st.session_state.data['phase3']['nodes'] = old_nodes
-                    st.success("Change undone")
-                    st.rerun()
-    else:
-        st.info("Changes discarded")
-    
-    # Re-run analysis button
-    if st.button("Re-run Heuristics Analysis", key="p4_rerun_analysis"):
-        st.session_state.data['phase4']['heuristics_data'] = {}
-        st.rerun()
-    
-    st.divider()
-    
-    # CUSTOM REFINEMENT section
-    st.subheader("Heuristic-Targeted Refinement")
-    
-    # Prefill suggestion based on selected heuristic
-    selected_h = st.selectbox(
-        "Focus refinement on a heuristic (optional)",
-        ["None"] + list(st.session_state.data['phase4'].get('heuristics_data', {}).keys()),
-        key="p4_selected_h"
-    )
-    
-    if selected_h != "None":
-        h_text = st.session_state.data['phase4']['heuristics_data'].get(selected_h, "")
-        placeholder = f"Refine {selected_h}: {h_text[:70]}..."
-    else:
-        placeholder = "Describe your refinement..."
-    
-    custom_ref = st.text_area(
-        "Refinement Details",
-        placeholder=placeholder,
-        key="p4_custom_ref",
-        height=100
-    )
-    
-    if st.button("Apply Refinements", type="primary", key="p4_apply_ref"):
+    st.subheader("Custom Refinement")
+    custom_ref = st.text_area("Describe your refinement", placeholder="E.g., 'Add more specific diagnostic thresholds' or 'Simplify decision tree paths'...", key="p4_custom_ref", height=80)
+    if st.button("Apply Refinements", type="primary", use_container_width=True, key="p4_apply_ref"):
         if custom_ref.strip():
             st.session_state.data['phase4']['nodes_history'] = [copy.deepcopy(nodes)]
             
@@ -1749,15 +1670,21 @@ elif "Phase 4" in phase:
                 
                 Current pathway: {json.dumps(nodes)}
                 
-                Return ONLY updated JSON array.
+                Return ONLY the updated JSON array.
                 """
                 new_nodes = get_gemini_response(p_custom, json_mode=True)
                 if new_nodes and isinstance(new_nodes, list):
                     st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                    st.success("Refinements applied!")
                     st.rerun()
         else:
-            st.warning("Enter refinement details")
+            st.warning("Please describe your refinement first.")
+    
+    if st.session_state.data['phase4'].get('nodes_history'):
+        if st.button("Undo Last Change", use_container_width=True, key="p4_undo_btn"):
+            old_nodes = st.session_state.data['phase4']['nodes_history'].pop(0)
+            st.session_state.data['phase3']['nodes'] = old_nodes
+            st.success("Change undone")
+            st.rerun()
     
     render_bottom_navigation()
 
