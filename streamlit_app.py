@@ -65,11 +65,25 @@ if "cleared_cache_once" not in st.session_state:
 
 st.markdown("""
 <style>
-    /* AGGRESSIVELY HIDE HEADER LINKS & ANCHORS */
+    /* HIDE HEADER DEPLOYMENT LINKS BUT KEEP CONTENT ANCHOR LINKS */
     [data-testid="stHeaderAction"] { display: none !important; visibility: hidden !important; opacity: 0 !important; }
-    a.anchor-link { display: none !important; height: 0px !important; width: 0px !important; }
-    .stMarkdown h1 a, .stMarkdown h2 a, .stMarkdown h3 a { display: none !important; pointer-events: none; cursor: default; text-decoration: none; color: transparent !important; }
-    h1 > a, h2 > a, h3 > a { display: none !important; }
+    
+    /* Make anchor links visible for content headings */
+    .stMarkdown h1 a.anchor-link, 
+    .stMarkdown h2 a.anchor-link, 
+    .stMarkdown h3 a.anchor-link { 
+        display: inline-block !important; 
+        opacity: 1 !important;
+        visibility: visible !important;
+        height: auto !important; 
+        width: auto !important; 
+        margin-left: 0.5rem !important;
+    }
+    h1 > a.anchor-link, h2 > a.anchor-link, h3 > a.anchor-link { 
+        display: inline-block !important; 
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
     
     /* BUTTONS */
     div.stButton > button, 
@@ -175,6 +189,18 @@ st.markdown("""
         background-color: white !important;
         color: #333 !important;
         border: 1px solid #ddd !important;
+    }
+    
+    /* GRADE FILTER MULTISELECT */
+    div[data-testid="stMultiSelect"] label:has(+ div[data-baseweb="select"]) {
+        background-color: #FFB0C9 !important;
+        color: black !important;
+        padding: 8px 12px !important;
+        border-radius: 5px !important;
+        border: 1px solid black !important;
+        display: inline-block !important;
+        margin-bottom: 8px !important;
+        font-weight: 500 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -297,7 +323,7 @@ def generate_gantt_image(schedule):
         df['Duration'] = (df['End'] - df['Start']).dt.days
         fig, ax = plt.subplots(figsize=(8, 4))
         y_pos = range(len(df))
-        ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#00695C', alpha=0.8)
+        ax.barh(y_pos, df['Duration'], left=mdates.date2num(df['Start']), align='center', color='#5D4037', alpha=0.8)
         ax.set_yticks(y_pos)
         # Use 'Stage' column for labels if available
         labels = df['Stage'].tolist() if 'Stage' in df.columns else df['Phase'].tolist()
@@ -787,7 +813,7 @@ with st.sidebar:
 # LANDING PAGE LOGIC
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
-    st.markdown('<p style="font-size: 1.2em; color: #00695C; margin-top: -10px; margin-bottom: 20px;"><strong><em>Intelligently build and deploy clinical pathways</em></strong></p>', unsafe_allow_html=True)
+    st.markdown('<p style="font-size: 1.2em; color: #5D4037; margin-top: -10px; margin-bottom: 20px;"><strong><em>Intelligently build and deploy clinical pathways</em></strong></p>', unsafe_allow_html=True)
     st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
     st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
@@ -994,7 +1020,7 @@ if "Phase 1" in phase:
     
     # Natural Language Refinement Section
     st.subheader("Refine Content")
-    st.text_area("Custom Refinement", placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...", key="p1_refine_input")
+    st.text_area("", placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...", key="p1_refine_input")
     if st.button("Apply Refinements", type="primary"):
         apply_refinements()
         st.success("Refinements applied!")
@@ -1037,6 +1063,7 @@ if "Phase 1" in phase:
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
         else:
             with st.status("Generating Project Charter...", expanded=True) as status:
+                st.write("Building project charter based on IHI Quality Improvement framework...")
                 p_ihi = f"Act as QI Advisor (IHI Model). Draft Charter for {d['condition']}. Problem: {d['problem']}. Scope: {d['inclusion']}. Return JSON: project_description, rationale, expected_outcomes, aim_statement, outcome_measures, process_measures, balancing_measures, initial_activities, change_ideas, stakeholders, barriers, boundaries (return as dict: in_scope, out_of_scope)."
                 res = get_gemini_response(p_ihi, json_mode=True)
                 if res:
@@ -1168,7 +1195,8 @@ elif "Phase 2" in phase:
             "Filter by GRADE:",
             ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
             default=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
-            help=grade_help
+            help=grade_help,
+            key="grade_filter_multiselect"
         )
         
         # Sort Logic: High to Low
@@ -1203,30 +1231,26 @@ elif "Phase 2" in phase:
             
             # EXPORT OPTIONS SECTION
             st.divider()
-            st.subheader("Export Evidence")
 
             full_df = pd.DataFrame(evidence_data)
             c1, c2, c3 = st.columns(3)
 
             with c1:
-                st.markdown("**Current Table View**")
-                st.caption("Exports the filtered table you currently see.")
+                st.subheader("Current Table View", help="Exports the filtered table you currently see.")
                 table_df = df_ev[["id", "title", "grade", "rationale", "url"]].copy()
                 table_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL"]
                 csv_data = table_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download", csv_data, "evidence_table_view.csv", "text/csv", key="dl_table_view")
 
             with c2:
-                st.markdown("**Detailed Evidence Table**")
-                st.caption("Includes journal, year, authors, and abstract for all results.")
+                st.subheader("Detailed Evidence Table", help="Includes journal, year, authors, and abstract for all results.")
                 full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
                 full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
                 csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full")
 
             with c3:
-                st.markdown("**Formatted Citations**")
-                st.caption("Generate Word citations in your preferred style.")
+                st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
                 citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style")
                 references_source = display_data if display_data else evidence_data
                 if not references_source:
@@ -1394,10 +1418,10 @@ elif "Phase 3" in phase:
                 width="large",
                 required=True
             ),
-            "evidence": st.column_config.SelectboxColumn(
+            "evidence": st.column_config.TextColumn(
                 "Supporting Evidence (PMID)",
-                options=evidence_ids,
-                width="medium"
+                width="medium",
+                help="Enter PMID or 'N/A'"
             )
         },
         num_rows="dynamic",
@@ -1414,9 +1438,6 @@ elif "Phase 3" in phase:
     st.caption(f"Pathway contains {node_count} nodes | {evidence_backed} evidence-backed steps")
 
     def apply_large_pathway_recommendations():
-        choice = st.session_state.get("p3_large_reco_choice")
-        if choice != "Apply Recommendations":
-            return
         current_nodes = st.session_state.data['phase3']['nodes']
         ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
         with ai_activity("Applying pathway recommendations…"):
@@ -1440,7 +1461,6 @@ elif "Phase 3" in phase:
         if isinstance(new_nodes, list) and new_nodes:
             st.session_state.data['phase3']['nodes'] = new_nodes
             st.session_state.data['phase3']['large_rec_applied'] = True
-            st.session_state['p3_large_reco_choice'] = "Recommendations Applied"
             st.success("Recommendations applied to the decision tree.")
             st.rerun()
 
@@ -1448,21 +1468,14 @@ elif "Phase 3" in phase:
     if node_count > 20:
         styled_info("<b>Note:</b> Large pathway detected. Recommend organizing into multiple decision trees (e.g., Initial Evaluation, Diagnosis/Treatment, Re-evaluation) for clarity.")
         if not applied_flag:
-            st.radio(
-                "Pathway recommendations",
-                ["Apply Recommendations"],
-                index=0,
-                key="p3_large_reco_choice",
-                on_change=apply_large_pathway_recommendations,
-            )
+            if st.button("Apply Recommendations", type="primary", key="p3_apply_reco_btn"):
+                apply_large_pathway_recommendations()
         else:
-            st.radio(
-                "Pathway recommendations",
-                ["Recommendations Applied"],
-                index=0,
-                key="p3_large_reco_choice_applied",
-                disabled=True,
-            )
+            st.markdown("""
+                <div style="background-color: #FFB0C9; color: black; padding: 10px 20px; border-radius: 5px; border: 1px solid black; text-align: center; font-weight: 600; margin-bottom: 10px;">
+                    Recommendations Applied
+                </div>
+            """, unsafe_allow_html=True)
 
     st.divider()
 
