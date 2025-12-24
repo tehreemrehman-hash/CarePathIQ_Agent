@@ -239,10 +239,31 @@ st.markdown("""
     }
     
     /* RADIO BUTTON LABEL ALIGNMENT */
+    div[role="radiogroup"] {
+        display: flex !important;
+        align-items: center !important;
+        gap: 1.5rem !important;
+        width: 50% !important;
+    }
+    
     div[role="radiogroup"] label {
         display: flex !important;
         align-items: center !important;
-        margin-bottom: 0.5rem !important;
+        margin-bottom: 0 !important;
+        margin-right: 0 !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+        gap: 0.5rem !important;
+    }
+    
+    div[role="radiogroup"] label > span {
+        vertical-align: middle !important;
+    }
+    
+    div[role="radiogroup"] label > div {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
     
     /* DOWNLOAD BUTTON CONSISTENT HEIGHT */
@@ -1422,13 +1443,30 @@ elif "Phase 2" in phase:
             "- Very Low (D): We are very uncertain about the estimate."
         )
 
+        # Inline label with adjacent help tooltip
+        label_col, help_col = st.columns([0.9, 0.1])
+        tooltip = (
+            grade_help
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;")
+            .replace("\n", "&#10;")
+        )
+        with label_col:
+            st.markdown("**Filter by GRADE**")
+        with help_col:
+            st.markdown(
+                f"<span style='font-weight:700; cursor:help;' title=\"{tooltip}\">?</span>",
+                unsafe_allow_html=True,
+            )
+
         # Default filters set to show all grades initially
-        # Keep preferred label while placing help icon right after GRADE
         selected_grades = st.multiselect(
-            "Filter by GRADE",
+            "",
             ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
             default=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
-            help=grade_help,
             key="grade_filter_multiselect"
         )
         
@@ -1467,41 +1505,55 @@ elif "Phase 2" in phase:
             # EXPORT OPTIONS SECTION
             st.divider()
 
+            deliverable_choice = st.radio(
+                "Deliverables",
+                ["Evidence Table", "Citations List", "Both"],
+                index=2,
+                horizontal=True,
+                key="p2_deliverable_choice",
+                help="Choose which export to show. Both keeps the evidence table and citations list visible together."
+            )
+
             full_df = pd.DataFrame(evidence_data)
             c1, c2 = st.columns([1, 1])
 
+            show_table = deliverable_choice in ["Evidence Table", "Both"]
+            show_citations = deliverable_choice in ["Citations List", "Both"]
+
             with c1:
-                st.subheader("Detailed Evidence Table", help="Includes journal, year, authors, and abstract for all results.")
-                full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
-                full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
-                csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
+                if show_table:
+                    st.subheader("Detailed Evidence Table", help="Includes journal, year, authors, and abstract for all results.")
+                    full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
+                    full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
+                    csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
+                    st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
 
             with c2:
-                # Header and citation style in aligned columns
-                col_header, col_dropdown = st.columns([2, 1])
-                with col_header:
-                    st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
-                with col_dropdown:
-                    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-                    citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
-                
-                references_source = display_data if display_data else evidence_data
-                if not references_source:
-                    st.info("Add or unfilter evidence to generate references.")
-                else:
-                    references_doc = create_references_docx(references_source, citation_style)
-                    if references_doc:
-                        st.download_button(
-                            "Download",
-                            references_doc,
-                            f"references_{citation_style.lower()}.docx",
-                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key="dl_refs_docx",
-                            use_container_width=True
-                        )
+                if show_citations:
+                    # Header and citation style in aligned columns
+                    col_header, col_dropdown = st.columns([2, 1])
+                    with col_header:
+                        st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
+                    with col_dropdown:
+                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+                        citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
+                    
+                    references_source = display_data if display_data else evidence_data
+                    if not references_source:
+                        st.info("Add or unfilter evidence to generate references.")
                     else:
-                        st.warning("python-docx is not available; install it to enable Word downloads.")
+                        references_doc = create_references_docx(references_source, citation_style)
+                        if references_doc:
+                            st.download_button(
+                                "Download",
+                                references_doc,
+                                f"references_{citation_style.lower()}.docx",
+                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key="dl_refs_docx",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("python-docx is not available; install it to enable Word downloads.")
 
     else:
         # If nothing to show, provide a helpful prompt and the PubMed link if available
@@ -1784,6 +1836,10 @@ elif "Phase 4" in phase:
         st.session_state.data['phase4']['heuristics_data'] = {}
     if 'auto_heuristics_done' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['auto_heuristics_done'] = False
+    if 'viz_height' not in st.session_state.data['phase4']:
+        st.session_state.data['phase4']['viz_height'] = 400
+    if 'fullscreen_modal' not in st.session_state.data['phase4']:
+        st.session_state.data['phase4']['fullscreen_modal'] = False
 
     # Auto-run heuristics once if data exists but heuristics not yet generated
     if nodes and not st.session_state.data['phase4']['heuristics_data'] and not st.session_state.data['phase4']['auto_heuristics_done']:
@@ -1799,48 +1855,70 @@ elif "Phase 4" in phase:
                 st.session_state.data['phase4']['heuristics_data'] = res
         st.session_state.data['phase4']['auto_heuristics_done'] = True
     
-    # FULL WIDTH: Graphviz Visualization (Vertical Only)
-    st.subheader("Pathway Visualization (Graphviz)")
-    g = build_graphviz_from_nodes(nodes, "TD")
-    if g:
-        svg_bytes = render_graphviz_bytes(g, "svg")
-        if svg_bytes:
-            components.html(svg_bytes.decode('utf-8'), height=400, scrolling=True)
+    # TWO-COLUMN LAYOUT: Visualization (Left) + Heuristics (Right)
+    col_left, col_right = st.columns([2, 1])
     
-    # Download buttons (DOT, SVG, PNG)
-    col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
-    dot_text = dot_from_nodes(nodes, "TD")
-    with col_dl_dot:
-        st.download_button("Download DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
+    with col_left:
+        st.subheader("Pathway Visualization")
+        
+        # Visualization height control and fullscreen button
+        viz_col1, viz_col2, viz_col3 = st.columns([1, 1, 1])
+        with viz_col1:
+            viz_height = st.slider("Height (px)", 300, 800, st.session_state.data['phase4']['viz_height'], step=50, key="p4_viz_height")
+            st.session_state.data['phase4']['viz_height'] = viz_height
+        with viz_col2:
+            if st.button("🖥️ Fullscreen", use_container_width=True, key="p4_fullscreen_btn"):
+                st.session_state.data['phase4']['fullscreen_modal'] = True
+        
+        # Render graphviz visualization
+        g = build_graphviz_from_nodes(nodes, "TD")
+        if g:
+            svg_bytes = render_graphviz_bytes(g, "svg")
+            if svg_bytes:
+                components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
+        
+        # Download buttons (DOT, SVG, PNG)
+        st.markdown("**Export Formats:**")
+        col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
+        dot_text = dot_from_nodes(nodes, "TD")
+        with col_dl_dot:
+            st.download_button("📄 DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
+        
+        svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+        png_bytes = render_graphviz_bytes(g, "png") if g else None
+        with col_dl_svg:
+            if svg_bytes:
+                st.download_button("🎨 SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+            else:
+                st.caption("SVG unavailable")
+        with col_dl_png:
+            if png_bytes:
+                st.download_button("🖼️ PNG", png_bytes, file_name="pathway.png", mime="image/png", use_container_width=True)
+            else:
+                st.caption("PNG unavailable")
+        
+        # Edit pathway data with Node ID column
+        with st.expander("Edit Pathway Data", expanded=False):
+            df_p4 = pd.DataFrame(nodes)
+            # Add node ID column if not present
+            if 'node_id' not in df_p4.columns:
+                df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
+            else:
+                df_p4['node_id'] = range(1, len(df_p4) + 1)
+            
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            if not df_p4.equals(edited_p4):
+                # Remove node_id before saving (it's display-only)
+                if 'node_id' in edited_p4.columns:
+                    edited_p4 = edited_p4.drop('node_id', axis=1)
+                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                st.rerun()
     
-    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-    png_bytes = render_graphviz_bytes(g, "png") if g else None
-    with col_dl_svg:
-        if svg_bytes:
-            st.download_button("Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
-        else:
-            st.caption("SVG unavailable (Graphviz not installed)")
-    with col_dl_png:
-        if png_bytes:
-            st.download_button("Download PNG", png_bytes, file_name="pathway.png", mime="image/png", use_container_width=True)
-        else:
-            st.caption("PNG unavailable (Graphviz not installed)")
-    
-    # Edit pathway data
-    with st.expander("Edit Pathway Data", expanded=False):
-        df_p4 = pd.DataFrame(nodes)
-        edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
-        if not df_p4.equals(edited_p4):
-            st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
-            st.rerun()
-    
-    st.divider()
-    
-    # HEURISTICS ANALYSIS SECTION (Full Width)
-    st.subheader("Nielsen's 10 Usability Heuristics Analysis")
-    col_analyze, col_clear = st.columns([1, 1])
-    with col_analyze:
-        if st.button("Analyze Heuristics", type="primary", use_container_width=True, key="p4_analyze_btn"):
+    with col_right:
+        st.subheader("Nielsen's Heuristics")
+        
+        # Analyze button
+        if st.button("🔍 Analyze", type="primary", use_container_width=True, key="p4_analyze_btn"):
             with ai_activity("Analyzing usability heuristics…"):
                 prompt = f"""
                 Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
@@ -1866,67 +1944,99 @@ elif "Phase 4" in phase:
                 if res:
                     st.session_state.data['phase4']['heuristics_data'] = res
                     st.rerun()
-    
-    # Display heuristics (expanders for each H1-H10 with Apply Fix buttons)
-    h_data = st.session_state.data['phase4'].get('heuristics_data', {})
-    if h_data:
-        st.markdown("### Analysis Results")
-        for heuristic_key in sorted(h_data.keys()):
-            insight = h_data[heuristic_key]
-            definition = HEURISTIC_DEFS.get(heuristic_key, "")
-            with st.expander(f"{heuristic_key}: {definition.split(':')[0] if ':' in definition else definition}"):
-                st.write(f"**Definition:** {definition}")
-                st.write(f"**Critique:** {insight}")
-                if st.button(f"Apply Fix", key=f"p4_fix_{heuristic_key}", use_container_width=True):
-                    st.session_state.data['phase4']['nodes_history'] = [copy.deepcopy(nodes)]
+        
+        # Display heuristics with Apply Fix buttons
+        h_data = st.session_state.data['phase4'].get('heuristics_data', {})
+        if h_data:
+            for heuristic_key in sorted(h_data.keys()):
+                insight = h_data[heuristic_key]
+                definition = HEURISTIC_DEFS.get(heuristic_key, "")
+                
+                with st.expander(f"{heuristic_key}", expanded=False):
+                    st.markdown(f"**{definition}**", help=None)
+                    st.write(f"{insight}")
                     
-                    with ai_activity(f"Applying fix for {heuristic_key}…"):
-                        p_fix = f"""
-                        Update this clinical pathway JSON to address this heuristic issue:
-                        {heuristic_key}: {insight}
+                    if st.button(f"Apply Fix", key=f"p4_fix_{heuristic_key}", use_container_width=True):
+                        if 'nodes_history' not in st.session_state.data['phase4']:
+                            st.session_state.data['phase4']['nodes_history'] = []
+                        st.session_state.data['phase4']['nodes_history'].append(copy.deepcopy(nodes))
                         
-                        Current pathway: {json.dumps(nodes)}
-                        
-                        Return ONLY the updated JSON array.
-                        """
-                        new_nodes = get_gemini_response(p_fix, json_mode=True)
-                        if new_nodes and isinstance(new_nodes, list):
-                            st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                            st.rerun()
-    else:
-        st.info("Click 'Analyze Heuristics' to begin evaluation.")
+                        with ai_activity(f"Applying {heuristic_key} fix…"):
+                            prompt = f"""
+                            Improve this clinical pathway to address this Nielsen heuristic issue:
+                            Heuristic: {definition}
+                            Issue: {insight}
+                            
+                            Current pathway nodes: {json.dumps(nodes)}
+                            
+                            Provide updated pathway nodes that specifically address the heuristic critique.
+                            Return ONLY a valid JSON array of node objects.
+                            """
+                            new_nodes = get_gemini_response(prompt, json_mode=True)
+                            if new_nodes and isinstance(new_nodes, list):
+                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                st.success(f"✓ {heuristic_key} fix applied")
+                                st.rerun()
     
     st.divider()
     
-    # APPLY CHANGES section
+    # CUSTOM REFINEMENT SECTION
     st.subheader("Custom Refinement")
-    custom_ref = st.text_area("Describe your refinement", placeholder="E.g., 'Add more specific diagnostic thresholds' or 'Simplify decision tree paths'...", key="p4_custom_ref", height=80)
-    if st.button("Apply Refinements", type="primary", use_container_width=True, key="p4_apply_ref"):
-        if custom_ref.strip():
-            st.session_state.data['phase4']['nodes_history'] = [copy.deepcopy(nodes)]
-            
-            with ai_activity("Applying refinements…"):
-                p_custom = f"""
-                Update this clinical pathway based on user feedback:
-                {custom_ref}
-                
-                Current pathway: {json.dumps(nodes)}
-                
-                Return ONLY the updated JSON array.
-                """
-                new_nodes = get_gemini_response(p_custom, json_mode=True)
-                if new_nodes and isinstance(new_nodes, list):
-                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                    st.rerun()
-        else:
-            st.warning("Please describe your refinement first.")
+    custom_ref = st.text_area(
+        "Describe your refinement",
+        placeholder="E.g., 'Add more specific diagnostic thresholds' or 'Simplify decision tree paths'...",
+        key="p4_custom_ref",
+        height=80
+    )
     
-    if st.session_state.data['phase4'].get('nodes_history'):
-        if st.button("Undo Last Change", use_container_width=True, key="p4_undo_btn"):
-            old_nodes = st.session_state.data['phase4']['nodes_history'].pop(0)
-            st.session_state.data['phase3']['nodes'] = old_nodes
-            st.success("Change undone")
-            st.rerun()
+    col_refine, col_undo = st.columns([1, 1])
+    with col_refine:
+        if st.button("Apply Refinements", type="primary", use_container_width=True, key="p4_apply_ref"):
+            if custom_ref.strip():
+                if 'nodes_history' not in st.session_state.data['phase4']:
+                    st.session_state.data['phase4']['nodes_history'] = []
+                st.session_state.data['phase4']['nodes_history'].append(copy.deepcopy(nodes))
+                
+                with ai_activity("Applying refinements…"):
+                    p_custom = f"""
+                    Update this clinical pathway based on user feedback:
+                    {custom_ref}
+                    
+                    Current pathway: {json.dumps(nodes)}
+                    
+                    Return ONLY the updated JSON array.
+                    """
+                    new_nodes = get_gemini_response(p_custom, json_mode=True)
+                    if new_nodes and isinstance(new_nodes, list):
+                        st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                        st.success("✓ Refinements applied")
+                        st.rerun()
+            else:
+                st.warning("Please describe your refinement first.")
+    
+    with col_undo:
+        if st.session_state.data['phase4'].get('nodes_history'):
+            if st.button("↶ Undo Last Change", use_container_width=True, key="p4_undo_btn"):
+                old_nodes = st.session_state.data['phase4']['nodes_history'].pop()
+                st.session_state.data['phase3']['nodes'] = old_nodes
+                st.success("Change undone")
+                st.rerun()
+    
+    # FULLSCREEN MODAL for visualization
+    if st.session_state.data['phase4'].get('fullscreen_modal'):
+        st.markdown("---")
+        st.markdown("### Fullscreen Pathway Visualization")
+        close_col, spacer = st.columns([1, 10])
+        with close_col:
+            if st.button("✕ Close", use_container_width=True, key="p4_close_fullscreen"):
+                st.session_state.data['phase4']['fullscreen_modal'] = False
+                st.rerun()
+        
+        g = build_graphviz_from_nodes(nodes, "TD")
+        if g:
+            svg_bytes = render_graphviz_bytes(g, "svg")
+            if svg_bytes:
+                components.html(svg_bytes.decode('utf-8'), height=900, scrolling=True)
     
     render_bottom_navigation()
 
@@ -2006,29 +2116,30 @@ elif "Phase 5" in phase:
 Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_table}
 """
 
-                prompt = f"""
-                                Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
-                Intro: "Thank you for serving on the expert panel for {cond}."
-                IMPORTANT: Include an email field at the top of the form so respondents can specify where to send their feedback.
-                                Display the node reference table at the top, and reference node IDs (SE#, P#, D#) in the questions.
-                                Node Reference Table:
-                                {node_table}
-                Form structure:
-                1. Email field (required) - "Your Email Address"
-                2. For EACH pathway node (Start/End, Decisions, Process):
-                                     - Checkbox for that node (identify node by its ID, e.g., P2, D1, SE1)
-                   - If checked, show:
-                                         a) "Proposed Change" (Textarea, ask to cite the node ID)
-                     b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
-                     c) "Justification Detail" (Textarea)
-                Form nodes:
-                Start/End: {s_e_str}
-                Decisions: {d_str}
-                Process: {p_str}
-                Form Action: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is replaced with the user's email from the form field.
-                Add hidden input: <input type="hidden" name="_subject" value="Expert Panel Feedback - {cond}">
-                Add JavaScript to populate the form action with the user's email when they submit.
-                """
+                     prompt = f"""
+                     Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
+                     Use Netlify Forms markup (no external action). Requirements:
+                     - <form name="expert-panel-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+                     - Include hidden <input type="hidden" name="form-name" value="expert-panel-form">
+                     - Include a hidden "bot-field" for honeypot.
+                     Intro: "Thank you for serving on the expert panel for {cond}."
+                     Display the node reference table at the top, and reference node IDs (SE#, P#, D#) in the questions.
+                     Node Reference Table:
+                     {node_table}
+                     Form structure:
+                     1. Email field (required) - "Your Email Address" (stored in submission only)
+                     2. For EACH pathway node (Start/End, Decisions, Process):
+                         - Checkbox for that node (identify node by its ID, e.g., P2, D1, SE1)
+                         - If checked, show:
+                            a) "Proposed Change" (Textarea, ask to cite the node ID)
+                            b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
+                            c) "Justification Detail" (Textarea)
+                     Form nodes:
+                     Start/End: {s_e_str}
+                     Decisions: {d_str}
+                     Process: {p_str}
+                     No external FormSubmit action; rely on Netlify Forms submission capture.
+                     """
                 st.session_state.data['phase5']['expert_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['expert_html']: 
                     st.session_state.data['phase5']['expert_html'] += COPYRIGHT_HTML_FOOTER
@@ -2080,18 +2191,19 @@ Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_ta
             with ai_activity("Generating form..."):
                 prompt = f"""
                 Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}.
-                IMPORTANT: Include an email field at the top so respondents can specify where to send their feedback.
+                Use Netlify Forms markup (no external action). Requirements:
+                - <form name="beta-testing-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+                - Include hidden <input type="hidden" name="form-name" value="beta-testing-form">
+                - Include a hidden "bot-field" for honeypot.
                 Use Nielsen's heuristics and standard clinical informatics beta-testing frames (e.g., usability, safety, workflow fit, data quality). Include short guidance under each prompt to anchor responses.
                 Form Questions:
-                1. Respondent Email (required) - "Your Email Address"
+                1. Respondent Email (required) - "Your Email Address" (stored in submission only)
                 2. Usability (Nielsen alignment) Rating (1-5 scale) with brief description
                 3. Bugs/Issues Encountered (Textarea) with severity and reproducibility hints
                 4. Workflow Integration (Select: Excellent, Good, Fair, Poor) with prompt for specific context
                 5. Safety or Data Quality Concerns (Textarea)
                 6. Additional Feedback (Textarea)
-                Form Action: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is replaced with user's email.
-                Add hidden input: <input type="hidden" name="_subject" value="Beta Testing Feedback - {cond}">
-                Add JavaScript to populate form action with the user's email when they submit.
+                No external FormSubmit action; rely on Netlify Forms submission capture.
                 """
                 st.session_state.data['phase5']['beta_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['beta_html']: 
@@ -2147,25 +2259,29 @@ Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_ta
         st.markdown("#### Staff Education Module")
         if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
             with ai_activity("Generating form..."):
-                prompt = f"""
-                Create HTML Education Module for {cond}. Audience: {audience}.
-                IMPORTANT:
-                - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
-                - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
-                - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
-                - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
-                - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
-                - Content must be explicitly tailored to the stated audience ({audience}) and improve understanding of the {cond} pathway steps, decision points, and rationale.
-                - Emphasize clarity, concise language, and actionable takeaways for the target audience.
+                     prompt = f"""
+                     Create HTML Education Module for {cond}. Audience: {audience}.
+                     Use Netlify Forms markup (no external action). Requirements:
+                     - <form name="education-module" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+                     - Include hidden <input type="hidden" name="form-name" value="education-module">
+                     - Include a hidden "bot-field" for honeypot.
+                     IMPORTANT:
+                     - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
+                     - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
+                     - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
+                     - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
+                     - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
+                     - Content must be explicitly tailored to the stated audience ({audience}) and improve understanding of the {cond} pathway steps, decision points, and rationale.
+                     - Emphasize clarity, concise language, and actionable takeaways for the target audience.
 
-                Module sections:
+                     Module sections:
                      1. Key Clinical Points (summary section with main takeaways tailored to the audience)
                      2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
                      3. Certificate of Completion: 
                          - Display personalized printable certificate with user's name in a styled .cpq-certificate container
                          - No email collection or email delivery is needed
-                Return valid standalone HTML.
-                """
+                     Return valid standalone HTML.
+                     """
                 st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['edu_html']:
                     fixed_html = fix_edu_certificate_html(st.session_state.data['phase5']['edu_html'])
