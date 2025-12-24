@@ -1341,9 +1341,9 @@ elif "Phase 2" in phase:
         )
 
         # Default filters set to show all grades initially
-        # Label set to just "GRADE" so the help "?" appears immediately to its right
+        # Keep preferred label while placing help icon right after GRADE
         selected_grades = st.multiselect(
-            "GRADE",
+            "Filter by GRADE",
             ["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
             default=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"],
             help=grade_help,
