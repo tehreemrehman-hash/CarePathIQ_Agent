@@ -2049,47 +2049,29 @@ elif "Phase 5" in phase:
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     
-    # Prefer server-managed Netlify token when available
-    default_netlify_token = os.environ.get("NETLIFY_API_TOKEN") or getattr(st.secrets, "netlify_token", None)
-
-    # Configuration Row - Target Audience, Email, and Netlify Token
-    col_a, col_e, col_n = st.columns(3)
-    with col_a:
-        st.subheader("Target Audience")
-        audience = st.text_input(
-            "Audience",
-            placeholder="e.g., Physicians, Nurses, Social Workers",
-            key="p5_audience_input",
-            label_visibility="collapsed"
-        )
-    with col_e:
-        st.subheader("Recipient Email")
-        email_target = st.text_input(
-            "Email",
-            placeholder="you@hospital.org",
-            label_visibility="collapsed",
-            key="p5_email_input"
-        )
-    with col_n:
-        st.subheader("Netlify Token")
-        if default_netlify_token:
-            netlify_token = default_netlify_token
-            st.caption("Using server-managed Netlify token.")
-        else:
-            netlify_token = st.text_input(
-                "Netlify API Token",
-                type="password",
-                placeholder="Enter token for auto-deploy",
-                label_visibility="collapsed",
-                key="p5_netlify_token",
-                help="Get free token at netlify.com/docs/api"
-            )
+    # Get server-managed Netlify token
+    netlify_token = os.environ.get("NETLIFY_API_TOKEN") or getattr(st.secrets, "netlify_token", None)
     
-    if netlify_token:
-        st.success("🚀 **One-Click Deploy:** Forms will be automatically deployed to Netlify with shareable links!")
+    if not netlify_token:
+        st.error("⚠️ Netlify API token not configured. Form deployment disabled. Contact administrator.")
     else:
-        st.info("💡 **Get Started:** [Create free Netlify account](https://app.netlify.com/signup) → User Settings → Applications → New Access Token → Paste above for instant form deployment!")
-
+        st.success("✅ Auto-deploy enabled - forms will generate shareable links automatically.")
+    
+    st.divider()
+    
+    # TARGET AUDIENCE CONFIGURATION (Optional, defaults to "Multidisciplinary Team")
+    st.subheader("Configuration")
+    col_aud, col_spacer = st.columns([1, 2])
+    with col_aud:
+        audience = st.text_input(
+            "Target Audience",
+            placeholder="e.g., Physicians, Nurses, Social Workers (Optional)",
+            key="p5_audience_input",
+            help="Leave blank to default to 'Multidisciplinary Team'"
+        )
+        if not audience.strip():
+            audience = "Multidisciplinary Team"
+    
     st.divider()
     
     # 2-COLUMN HORIZONTAL LAYOUT FOR DELIVERABLES
@@ -2098,6 +2080,7 @@ elif "Phase 5" in phase:
     # Expert Panel Feedback Form
     with c1:
         st.markdown("#### Expert Panel Feedback Form")
+        st.caption(f"Target Audience: {audience}")
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_expert_gen"):
             with ai_activity("Generating form..."):
                 nodes = st.session_state.data['phase3']['nodes']
@@ -2113,35 +2096,36 @@ elif "Phase 5" in phase:
                 p_table = "\n".join([f"P{idx+1}: {n.get('label')}" for idx, n in enumerate(p_nodes)])
                 d_table = "\n".join([f"D{idx+1}: {n.get('label')}" for idx, n in enumerate(d_nodes)])
                 node_table = f"""
-Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_table}
-"""
+                Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_table}
+                """
 
-                     prompt = f"""
-                     Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
-                     Use Netlify Forms markup (no external action). Requirements:
-                     - <form name="expert-panel-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
-                     - Include hidden <input type="hidden" name="form-name" value="expert-panel-form">
-                     - Include a hidden "bot-field" for honeypot.
-                     Intro: "Thank you for serving on the expert panel for {cond}."
-                     Display the node reference table at the top, and reference node IDs (SE#, P#, D#) in the questions.
-                     Node Reference Table:
-                     {node_table}
-                     Form structure:
-                     1. Email field (required) - "Your Email Address" (stored in submission only)
-                     2. For EACH pathway node (Start/End, Decisions, Process):
-                         - Checkbox for that node (identify node by its ID, e.g., P2, D1, SE1)
-                         - If checked, show:
-                            a) "Proposed Change" (Textarea, ask to cite the node ID)
-                            b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
-                            c) "Justification Detail" (Textarea)
-                     Form nodes:
-                     Start/End: {s_e_str}
-                     Decisions: {d_str}
-                     Process: {p_str}
-                     No external FormSubmit action; rely on Netlify Forms submission capture.
-                     """
+                prompt = f"""
+                Create HTML5 Form for Expert Panel Feedback. Condition: {cond}. Target Audience: {audience}.
+                Use Netlify Forms markup (no external action). Requirements:
+                - <form name="expert-panel-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+                - Include hidden <input type="hidden" name="form-name" value="expert-panel-form">
+                - Include a hidden "bot-field" for honeypot.
+                Intro: "Thank you for serving on the expert panel for {cond}. Please review the pathway below and provide feedback tailored for {audience}."
+                Display the node reference table at the top, and reference node IDs (SE#, P#, D#) in the questions.
+                Node Reference Table:
+                {node_table}
+                Form structure:
+                1. Email field (required) - "Your Email Address" (stored in submission only)
+                2. For EACH pathway node (Start/End, Decisions, Process):
+                    - Checkbox for that node (identify node by its ID, e.g., P2, D1, SE1)
+                    - If checked, show:
+                       a) "Proposed Change" (Textarea, ask to cite the node ID)
+                       b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
+                       c) "Justification Detail" (Textarea)
+                3. At the bottom, add a field: "Email Address(es) for Form Submission" (required, allow comma-separated emails) - "Where should this form's submission be sent? (comma-separated for multiple recipients)"
+                Form nodes:
+                Start/End: {s_e_str}
+                Decisions: {d_str}
+                Process: {p_str}
+                No external FormSubmit action; rely on Netlify Forms submission capture.
+                """
                 st.session_state.data['phase5']['expert_html'] = get_gemini_response(prompt)
-                if st.session_state.data['phase5']['expert_html']: 
+                if st.session_state.data['phase5']['expert_html']:
                     st.session_state.data['phase5']['expert_html'] += COPYRIGHT_HTML_FOOTER
         
         if st.session_state.data['phase5'].get('expert_html'):
@@ -2187,22 +2171,24 @@ Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_ta
     # Beta Testing Form
     with c2:
         st.markdown("#### Beta Testing Form")
+        st.caption(f"Target Audience: {audience}")
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_beta_gen"):
             with ai_activity("Generating form..."):
                 prompt = f"""
-                Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}.
+                Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Condition: {cond}. Target Audience: {audience}.
                 Use Netlify Forms markup (no external action). Requirements:
                 - <form name="beta-testing-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
                 - Include hidden <input type="hidden" name="form-name" value="beta-testing-form">
                 - Include a hidden "bot-field" for honeypot.
-                Use Nielsen's heuristics and standard clinical informatics beta-testing frames (e.g., usability, safety, workflow fit, data quality). Include short guidance under each prompt to anchor responses.
+                Use Nielsen's heuristics and standard clinical informatics beta-testing frames (e.g., usability, safety, workflow fit, data quality). Include short guidance under each prompt to anchor responses. Tailor all content and questions for {audience}.
                 Form Questions:
                 1. Respondent Email (required) - "Your Email Address" (stored in submission only)
-                2. Usability (Nielsen alignment) Rating (1-5 scale) with brief description
+                2. Usability (Nielsen alignment) Rating (1-5 scale) with brief description tailored to {audience}
                 3. Bugs/Issues Encountered (Textarea) with severity and reproducibility hints
-                4. Workflow Integration (Select: Excellent, Good, Fair, Poor) with prompt for specific context
+                4. Workflow Integration (Select: Excellent, Good, Fair, Poor) with prompt for specific context relevant to {audience}
                 5. Safety or Data Quality Concerns (Textarea)
                 6. Additional Feedback (Textarea)
+                7. At the bottom, add a field: "Email Address(es) for Form Submission" (required, allow comma-separated emails) - "Where should this form's submission be sent? (comma-separated for multiple recipients)"
                 No external FormSubmit action; rely on Netlify Forms submission capture.
                 """
                 st.session_state.data['phase5']['beta_html'] = get_gemini_response(prompt)
@@ -2257,31 +2243,33 @@ Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_ta
     # Staff Education Module
     with c3:
         st.markdown("#### Staff Education Module")
+        st.caption(f"Target Audience: {audience}")
         if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
-            with ai_activity("Generating form..."):
-                     prompt = f"""
-                     Create HTML Education Module for {cond}. Audience: {audience}.
-                     Use Netlify Forms markup (no external action). Requirements:
-                     - <form name="education-module" method="POST" data-netlify="true" netlify-honeypot="bot-field">
-                     - Include hidden <input type="hidden" name="form-name" value="education-module">
-                     - Include a hidden "bot-field" for honeypot.
-                     IMPORTANT:
-                     - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
-                     - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
-                     - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
-                     - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
-                     - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
-                     - Content must be explicitly tailored to the stated audience ({audience}) and improve understanding of the {cond} pathway steps, decision points, and rationale.
-                     - Emphasize clarity, concise language, and actionable takeaways for the target audience.
+            with ai_activity("Generating module..."):
+                prompt = f"""
+                Create HTML Education Module for {cond}. Target Audience: {audience}.
+                Use Netlify Forms markup (no external action). Requirements:
+                - <form name="education-module" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+                - Include hidden <input type="hidden" name="form-name" value="education-module">
+                - Include a hidden "bot-field" for honeypot.
+                IMPORTANT:
+                - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
+                - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
+                - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
+                - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
+                - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
+                - Content must be explicitly tailored to {audience} and improve understanding of the {cond} pathway steps, decision points, and rationale.
+                - Emphasize clarity, concise language, and actionable takeaways for {audience}.
 
-                     Module sections:
-                     1. Key Clinical Points (summary section with main takeaways tailored to the audience)
-                     2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
-                     3. Certificate of Completion: 
-                         - Display personalized printable certificate with user's name in a styled .cpq-certificate container
-                         - No email collection or email delivery is needed
-                     Return valid standalone HTML.
-                     """
+                Module sections:
+                1. Key Clinical Points (summary section with main takeaways tailored to {audience})
+                2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
+                3. Certificate of Completion: 
+                    - Display personalized printable certificate with user's name in a styled .cpq-certificate container
+                    - No email collection or email delivery is needed
+                4. At the bottom, add a field: "Email Address(es) for Form Submission" (required, allow comma-separated emails) - "Where should this form's submission be sent? (comma-separated for multiple recipients)"
+                Return valid standalone HTML.
+                """
                 st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['edu_html']:
                     fixed_html = fix_edu_certificate_html(st.session_state.data['phase5']['edu_html'])
@@ -2330,9 +2318,16 @@ Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_ta
     # Executive Summary
     with c4:
         st.markdown("#### Executive Summary")
+        st.caption("Audience: Hospital Leadership (Audience-Agnostic)")
         if st.button("Generate Report", type="primary", use_container_width=True, key="btn_exec_gen"):
             with ai_activity("Generating report..."):
-                st.session_state.data['phase5']['exec_summary'] = get_gemini_response(f"Write executive summary for {cond} pathway. Audience: Hospital Leadership.")
+                prompt = f"""
+                Write executive summary for {cond} pathway. 
+                Audience: Hospital Leadership (write in a general, audience-agnostic style suitable for executive stakeholders).
+                Include: clinical rationale, expected outcomes, implementation timeline, resource requirements, and expected ROI.
+                Return markdown formatted text.
+                """
+                st.session_state.data['phase5']['exec_summary'] = get_gemini_response(prompt)
 
         if st.session_state.data['phase5'].get('exec_summary'):
             st.markdown(st.session_state.data['phase5']['exec_summary'][:500] + "..." if len(st.session_state.data['phase5']['exec_summary']) > 500 else st.session_state.data['phase5']['exec_summary'])
