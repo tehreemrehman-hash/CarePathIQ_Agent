@@ -468,6 +468,65 @@ def deploy_to_netlify(html_content, site_name, netlify_token):
     except Exception as e:
         return False, f"Deployment error: {str(e)}"
 
+def fix_edu_certificate_html(html: str) -> str:
+    """Ensure the education module's certificate uses landscape layout, brand colors,
+    updated approval text, and includes a CarePathIQ logo at the bottom.
+    Safe to call multiple times; idempotent-ish.
+    """
+    try:
+        if not html:
+            return html
+        updated = html.replace("Verified Education Credit", "Approved by CarePathIQ")
+        style = """
+<style id="cpq-certificate-style">
+@page { size: landscape; margin: 1in; }
+:root { --cpq-brown:#5D4037; --cpq-brown-dark:#3E2723; --cpq-teal:#A9EED1; }
+.cpq-certificate {
+  width: 100%;
+  max-width: 1100px;
+  margin: 20px auto;
+  background: #fff;
+  border: 6px solid var(--cpq-brown);
+  padding: 32px 40px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.cpq-cert-header { text-align:center; color: var(--cpq-brown-dark); border-bottom: 3px solid var(--cpq-teal); padding-bottom: 8px; margin-bottom: 16px; }
+.cpq-cert-badge { display:inline-block; background: var(--cpq-teal); color: var(--cpq-brown-dark); font-weight:700; padding: 4px 10px; border-radius: 4px; margin-top: 6px; }
+.cpq-cert-body { color: #333; line-height: 1.5; }
+.cpq-cert-footer { text-align:center; margin-top: 24px; color: #444; }
+.cpq-cert-logo { display:block; margin: 12px auto 0 auto; width: 160px; height: auto; }
+</style>
+"""
+        if "cpq-certificate-style" not in updated:
+            if "</head>" in updated:
+                updated = updated.replace("</head>", style + "</head>")
+            else:
+                updated = style + updated
+
+        # Append a simple inline SVG logo/footer if missing
+        if "CarePathIQ logo" not in updated and "Approved by CarePathIQ" in updated:
+            svg_logo = """
+<div class="cpq-cert-footer">
+  <div>Approved by CarePathIQ</div>
+  <svg class="cpq-cert-logo" viewBox="0 0 300 60" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CarePathIQ logo">
+    <rect x="0" y="0" width="300" height="60" fill="transparent"/>
+    <text x="60" y="38" font-family="Segoe UI, Tahoma, Verdana, sans-serif" font-size="28" fill="#3E2723">Care</text>
+    <text x="130" y="38" font-family="Segoe UI, Tahoma, Verdana, sans-serif" font-size="28" fill="#5D4037">Path</text>
+    <text x="210" y="38" font-family="Segoe UI, Tahoma, Verdana, sans-serif" font-size="28" fill="#00695C">IQ</text>
+    <circle cx="25" cy="30" r="10" fill="#A9EED1" stroke="#3E2723" stroke-width="2"/>
+  </svg>
+  <div style="font-size:12px;color:#666;">© CarePathIQ</div>
+</div>
+"""
+            if "</body>" in updated:
+                updated = updated.replace("</body>", svg_logo + "</body>")
+            else:
+                updated = updated + svg_logo
+
+        return updated
+    except Exception:
+        return html
+
 @st.cache_data(ttl=3600)
 def generate_gantt_image(schedule):
     if not schedule: return None
@@ -2019,20 +2078,29 @@ elif "Phase 5" in phase:
             with ai_activity("Generating form..."):
                 prompt = f"""
                 Create HTML Education Module for {cond}. Audience: {audience}.
-                IMPORTANT: Include an email field for the Certificate of Completion so users can receive their certificate.
+                IMPORTANT:
+                - Include an email field for the Certificate of Completion so users can receive their certificate.
+                - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
+                - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
+                - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
+                - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
+                - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
+
                 Module sections:
                 1. Email field (required) - "Your Email Address" (for certificate delivery)
                 2. Key Clinical Points (summary section with main takeaways)
                 3. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
                 4. Certificate of Completion: 
-                   - Display personalized printable certificate with user's name
+                   - Display personalized printable certificate with user's name in a styled .cpq-certificate container
                    - Submit form to: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is the user's email
                    - Add hidden input: <input type="hidden" name="_subject" value="Education Certificate - {cond}">
                    - Add JavaScript to populate form action with user's email
+                Return valid standalone HTML.
                 """
                 st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
-                if st.session_state.data['phase5']['edu_html']: 
-                    st.session_state.data['phase5']['edu_html'] += COPYRIGHT_HTML_FOOTER
+                if st.session_state.data['phase5']['edu_html']:
+                    fixed_html = fix_edu_certificate_html(st.session_state.data['phase5']['edu_html'])
+                    st.session_state.data['phase5']['edu_html'] = fixed_html + COPYRIGHT_HTML_FOOTER
         
         if st.session_state.data['phase5'].get('edu_html'):
             # Deploy button if token provided
