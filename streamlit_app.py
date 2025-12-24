@@ -503,25 +503,25 @@ def fix_edu_certificate_html(html: str) -> str:
             else:
                 updated = style + updated
 
-        # Append a simple inline SVG logo/footer if missing
-        if "CarePathIQ logo" not in updated and "Approved by CarePathIQ" in updated:
-            svg_logo = """
-<div class="cpq-cert-footer">
-  <div>Approved by CarePathIQ</div>
-  <svg class="cpq-cert-logo" viewBox="0 0 300 60" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CarePathIQ logo">
-    <rect x="0" y="0" width="300" height="60" fill="transparent"/>
-    <text x="60" y="38" font-family="Segoe UI, Tahoma, Verdana, sans-serif" font-size="28" fill="#3E2723">Care</text>
-    <text x="130" y="38" font-family="Segoe UI, Tahoma, Verdana, sans-serif" font-size="28" fill="#5D4037">Path</text>
-    <text x="210" y="38" font-family="Segoe UI, Tahoma, Verdana, sans-serif" font-size="28" fill="#00695C">IQ</text>
-    <circle cx="25" cy="30" r="10" fill="#A9EED1" stroke="#3E2723" stroke-width="2"/>
-  </svg>
-  <div style="font-size:12px;color:#666;">© CarePathIQ</div>
-</div>
-"""
+        # Append a real logo image (base64) footer if available; fallback to inline SVG
+        if "cpq-cert-logo" not in updated and "Approved by CarePathIQ" in updated:
+            logo_html = ""
+            try:
+                logo_path = os.path.join(os.getcwd(), "CarePathIQ_Logo.png")
+                if os.path.exists(logo_path):
+                    with open(logo_path, "rb") as f:
+                        logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+                    logo_html = f"""
+<div class=\"cpq-cert-footer\">\n  <div>Approved by CarePathIQ</div>\n  <img class=\"cpq-cert-logo\" alt=\"CarePathIQ logo\" src=\"data:image/png;base64,{logo_b64}\" />\n  <div style=\"font-size:12px;color:#666;\">© CarePathIQ</div>\n</div>\n"""
+            except Exception:
+                logo_html = ""
+            if not logo_html:
+                logo_html = """
+<div class=\"cpq-cert-footer\">\n  <div>Approved by CarePathIQ</div>\n  <svg class=\"cpq-cert-logo\" viewBox=\"0 0 300 60\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"CarePathIQ logo\">\n    <rect x=\"0\" y=\"0\" width=\"300\" height=\"60\" fill=\"transparent\"/>\n    <text x=\"60\" y=\"38\" font-family=\"Segoe UI, Tahoma, Verdana, sans-serif\" font-size=\"28\" fill=\"#3E2723\">Care</text>\n    <text x=\"130\" y=\"38\" font-family=\"Segoe UI, Tahoma, Verdana, sans-serif\" font-size=\"28\" fill=\"#5D4037\">Path</text>\n    <text x=\"210\" y=\"38\" font-family=\"Segoe UI, Tahoma, Verdana, sans-serif\" font-size=\"28\" fill=\"#00695C\">IQ</text>\n    <circle cx=\"25\" cy=\"30\" r=\"10\" fill=\"#A9EED1\" stroke=\"#3E2723\" stroke-width=\"2\"/>\n  </svg>\n  <div style=\"font-size:12px;color:#666;\">© CarePathIQ</div>\n</div>\n"""
             if "</body>" in updated:
-                updated = updated.replace("</body>", svg_logo + "</body>")
+                updated = updated.replace("</body>", logo_html + "</body>")
             else:
-                updated = updated + svg_logo
+                updated = updated + logo_html
 
         return updated
     except Exception:
