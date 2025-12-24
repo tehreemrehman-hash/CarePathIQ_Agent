@@ -1027,6 +1027,7 @@ if "Phase 1" in phase:
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
+    styled_info("<b>Tip:</b> Hover over the top right of the chart to download the image or table. You can also directly edit the timeline table below to adjust start/end dates and task owners.")
     if not st.session_state.data['phase1']['schedule']:
         today = date.today()
         def add_weeks(start, w): return start + timedelta(weeks=w)
@@ -1217,6 +1218,8 @@ elif "Phase 2" in phase:
                 if col not in df_ev.columns:
                     df_ev[col] = ""
 
+            styled_info("<b>Tip:</b> Hover over the top right of the table to download the CSV. You can edit GRADE and Rationale directly in the table.")
+
             edited_ev = st.data_editor(
                 df_ev[["id", "title", "grade", "rationale", "url"]], 
                 column_config={
@@ -1233,25 +1236,22 @@ elif "Phase 2" in phase:
             st.divider()
 
             full_df = pd.DataFrame(evidence_data)
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns([1, 1])
 
             with c1:
-                st.subheader("Current Table View", help="Exports the filtered table you currently see.")
-                table_df = df_ev[["id", "title", "grade", "rationale", "url"]].copy()
-                table_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL"]
-                csv_data = table_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download", csv_data, "evidence_table_view.csv", "text/csv", key="dl_table_view")
-
-            with c2:
                 st.subheader("Detailed Evidence Table", help="Includes journal, year, authors, and abstract for all results.")
                 full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
                 full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
                 csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full")
+                st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
 
-            with c3:
-                st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
-                citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style")
+            with c2:
+                col_cit_header = st.columns([1, 2])
+                with col_cit_header[0]:
+                    st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
+                with col_cit_header[1]:
+                    citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
+                
                 references_source = display_data if display_data else evidence_data
                 if not references_source:
                     st.info("Add or unfilter evidence to generate references.")
@@ -1263,7 +1263,8 @@ elif "Phase 2" in phase:
                             references_doc,
                             f"references_{citation_style.lower()}.docx",
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            key="dl_refs_docx"
+                            key="dl_refs_docx",
+                            use_container_width=True
                         )
                     else:
                         st.warning("python-docx is not available; install it to enable Word downloads.")
