@@ -606,7 +606,11 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
     from collections import defaultdict
     swimlanes = defaultdict(list)
     for i, n in enumerate(valid_nodes):
-        swimlanes[n.get('role', 'Unassigned')].append((i, n))
+        # Skip creating swimlane entries for nodes without a role - they'll be added to default process group
+        role = n.get('role', '')
+        if not role or role == 'Unassigned':
+            role = 'Process'  # Default role instead of 'Unassigned'
+        swimlanes[role].append((i, n))
     rankdir = 'TB' if orientation == 'TD' else 'LR'
     g = graphviz.Digraph(format='svg')
     g.attr(rankdir=rankdir)
@@ -614,7 +618,7 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
     g.attr('edge', fontname='Helvetica')
     node_id_map = {}
     for role, n_list in swimlanes.items():
-        with g.subgraph(name=f"cluster_{re.sub(r'[^A-Za-z0-9_]', '_', str(role) or 'Unassigned')}") as c:
+        with g.subgraph(name=f"cluster_{re.sub(r'[^A-Za-z0-9_]', '_', str(role) or 'Process')}") as c:
             c.attr(label=str(role))
             c.attr(style='filled', color='lightgrey')
             for i, n in n_list:
@@ -1563,7 +1567,7 @@ elif "Phase 4" in phase:
     if g:
         svg_bytes = render_graphviz_bytes(g, "svg")
         if svg_bytes:
-            components.html(svg_bytes.decode('utf-8'), height=600, scrolling=True)
+            components.html(svg_bytes.decode('utf-8'), height=400, scrolling=True)
     
     # Download buttons (DOT, SVG, PNG)
     col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
