@@ -192,6 +192,12 @@ st.markdown("""
         color: #333 !important;
         border: 1px solid #ddd !important;
     }
+    /* Help icon spacing right after labels (e.g., GRADE) */
+    [data-testid="stTooltipIcon"] {
+        margin-left: 4px !important;
+        display: inline-block !important;
+        vertical-align: middle !important;
+    }
     
     /* GRADE FILTER MULTISELECT */
     div[data-testid="stMultiSelect"] label:has(+ div[data-baseweb="select"]) {
