@@ -978,16 +978,12 @@ if "Phase 1" in phase:
             key="p1_inc",
             on_change=sync_p1_widgets,
         )
-        with st.expander("View full", expanded=False):
-            st.markdown(st.session_state.get('p1_inc', '') or "_Empty_")
         st.text_area(
             "Exclusion Criteria",
             height=compute_textarea_height(st.session_state.get('p1_exc', ''), min_rows=14),
             key="p1_exc",
             on_change=sync_p1_widgets,
         )
-        with st.expander("View full", expanded=False):
-            st.markdown(st.session_state.get('p1_exc', '') or "_Empty_")
         
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
@@ -998,8 +994,6 @@ if "Phase 1" in phase:
             on_change=sync_p1_widgets,
             label_visibility="collapsed",
         )
-        with st.expander("View full", expanded=False):
-            st.markdown(st.session_state.get('p1_prob', '') or "_Empty_")
         
         st.subheader("4. Goals")
         st.text_area(
@@ -1009,8 +1003,6 @@ if "Phase 1" in phase:
             on_change=sync_p1_widgets,
             label_visibility="collapsed",
         )
-        with st.expander("View full", expanded=False):
-            st.markdown(st.session_state.get('p1_obj', '') or "_Empty_")
 
     # Manual Trigger Button using Callback
     if st.button("Regenerate Draft", key="regen_draft"):
