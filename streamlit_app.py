@@ -1691,23 +1691,32 @@ elif "Phase 4" in phase:
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
     st.title("Phase 5: Operationalize")
-    styled_info("<b>Tip:</b> Generate deployment materials for different audiences. The AI agent creates executive summaries, expert guides, and education plans.")
+    styled_info("<b>Tip:</b> Generate four deployment deliverables: Expert Panel Feedback Form, Beta Testing Form, Staff Education Module, and Executive Summary. Customize for your target audience.")
     
-    st.markdown("### Operational Toolkit")
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     
-    # Configuration Row
+    # Configuration Row - Target Audience and Email
     col_a, col_e = st.columns(2)
     with col_a:
-        st.write("Target Audience")
-        audience_options = ["Multidisciplinary Team", "Physicians", "Nurses", "Informaticists"]
-        audience_sel = st.selectbox("Select or type custom audience", [""] + audience_options, index=0, label_visibility="collapsed")
-        if audience_sel:
-            audience = st.text_input("Audience (edit if needed)", value=audience_sel, label_visibility="collapsed")
-        else:
-            audience = st.text_input("Enter custom audience", placeholder="e.g., Nurse Practitioners", label_visibility="collapsed")
+        st.subheader("Target Audience")
+        audience_options = ["Physicians", "Nurses", "Social Workers", "Multidisciplinary Team"]
+        audience = st.text_input(
+            "Audience",
+            placeholder="e.g., Physicians, Nurses, Social Workers",
+            value=st.session_state.get('p5_audience', ''),
+            key="p5_audience_input",
+            label_visibility="collapsed"
+        )
+        # Show suggestions as caption
+        st.caption(f"Suggestions: {', '.join(audience_options)}")
     with col_e:
-        email_target = st.text_input("Recipient Email (for forms and certificates)", placeholder="you@hospital.org")
+        st.subheader("Recipient Email")
+        email_target = st.text_input(
+            "Email",
+            placeholder="you@hospital.org",
+            label_visibility="collapsed",
+            key="p5_email_input"
+        )
 
     st.divider()
     
