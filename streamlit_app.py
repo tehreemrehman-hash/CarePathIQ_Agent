@@ -1702,7 +1702,6 @@ elif "Phase 5" in phase:
         audience = st.text_input(
             "Audience",
             placeholder="e.g., Physicians, Nurses, Social Workers",
-            value=st.session_state.get('p5_audience', ''),
             key="p5_audience_input",
             label_visibility="collapsed"
         )
@@ -1714,6 +1713,8 @@ elif "Phase 5" in phase:
             label_visibility="collapsed",
             key="p5_email_input"
         )
+    
+    st.info("📧 **Form Sharing:** Users can download and share the HTML forms with others. Each form includes an email field so respondents can specify where to send their responses.")
 
     st.divider()
     
@@ -1736,17 +1737,22 @@ elif "Phase 5" in phase:
                 prompt = f"""
                 Create HTML5 Form for Expert Panel Feedback. Audience: {audience}.
                 Intro: "Thank you for serving on the expert panel for {cond}."
-                Logic:
-                Iterate through these nodes:
+                IMPORTANT: Include an email field at the top of the form so respondents can specify where to send their feedback.
+                Form structure:
+                1. Email field (required) - "Your Email Address"
+                2. For EACH pathway node (Start/End, Decisions, Process):
+                   - Checkbox for that node
+                   - If checked, show:
+                     a) "Proposed Change" (Textarea)
+                     b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
+                     c) "Justification Detail" (Textarea)
+                Form nodes:
                 Start/End: {s_e_str}
                 Decisions: {d_str}
                 Process: {p_str}
-                For EACH node, create a Checkbox. If checked, show:
-                1. "Proposed Change" (Textarea)
-                2. "Justification" (Select options: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
-                3. "Justification Detail" (Textarea)
-                Form Action: 'https://formsubmit.co/{email_target}'
+                Form Action: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is replaced with the user's email from the form field.
                 Add hidden input: <input type="hidden" name="_subject" value="Expert Panel Feedback - {cond}">
+                Add JavaScript to populate the form action with the user's email when they submit.
                 """
                 st.session_state.data['phase5']['expert_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['expert_html']: 
@@ -1768,14 +1774,17 @@ elif "Phase 5" in phase:
         if st.button("Generate Form", type="primary", use_container_width=True, key="btn_beta_gen"):
             with ai_activity("Generating form..."):
                 prompt = f"""
-                Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}. 
-                Form Action: 'https://formsubmit.co/{email_target}'.
-                Questions: 
-                1. Usability Rating (1-5 scale)
-                2. Bugs/Issues Encountered (Textarea)
-                3. Workflow Integration (Select: Excellent, Good, Fair, Poor)
-                4. Additional Feedback (Textarea)
+                Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Audience: {audience}.
+                IMPORTANT: Include an email field at the top so respondents can specify where to send their feedback.
+                Form Questions:
+                1. Respondent Email (required) - "Your Email Address"
+                2. Usability Rating (1-5 scale)
+                3. Bugs/Issues Encountered (Textarea)
+                4. Workflow Integration (Select: Excellent, Good, Fair, Poor)
+                5. Additional Feedback (Textarea)
+                Form Action: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is replaced with user's email.
                 Add hidden input: <input type="hidden" name="_subject" value="Beta Testing Feedback - {cond}">
+                Add JavaScript to populate form action with the user's email when they submit.
                 """
                 st.session_state.data['phase5']['beta_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['beta_html']: 
@@ -1803,13 +1812,16 @@ elif "Phase 5" in phase:
             with ai_activity("Generating form..."):
                 prompt = f"""
                 Create HTML Education Module for {cond}. Audience: {audience}.
-                1. Key Clinical Points (summary section)
-                2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
-                3. Certificate of Completion: 
-                   - User enters Name and Email
-                   - On completion, display printable certificate
-                   - Submit form to: 'https://formsubmit.co/{email_target}' to send certificate copy to admin
+                IMPORTANT: Include an email field for the Certificate of Completion so users can receive their certificate.
+                Module sections:
+                1. Email field (required) - "Your Email Address" (for certificate delivery)
+                2. Key Clinical Points (summary section with main takeaways)
+                3. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
+                4. Certificate of Completion: 
+                   - Display personalized printable certificate with user's name
+                   - Submit form to: 'https://formsubmit.co/$$EMAIL$$' where $$EMAIL$$ is the user's email
                    - Add hidden input: <input type="hidden" name="_subject" value="Education Certificate - {cond}">
+                   - Add JavaScript to populate form action with user's email
                 """
                 st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
                 if st.session_state.data['phase5']['edu_html']: 
