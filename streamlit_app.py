@@ -202,6 +202,21 @@ st.markdown("""
         margin-bottom: 8px !important;
         font-weight: 500 !important;
     }
+
+    /* IMPROVE BUTTON AND TEXT VERTICAL ALIGNMENT */
+    div[data-testid="stColumn"] {
+        display: flex !important;
+        align-items: center !important;
+    }
+    
+    button, input, select, textarea, label {
+        vertical-align: middle !important;
+    }
+    
+    /* BOTTOM NAVIGATION */
+    footer {
+        visibility: hidden;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -248,6 +263,7 @@ def render_bottom_navigation():
     """Renders Previous/Next buttons at the bottom of the page."""
     if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
         current_idx = PHASES.index(st.session_state.current_phase_label)
+        st.divider()
         col_prev, _, col_next = st.columns([1, 2, 1])
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
@@ -1104,16 +1120,17 @@ elif "Phase 2" in phase:
                     "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
                     "and provide a brief Rationale (1-2 sentences) for each article. "
                     f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                    "Return ONLY valid JSON: {\"PMID_NUMBER\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}. "
-                    "Use exactly these grade formats: 'High (A)', 'Moderate (B)', 'Low (C)', 'Very Low (D)'."
+                    "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+                    "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
                 )
                 grades = get_gemini_response(prompt, json_mode=True)
-                if grades:
+                if grades and isinstance(grades, dict):
                     for e in st.session_state.data['phase2']['evidence']:
-                        if e['id'] in grades:
-                            grade_data = grades[e['id']]
-                            e['grade'] = grade_data.get('grade', e.get('grade', 'Un-graded'))
-                            e['rationale'] = grade_data.get('rationale', e.get('rationale', 'Not provided.'))
+                        pmid_str = str(e['id'])
+                        if pmid_str in grades:
+                            grade_data = grades[pmid_str]
+                            e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
+                            e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
                 for e in st.session_state.data['phase2']['evidence']:
                     e.setdefault('grade', 'Un-graded')
                     e.setdefault('rationale', 'Not yet evaluated.')
@@ -1153,16 +1170,17 @@ elif "Phase 2" in phase:
                                 "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
                                 "and provide a brief Rationale (1-2 sentences) for each article. "
                                 f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                                "Return ONLY valid JSON: {\"PMID_NUMBER\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}. "
-                                "Use exactly these grade formats: 'High (A)', 'Moderate (B)', 'Low (C)', 'Very Low (D)'."
+                                "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+                                "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
                             )
                             grades = get_gemini_response(prompt, json_mode=True)
-                            if grades:
+                            if grades and isinstance(grades, dict):
                                 for e in st.session_state.data['phase2']['evidence']:
-                                    if e['id'] in grades:
-                                        grade_data = grades[e['id']]
-                                        e['grade'] = grade_data.get('grade', e.get('grade', 'Un-graded'))
-                                        e['rationale'] = grade_data.get('rationale', e.get('rationale', 'Not provided.'))
+                                    pmid_str = str(e['id'])
+                                    if pmid_str in grades:
+                                        grade_data = grades[pmid_str]
+                                        e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
+                                        e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
                         # Ensure defaults if AI response missing
                         for e in st.session_state.data['phase2']['evidence']:
                             e.setdefault('grade', 'Un-graded')
@@ -1282,16 +1300,17 @@ elif "Phase 2" in phase:
                             "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
                             "and provide a brief Rationale (1-2 sentences) for each article. "
                             f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                            "Return ONLY valid JSON: {\"PMID_NUMBER\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}. "
-                            "Use exactly these grade formats: 'High (A)', 'Moderate (B)', 'Low (C)', 'Very Low (D)'."
+                            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+                            "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
                         )
                         grades = get_gemini_response(prompt, json_mode=True)
-                        if grades:
+                        if grades and isinstance(grades, dict):
                             for e in st.session_state.data['phase2']['evidence']:
-                                if e['id'] in grades:
-                                    grade_data = grades[e['id']]
-                                    e['grade'] = grade_data.get('grade', e.get('grade', 'Un-graded'))
-                                    e['rationale'] = grade_data.get('rationale', e.get('rationale', 'Not provided.'))
+                                pmid_str = str(e['id'])
+                                if pmid_str in grades:
+                                    grade_data = grades[pmid_str]
+                                    e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
+                                    e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
                         for e in st.session_state.data['phase2']['evidence']:
                             e.setdefault('grade', 'Un-graded')
                             e.setdefault('rationale', 'Not yet evaluated.')
@@ -1318,16 +1337,17 @@ elif "Phase 2" in phase:
                             "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
                             "and provide a brief Rationale (1-2 sentences) for each article. "
                             f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                            "Return ONLY valid JSON: {\"PMID_NUMBER\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}. "
-                            "Use exactly these grade formats: 'High (A)', 'Moderate (B)', 'Low (C)', 'Very Low (D)'."
+                            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+                            "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
                         )
                         grades = get_gemini_response(prompt, json_mode=True)
-                        if grades:
+                        if grades and isinstance(grades, dict):
                             for e in st.session_state.data['phase2']['evidence']:
-                                if e['id'] in grades:
-                                    grade_data = grades[e['id']]
-                                    e['grade'] = grade_data.get('grade', e.get('grade', 'Un-graded'))
-                                    e['rationale'] = grade_data.get('rationale', e.get('rationale', 'Not provided.'))
+                                pmid_str = str(e['id'])
+                                if pmid_str in grades:
+                                    grade_data = grades[pmid_str]
+                                    e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
+                                    e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
                         for e in st.session_state.data['phase2']['evidence']:
                             e.setdefault('grade', 'Un-graded')
                             e.setdefault('rationale', 'Not yet evaluated.')
