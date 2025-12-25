@@ -1114,26 +1114,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Avoid passing a default index when the session already has a value for this widget
-if "top_nav_radio" in st.session_state and st.session_state.top_nav_radio in PHASES:
-    phase = st.radio(
-        "AI Agent Phase",
-        PHASES,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="top_nav_radio",
-        on_change=sync_radio_to_phase,
-    )
-else:
-    phase = st.radio(
-        "AI Agent Phase",
-        PHASES,
-        index=radio_index,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="top_nav_radio",
-        on_change=sync_radio_to_phase,
-    )
+# Create custom horizontal phase selector using columns
+cols = st.columns(len(PHASES))
+phase = st.session_state.get("top_nav_radio", PHASES[0])
+
+for idx, phase_name in enumerate(PHASES):
+    with cols[idx]:
+        is_current = phase_name == phase
+        button_type = "primary" if is_current else "secondary"
+        if st.button(
+            phase_name.split(":")[0],
+            key=f"phase_btn_{idx}",
+            use_container_width=True,
+            type=button_type
+        ):
+            st.session_state.top_nav_radio = phase_name
+            st.session_state.current_phase_label = phase_name
+            phase = phase_name
+            st.rerun()
+
 st.divider()
 
 # --- PHASE 1 ---
@@ -1505,20 +1504,11 @@ elif "Phase 2" in phase:
             # EXPORT OPTIONS SECTION
             st.divider()
 
-            deliverable_choice = st.radio(
-                "Deliverables",
-                ["Evidence Table", "Citations List", "Both"],
-                index=2,
-                horizontal=True,
-                key="p2_deliverable_choice",
-                help="Choose which export to show. Both keeps the evidence table and citations list visible together."
-            )
-
             full_df = pd.DataFrame(evidence_data)
             c1, c2 = st.columns([1, 1])
 
-            show_table = deliverable_choice in ["Evidence Table", "Both"]
-            show_citations = deliverable_choice in ["Citations List", "Both"]
+            show_table = True
+            show_citations = True
 
             with c1:
                 if show_table:
@@ -1530,13 +1520,8 @@ elif "Phase 2" in phase:
 
             with c2:
                 if show_citations:
-                    # Header and citation style in aligned columns
-                    col_header, col_dropdown = st.columns([2, 1])
-                    with col_header:
-                        st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
-                    with col_dropdown:
-                        st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
-                        citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
+                    st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
+                    citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
                     
                     references_source = display_data if display_data else evidence_data
                     if not references_source:
@@ -1867,13 +1852,16 @@ elif "Phase 4" in phase:
             viz_height = st.slider("Height (px)", 300, 800, st.session_state.data['phase4']['viz_height'], step=50, key="p4_viz_height")
             st.session_state.data['phase4']['viz_height'] = viz_height
         with viz_col2:
-            if st.button("🖥️ Fullscreen", use_container_width=True, key="p4_fullscreen_btn"):
+            if st.button("Fullscreen", use_container_width=True, key="p4_fullscreen_btn"):
                 st.session_state.data['phase4']['fullscreen_modal'] = True
         
         # Render graphviz visualization
         g = build_graphviz_from_nodes(nodes, "TD")
+        svg_bytes = None
+        png_bytes = None
         if g:
             svg_bytes = render_graphviz_bytes(g, "svg")
+            png_bytes = render_graphviz_bytes(g, "png")
             if svg_bytes:
                 components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
         
@@ -1882,18 +1870,16 @@ elif "Phase 4" in phase:
         col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
         dot_text = dot_from_nodes(nodes, "TD")
         with col_dl_dot:
-            st.download_button("📄 DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
+            st.download_button("DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
         
-        svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-        png_bytes = render_graphviz_bytes(g, "png") if g else None
         with col_dl_svg:
             if svg_bytes:
-                st.download_button("🎨 SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+                st.download_button("SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
             else:
                 st.caption("SVG unavailable")
         with col_dl_png:
             if png_bytes:
-                st.download_button("🖼️ PNG", png_bytes, file_name="pathway.png", mime="image/png", use_container_width=True)
+                st.download_button("PNG", png_bytes, file_name="pathway.png", mime="image/png", use_container_width=True)
             else:
                 st.caption("PNG unavailable")
         
@@ -1917,8 +1903,16 @@ elif "Phase 4" in phase:
     with col_right:
         st.subheader("Nielsen's Heuristics")
         
+        # Display all heuristics with definitions
+        st.markdown("**Evaluation Criteria:**")
+        for heuristic_key in sorted(HEURISTIC_DEFS.keys()):
+            definition = HEURISTIC_DEFS[heuristic_key]
+            st.caption(f"**{heuristic_key}:** {definition}")
+        
+        st.divider()
+        
         # Analyze button
-        if st.button("🔍 Analyze", type="primary", use_container_width=True, key="p4_analyze_btn"):
+        if st.button("Analyze", type="primary", use_container_width=True, key="p4_analyze_btn"):
             with ai_activity("Analyzing usability heuristics…"):
                 prompt = f"""
                 Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
@@ -1948,6 +1942,7 @@ elif "Phase 4" in phase:
         # Display heuristics with Apply Fix buttons
         h_data = st.session_state.data['phase4'].get('heuristics_data', {})
         if h_data:
+            st.markdown("**AI Analysis:**")
             for heuristic_key in sorted(h_data.keys()):
                 insight = h_data[heuristic_key]
                 definition = HEURISTIC_DEFS.get(heuristic_key, "")
@@ -1975,7 +1970,7 @@ elif "Phase 4" in phase:
                             new_nodes = get_gemini_response(prompt, json_mode=True)
                             if new_nodes and isinstance(new_nodes, list):
                                 st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                st.success(f"✓ {heuristic_key} fix applied")
+                                st.success(f"Fix applied: {heuristic_key}")
                                 st.rerun()
     
     st.divider()
@@ -2009,14 +2004,14 @@ elif "Phase 4" in phase:
                     new_nodes = get_gemini_response(p_custom, json_mode=True)
                     if new_nodes and isinstance(new_nodes, list):
                         st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                        st.success("✓ Refinements applied")
+                        st.success("Refinements applied")
                         st.rerun()
             else:
                 st.warning("Please describe your refinement first.")
     
     with col_undo:
         if st.session_state.data['phase4'].get('nodes_history'):
-            if st.button("↶ Undo Last Change", use_container_width=True, key="p4_undo_btn"):
+            if st.button("Undo Last Change", use_container_width=True, key="p4_undo_btn"):
                 old_nodes = st.session_state.data['phase4']['nodes_history'].pop()
                 st.session_state.data['phase3']['nodes'] = old_nodes
                 st.success("Change undone")
@@ -2028,7 +2023,7 @@ elif "Phase 4" in phase:
         st.markdown("### Fullscreen Pathway Visualization")
         close_col, spacer = st.columns([1, 10])
         with close_col:
-            if st.button("✕ Close", use_container_width=True, key="p4_close_fullscreen"):
+            if st.button("Close", use_container_width=True, key="p4_close_fullscreen"):
                 st.session_state.data['phase4']['fullscreen_modal'] = False
                 st.rerun()
         
