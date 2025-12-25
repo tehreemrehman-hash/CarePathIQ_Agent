@@ -90,7 +90,6 @@ st.markdown("""
     /* BUTTONS */
     div.stButton > button, 
     div[data-testid="stButton"] > button,
-    button[kind="primary"],
     button[kind="secondary"] {
         background-color: #5D4037 !important; 
         color: white !important;
@@ -103,6 +102,20 @@ st.markdown("""
         background-color: #3E2723 !important; 
         border-color: #3E2723 !important;
         color: white !important;
+    }
+    
+    /* PRIMARY BUTTONS (Current Phase) */
+    button[kind="primary"] {
+        background-color: #FFB0C9 !important; 
+        color: black !important;
+        border: 1px solid black !important;
+        border-radius: 5px !important;
+        font-weight: 600 !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #FF9BB8 !important; 
+        border-color: black !important;
+        color: black !important;
     }
     div.stButton > button:disabled {
         background-color: #eee !important;
@@ -159,9 +172,9 @@ st.markdown("""
         box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     div[role="radiogroup"] label[data-checked="true"] > div:first-child {
-        background-color: #5D4037 !important;
-        border: 2px solid #5D4037 !important;
-        box-shadow: 0 2px 4px rgba(93,64,55,0.15);
+        background-color: #FFB0C9 !important;
+        border: 2px solid black !important;
+        box-shadow: 0 2px 4px rgba(255,176,201,0.35);
     }
     
     /* SPINNER */
@@ -197,6 +210,14 @@ st.markdown("""
         margin-left: 4px !important;
         display: inline-block !important;
         vertical-align: middle !important;
+    }
+    /* Heuristic title tooltips */
+    .heuristic-title {
+        cursor: help;
+        font-weight: bold;
+        color: #00695C;
+        text-decoration: underline dotted;
+        font-size: 1.05em;
     }
     
     /* GRADE FILTER MULTISELECT */
@@ -312,6 +333,12 @@ HEURISTIC_DEFS = {
 }
 PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
 
+PROVIDER_OPTIONS = {
+    "google": "Google Forms (user account)",
+    "microsoft": "Microsoft Forms (user account)",
+    "html": "HTML Download (FormSubmit.co)",
+}
+
 # ==========================================
 # 2. HELPER FUNCTIONS
 # ==========================================
@@ -389,105 +416,183 @@ def ai_activity(label="Working with the AI agent…"):
             # Swallow exception to avoid exposing internals
             return
 
-def deploy_to_netlify(html_content, site_name, netlify_token):
+def create_formsubmit_html(form_html: str) -> str:
     """
-    Deploy HTML form to Netlify and return shareable URL.
+    Ensure FormSubmit.co compatibility in generated HTML.
+    Adds dynamic form action based on recipient email field.
     
     Args:
-        html_content: The HTML string to deploy
-        site_name: Name for the Netlify site (will be part of the URL)
-        netlify_token: Netlify Personal Access Token
+        form_html: Generated HTML form content
         
     Returns:
-        tuple: (success: bool, url_or_error: str)
+        str: HTML with FormSubmit integration and dynamic submission
     """
-    if not netlify_token or not html_content:
-        return False, "Missing token or content"
-    
-    try:
-        # Create a simple zip-like structure for Netlify
-        # Generate a unique site name with hash to avoid conflicts
-        hash_suffix = hashlib.md5(site_name.encode()).hexdigest()[:8]
-        site_slug = re.sub(r'[^a-z0-9-]', '', site_name.lower().replace(' ', '-'))[:20]
-        full_site_name = f"{site_slug}-{hash_suffix}"
-        
-        # Deploy using Netlify's Deploy API
-        headers = {
-            'Authorization': f'Bearer {netlify_token}',
-            'Content-Type': 'application/zip'
-        }
-        
-        # Create a simple deploy payload
-        import zipfile
-        from io import BytesIO
-        
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            zip_file.writestr('index.html', html_content)
-        
-        zip_buffer.seek(0)
-        zip_data = zip_buffer.read()
-        
-        # First, try to create or get the site
-        sites_url = 'https://api.netlify.com/api/v1/sites'
-        site_payload = {
-            'name': full_site_name
-        }
-        
-        site_response = requests.post(
-            sites_url,
-            json=site_payload,
-            headers={'Authorization': f'Bearer {netlify_token}'}
-        )
-        
-        if site_response.status_code in [200, 201]:
-            site_data = site_response.json()
-            site_id = site_data['site_id']
-        elif site_response.status_code == 422:
-            # Site name taken, try to find existing site
-            list_response = requests.get(
-                sites_url,
-                headers={'Authorization': f'Bearer {netlify_token}'}
-            )
-            if list_response.status_code == 200:
-                sites = list_response.json()
-                matching_site = next((s for s in sites if s['name'] == full_site_name), None)
-                if matching_site:
-                    site_id = matching_site['id']
-                else:
-                    # Add timestamp to make it unique
-                    timestamp = int(time.time())
-                    full_site_name = f"{site_slug}-{timestamp}"
-                    site_payload['name'] = full_site_name
-                    site_response = requests.post(sites_url, json=site_payload, headers={'Authorization': f'Bearer {netlify_token}'})
-                    if site_response.status_code in [200, 201]:
-                        site_data = site_response.json()
-                        site_id = site_data['site_id']
-                    else:
-                        return False, f"Could not create site: {site_response.text}"
-            else:
-                return False, f"Could not list sites: {list_response.text}"
-        else:
-            return False, f"Site creation failed: {site_response.text}"
-        
-        # Now deploy to the site
-        deploy_url = f'https://api.netlify.com/api/v1/sites/{site_id}/deploys'
-        
-        deploy_response = requests.post(
-            deploy_url,
-            data=zip_data,
-            headers=headers
-        )
-        
-        if deploy_response.status_code in [200, 201]:
-            deploy_data = deploy_response.json()
-            site_url = deploy_data.get('ssl_url') or deploy_data.get('url') or f"https://{full_site_name}.netlify.app"
-            return True, site_url
-        else:
-            return False, f"Deploy failed: {deploy_response.status_code} - {deploy_response.text}"
+    # Add JavaScript to handle dynamic form submission
+    formsubmit_script = """
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        if (form) {
+            // Add recipient email field at the top if it doesn't exist
+            const hasRecipientField = form.querySelector('input[name="recipient_email"]');
+            if (!hasRecipientField) {
+                const fieldHTML = `
+                    <div style="margin-bottom: 20px; padding: 15px; background-color: #f0f0f0; border-radius: 5px;">
+                        <label for="recipient_email" style="font-weight: bold; display: block; margin-bottom: 5px;">
+                            Where should this form submission be sent? *
+                        </label>
+                        <input type="email" id="recipient_email" name="recipient_email" required 
+                               placeholder="your-email@hospital.org"
+                               style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 3px;">
+                        <small style="display: block; margin-top: 5px; color: #666;">
+                            Form responses will be sent to this email address via FormSubmit.co
+                        </small>
+                    </div>
+                `;
+                form.insertAdjacentHTML('afterbegin', fieldHTML);
+            }
             
-    except Exception as e:
-        return False, f"Deployment error: {str(e)}"
+            // Handle form submission
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const recipientEmail = form.querySelector('input[name="recipient_email"]').value;
+                if (recipientEmail) {
+                    form.action = \`https://formsubmit.co/\${recipientEmail}\`;
+                    form.method = 'POST';
+                    // Add FormSubmit configuration fields
+                    if (!form.querySelector('input[name="_subject"]')) {
+                        const subjectInput = document.createElement('input');
+                        subjectInput.type = 'hidden';
+                        subjectInput.name = '_subject';
+                        subjectInput.value = document.title || 'Form Submission';
+                        form.appendChild(subjectInput);
+                    }
+                    if (!form.querySelector('input[name="_template"]')) {
+                        const templateInput = document.createElement('input');
+                        templateInput.type = 'hidden';
+                        templateInput.name = '_template';
+                        templateInput.value = 'box';
+                        form.appendChild(templateInput);
+                    }
+                    if (!form.querySelector('input[name="_captcha"]')) {
+                        const captchaInput = document.createElement('input');
+                        captchaInput.type = 'hidden';
+                        captchaInput.name = '_captcha';
+                        captchaInput.value = 'false';
+                        form.appendChild(captchaInput);
+                    }
+                    form.submit();
+                } else {
+                    alert('Please provide a recipient email address.');
+                }
+            });
+        }
+    });
+    </script>
+    """
+    
+    # Insert script before closing body tag
+    if '</body>' in form_html:
+        form_html = form_html.replace('</body>', formsubmit_script + '</body>')
+    else:
+        form_html += formsubmit_script
+    
+    # Add honeypot field if not present
+    if '_honey' not in form_html and 'bot-field' not in form_html:
+        honeypot = '<input type="text" name="_honey" style="display:none">'
+        if '<form' in form_html:
+            form_html = form_html.replace('<form', f'<form>{honeypot}', 1)
+    
+    return form_html
+
+
+def mark_provider_connected(provider: str):
+    if "oauth" not in st.session_state:
+        st.session_state["oauth"] = {}
+    st.session_state["oauth"][provider] = True
+
+
+def render_provider_card(name: str, provider_key: str, description: str, configured: bool, bullets: list, button_key: str):
+    """Render a provider card with status and a mock connect CTA (placeholder until real OAuth)."""
+    connected = configured or ("oauth" in st.session_state and st.session_state["oauth"].get(provider_key))
+    status_color = "#2e7d32" if connected else "#9e9e9e"
+    status_text = "Connected" if connected else "Not connected"
+    st.markdown(f"<div style='border:1px solid #ddd;border-radius:8px;padding:14px;margin-bottom:8px;'>\n"
+                f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+                f"<strong>{name}</strong>"
+                f"<span style='padding:4px 10px;border-radius:12px;background:{status_color};color:#fff;font-size:12px;'>{status_text}</span>"
+                f"</div>\n"
+                f"<div style='color:#444;margin:6px 0;'>{description}</div>\n"
+                + "".join([f"<div style='color:#555;font-size:13px;'>• {b}</div>" for b in bullets]) +
+                "</div>", unsafe_allow_html=True)
+    if st.button(f"Connect {name.split()[0]}", use_container_width=True, key=button_key):
+        mark_provider_connected(provider_key)
+        st.success(f"{name} connected for this session (placeholder; add OAuth to persist).")
+
+
+def is_configured(keys) -> bool:
+    """Return True if any of the given keys exist in env or Streamlit secrets."""
+    try:
+        for k in keys:
+            if os.getenv(k):
+                return True
+            if hasattr(st, "secrets") and k in st.secrets:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def is_google_forms_configured() -> bool:
+    # Minimal heuristic: presence of OAuth creds or service account JSON
+    keys = [
+        "GOOGLE_FORMS_CLIENT_ID",
+        "GOOGLE_FORMS_CLIENT_SECRET",
+        "GOOGLE_FORMS_REFRESH_TOKEN",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+    ]
+    has_env = is_configured(keys)
+    has_session = "oauth" in st.session_state and st.session_state["oauth"].get("google")
+    return bool(has_env or has_session)
+
+
+def is_ms_forms_configured() -> bool:
+    keys = [
+        "MS_GRAPH_CLIENT_ID",
+        "MS_GRAPH_CLIENT_SECRET",
+        "MS_GRAPH_TENANT_ID",
+        "AZURE_CLIENT_ID",
+        "AZURE_CLIENT_SECRET",
+        "AZURE_TENANT_ID",
+    ]
+    has_env = is_configured(keys)
+    has_session = "oauth" in st.session_state and st.session_state["oauth"].get("microsoft")
+    return bool(has_env or has_session)
+
+
+def ensure_carepathiq_footer(html: str) -> str:
+    """Append a CarePathIQ-branded footer with inline logo if missing."""
+    try:
+        if not html or "carepathiq-brand-footer" in html:
+            return html
+        footer_html = """
+<div class=\"carepathiq-brand-footer\" style=\"text-align:center;margin-top:32px;padding-top:16px;border-top:1px solid #ddd;color:#444;\">
+  <div style=\"font-weight:600;\">CarePathIQ</div>
+  <svg viewBox=\"0 0 300 60\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"CarePathIQ logo\" style=\"width:160px;height:auto;display:block;margin:8px auto;\">
+    <rect x=\"0\" y=\"0\" width=\"300\" height=\"60\" fill=\"transparent\"/>
+    <text x=\"60\" y=\"38\" font-family=\"Segoe UI, Tahoma, Verdana, sans-serif\" font-size=\"28\" fill=\"#3E2723\">Care</text>
+    <text x=\"130\" y=\"38\" font-family=\"Segoe UI, Tahoma, Verdana, sans-serif\" font-size=\"28\" fill=\"#5D4037\">Path</text>
+    <text x=\"210\" y=\"38\" font-family=\"Segoe UI, Tahoma, Verdana, sans-serif\" font-size=\"28\" fill=\"#00695C\">IQ</text>
+    <circle cx=\"25\" cy=\"30\" r=\"10\" fill=\"#A9EED1\" stroke=\"#3E2723\" stroke-width=\"2\"/>
+  </svg>
+  <div style=\"font-size:12px;color:#666;\">© CarePathIQ</div>
+</div>
+"""
+        if "</body>" in html:
+            return html.replace("</body>", footer_html + "</body>")
+        return html + footer_html
+    except Exception:
+        return html
 
 def fix_edu_certificate_html(html: str) -> str:
     """Ensure the education module's certificate uses landscape layout, brand colors,
@@ -1513,10 +1618,15 @@ elif "Phase 2" in phase:
             with c1:
                 if show_table:
                     st.subheader("Detailed Evidence Table", help="Includes journal, year, authors, and abstract for all results.")
+                    # Add spacing to align with the selectbox height in c2
+                    st.markdown("<div style='height: 38px;'></div>", unsafe_allow_html=True)
                     full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
                     full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
                     csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
-                    st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
+                    # Use nested columns to make button half width
+                    btn_col1, _, _ = st.columns([1, 1, 0.1])
+                    with btn_col1:
+                        st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
 
             with c2:
                 if show_citations:
@@ -1529,14 +1639,17 @@ elif "Phase 2" in phase:
                     else:
                         references_doc = create_references_docx(references_source, citation_style)
                         if references_doc:
-                            st.download_button(
-                                "Download",
-                                references_doc,
-                                f"references_{citation_style.lower()}.docx",
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                key="dl_refs_docx",
-                                use_container_width=True
-                            )
+                            # Use nested columns to make button half width
+                            btn_col2, _, _ = st.columns([1, 1, 0.1])
+                            with btn_col2:
+                                st.download_button(
+                                    "Download",
+                                    references_doc,
+                                    f"references_{citation_style.lower()}.docx",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    key="dl_refs_docx",
+                                    use_container_width=True
+                                )
                         else:
                             st.warning("python-docx is not available; install it to enable Word downloads.")
 
@@ -1939,39 +2052,21 @@ elif "Phase 4" in phase:
                     st.session_state.data['phase4']['heuristics_data'] = res
                     st.rerun()
         
-        # Display heuristics with Apply Fix buttons
+        # Display heuristics inline with tooltips
         h_data = st.session_state.data['phase4'].get('heuristics_data', {})
         if h_data:
             st.markdown("**AI Analysis:**")
             for heuristic_key in sorted(h_data.keys()):
                 insight = h_data[heuristic_key]
-                definition = HEURISTIC_DEFS.get(heuristic_key, "")
+                definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
                 
-                with st.expander(f"{heuristic_key}", expanded=False):
-                    st.markdown(f"**{definition}**", help=None)
-                    st.write(f"{insight}")
-                    
-                    if st.button(f"Apply Fix", key=f"p4_fix_{heuristic_key}", use_container_width=True):
-                        if 'nodes_history' not in st.session_state.data['phase4']:
-                            st.session_state.data['phase4']['nodes_history'] = []
-                        st.session_state.data['phase4']['nodes_history'].append(copy.deepcopy(nodes))
-                        
-                        with ai_activity(f"Applying {heuristic_key} fix…"):
-                            prompt = f"""
-                            Improve this clinical pathway to address this Nielsen heuristic issue:
-                            Heuristic: {definition}
-                            Issue: {insight}
-                            
-                            Current pathway nodes: {json.dumps(nodes)}
-                            
-                            Provide updated pathway nodes that specifically address the heuristic critique.
-                            Return ONLY a valid JSON array of node objects.
-                            """
-                            new_nodes = get_gemini_response(prompt, json_mode=True)
-                            if new_nodes and isinstance(new_nodes, list):
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                st.success(f"Fix applied: {heuristic_key}")
-                                st.rerun()
+                # Display with tooltip on hover
+                st.markdown(f"""
+                <div style="margin-bottom: 5px;">
+                    <span class="heuristic-title" title="{definition}">{heuristic_key} Insight (Hover for Definition)</span>
+                </div>
+                """, unsafe_allow_html=True)
+                st.info(insight)
     
     st.divider()
     
@@ -2017,7 +2112,9 @@ elif "Phase 4" in phase:
                 st.success("Change undone")
                 st.rerun()
     
-    # FULLSCREEN MODAL for visualization
+    render_bottom_navigation()
+    
+    # FULLSCREEN MODAL for visualization (appears AFTER navigation)
     if st.session_state.data['phase4'].get('fullscreen_modal'):
         st.markdown("---")
         st.markdown("### Fullscreen Pathway Visualization")
@@ -2032,8 +2129,7 @@ elif "Phase 4" in phase:
             svg_bytes = render_graphviz_bytes(g, "svg")
             if svg_bytes:
                 components.html(svg_bytes.decode('utf-8'), height=900, scrolling=True)
-    
-    render_bottom_navigation()
+        st.stop()  # Stop rendering after fullscreen modal
 
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
@@ -2044,28 +2140,54 @@ elif "Phase 5" in phase:
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     
-    # Get server-managed Netlify token
-    netlify_token = os.environ.get("NETLIFY_API_TOKEN") or getattr(st.secrets, "netlify_token", None)
-    
-    if not netlify_token:
-        st.error("⚠️ Netlify API token not configured. Form deployment disabled. Contact administrator.")
-    else:
-        st.success("✅ Auto-deploy enabled - forms will generate shareable links automatically.")
-    
     st.divider()
     
     # TARGET AUDIENCE CONFIGURATION (Optional, defaults to "Multidisciplinary Team")
     st.subheader("Configuration")
-    col_aud, col_spacer = st.columns([1, 2])
-    with col_aud:
+    audience_col, info_col = st.columns([1, 1])
+    with audience_col:
         audience = st.text_input(
             "Target Audience",
-            placeholder="e.g., Physicians, Nurses, Social Workers (Optional)",
+            placeholder="e.g., Physicians, Nurses, Social Workers",
             key="p5_audience_input",
             help="Leave blank to default to 'Multidisciplinary Team'"
         )
         if not audience.strip():
             audience = "Multidisciplinary Team"
+    
+    with info_col:
+        st.info("Select a delivery method per form: Google Forms, Microsoft Forms, or HTML download (FormSubmit fallback). If Google/Microsoft credentials are not configured, we will fall back to the HTML download. Recipients can choose whether to allow external/anonymous responses based on org policy.")
+
+    st.markdown("#### Form Ownership & Delivery")
+    st.caption("Connect your own Google/Microsoft account so the form is created in your account—you own edits and sharing. Or use the HTML download if you prefer not to connect.")
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        render_provider_card(
+            "Google Forms",
+            "google",
+            "Creates the form in your Google Forms/Drive; you control sharing and edits.",
+            is_google_forms_configured(),
+            [
+                "Owned by your Google account",
+                "Edit/share from Google Forms UI",
+                "Org policy controls external/anonymous access",
+            ],
+            button_key="connect_google"
+        )
+    with pc2:
+        render_provider_card(
+            "Microsoft Forms",
+            "microsoft",
+            "Creates the form in your Microsoft Forms; you control sharing and edits.",
+            is_ms_forms_configured(),
+            [
+                "Owned by your Microsoft account",
+                "Edit/share from Microsoft Forms UI",
+                "Tenant policy controls external/anonymous access",
+            ],
+            button_key="connect_ms"
+        )
+
     
     st.divider()
     
@@ -2076,7 +2198,20 @@ elif "Phase 5" in phase:
     with c1:
         st.markdown("#### Expert Panel Feedback Form")
         st.caption(f"Target Audience: {audience}")
-        if st.button("Generate Form", type="primary", use_container_width=True, key="btn_expert_gen"):
+        expert_provider = st.selectbox(
+            "Delivery method",
+            list(PROVIDER_OPTIONS.keys()),
+            format_func=lambda k: PROVIDER_OPTIONS[k],
+            key="expert_provider",
+        )
+        expert_allow_external = st.checkbox(
+            "Allow external/anonymous responses (if org allows)",
+            value=False,
+            key="expert_allow_external",
+            help="For Google/Microsoft Forms; HTML download accepts anyone with the link.",
+        )
+        expert_label = f"Generate in {PROVIDER_OPTIONS.get(expert_provider, 'selected provider')}"
+        if st.button(expert_label, type="primary", use_container_width=True, key="btn_expert_gen"):
             with ai_activity("Generating form..."):
                 nodes = st.session_state.data['phase3']['nodes']
                 s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
@@ -2095,59 +2230,96 @@ elif "Phase 5" in phase:
                 """
 
                 prompt = f"""
-                Create HTML5 Form for Expert Panel Feedback. Condition: {cond}. Target Audience: {audience}.
-                Use Netlify Forms markup (no external action). Requirements:
-                - <form name="expert-panel-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
-                - Include hidden <input type="hidden" name="form-name" value="expert-panel-form">
-                - Include a hidden "bot-field" for honeypot.
-                Intro: "Thank you for serving on the expert panel for {cond}. Please review the pathway below and provide feedback tailored for {audience}."
-                Display the node reference table at the top, and reference node IDs (SE#, P#, D#) in the questions.
-                Node Reference Table:
-                {node_table}
+                Create a standalone HTML5 form for Expert Panel Feedback.
+                Title: Expert Panel Feedback for {cond}
+                Target Audience: {audience}
+                
+                IMPORTANT REQUIREMENTS:
+                1. Use a simple <form> tag with NO action or method attributes (JavaScript will handle submission)
+                2. Include professional styling with CarePathIQ brand colors: Brown #5D4037 and Teal #A9EED1
+                3. Make it mobile-responsive
+                4. DO NOT include a recipient email field (this will be added automatically)
+                
                 Form structure:
-                1. Email field (required) - "Your Email Address" (stored in submission only)
-                2. For EACH pathway node (Start/End, Decisions, Process):
-                    - Checkbox for that node (identify node by its ID, e.g., P2, D1, SE1)
-                    - If checked, show:
-                       a) "Proposed Change" (Textarea, ask to cite the node ID)
-                       b) "Justification" (Select: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other, None)
-                       c) "Justification Detail" (Textarea)
-                3. At the bottom, add a field: "Email Address(es) for Form Submission" (required, allow comma-separated emails) - "Where should this form's submission be sent? (comma-separated for multiple recipients)"
-                Form nodes:
-                Start/End: {s_e_str}
-                Decisions: {d_str}
-                Process: {p_str}
-                No external FormSubmit action; rely on Netlify Forms submission capture.
+                - Title and introduction explaining this is for {audience} reviewing {cond} pathway
+                - Node Reference Table (display at top):
+                {node_table}
+                
+                Form fields:
+                1. Your Name (text input, required)
+                2. Your Email (email input, required)  
+                3. For EACH pathway node category (Start/End, Process, Decision):
+                   - Section header with node IDs
+                   - For each node:
+                     * Checkbox: "I have feedback on this node"
+                     * If checked (use JavaScript show/hide):
+                       - Textarea: "Proposed Change (cite node ID)" 
+                       - Select: "Justification Source" (options: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other)
+                       - Textarea: "Justification Details"
+                4. Submit button (styled)
+                
+                Include inline CSS for professional appearance.
+                Return complete standalone HTML file.
                 """
-                st.session_state.data['phase5']['expert_html'] = get_gemini_response(prompt)
-                if st.session_state.data['phase5']['expert_html']:
-                    st.session_state.data['phase5']['expert_html'] += COPYRIGHT_HTML_FOOTER
+                expert_html = get_gemini_response(prompt)
+                if expert_html:
+                    use_html_fallback = False
+                    if expert_provider == "google":
+                        if not is_google_forms_configured():
+                            st.warning("Google Forms not configured; using HTML download fallback.")
+                            use_html_fallback = True
+                        else:
+                            st.info("Google Forms integration placeholder active; using HTML download until API hookup.")
+                            use_html_fallback = True
+                    elif expert_provider == "microsoft":
+                        if not is_ms_forms_configured():
+                            st.warning("Microsoft Forms not configured; using HTML download fallback.")
+                            use_html_fallback = True
+                        else:
+                            st.info("Microsoft Forms integration placeholder active; using HTML download until API hookup.")
+                            use_html_fallback = True
+                    else:
+                        use_html_fallback = True
+
+                    if use_html_fallback:
+                        expert_html = ensure_carepathiq_footer(expert_html)
+                        expert_html = create_formsubmit_html(expert_html)
+                        st.session_state.data['phase5']['expert_html'] = expert_html + COPYRIGHT_HTML_FOOTER
+                        st.rerun()
         
         if st.session_state.data['phase5'].get('expert_html'):
-            # Deploy button if token provided
-            if netlify_token:
-                if st.button("🚀 Deploy & Share", use_container_width=True, key="deploy_expert", type="primary"):
-                    with st.spinner("Deploying to Netlify..."):
-                        success, result = deploy_to_netlify(
-                            st.session_state.data['phase5']['expert_html'],
-                            f"expert-panel-{cond.lower().replace(' ', '-')}",
-                            netlify_token
-                        )
-                        if success:
-                            st.session_state.data['phase5']['expert_url'] = result
-                            st.rerun()
-                        else:
-                            st.error(f"Deployment failed: {result}")
+            # View Form Link button
+            if st.button("View Form", use_container_width=True, key="view_expert", type="primary"):
+                st.session_state['show_expert_form'] = True
+                st.rerun()
+            
+            # Download button
+            st.download_button(
+                "Download HTML", 
+                st.session_state.data['phase5']['expert_html'], 
+                "ExpertPanelForm.html",
+                mime="text/html",
+                use_container_width=True
+            )
+            
+            # Show form in modal if requested
+            if st.session_state.get('show_expert_form'):
+                st.markdown("---")
+                st.markdown("### Expert Panel Feedback Form Preview")
+                st.caption("Share this link with panel members. They will enter their email in the form.")
                 
-                # Show URL if deployed
-                if st.session_state.data['phase5'].get('expert_url'):
-                    st.success("✅ Form deployed!")
-                    st.code(st.session_state.data['phase5']['expert_url'], language=None)
-                    st.markdown(f"[Open Form →]({st.session_state.data['phase5']['expert_url']})")
+                close_col, _ = st.columns([1, 5])
+                with close_col:
+                    if st.button("Close Preview", key="close_expert_form"):
+                        st.session_state['show_expert_form'] = False
+                        st.rerun()
+                
+                # Display form in iframe
+                components.html(st.session_state.data['phase5']['expert_html'], height=800, scrolling=True)
+                
+                st.info("**To share this form:** Download the HTML file and upload it to any web hosting service (GitHub Pages, Netlify, your hospital's server, etc.). Recipients will enter their email address directly in the form.")
             
-            # Always show download option
-            st.download_button("Download Form (.html)", st.session_state.data['phase5']['expert_html'], "ExpertPanelForm.html", use_container_width=True)
-            
+            # Refine section
             with st.expander("Refine Form"):
                 render_refine_suggestions("ref_expert", [
                     "Make more detailed",
@@ -2157,63 +2329,108 @@ elif "Phase 5" in phase:
                     "Align with national guidelines",
                     "Improve section headings"
                 ])
-                refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add examples for rationale; Streamline node checklist…")
+                refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add examples...")
                 if st.button("Update Form", use_container_width=True, key="update_expert"):
                     with ai_activity("Updating expert feedback form…"):
                         new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
-                    if new_html: st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+                        if new_html:
+                            new_html = ensure_carepathiq_footer(new_html)
+                            new_html = create_formsubmit_html(new_html)
+                            st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER
+                            st.rerun()
     
     # Beta Testing Form
     with c2:
         st.markdown("#### Beta Testing Form")
         st.caption(f"Target Audience: {audience}")
-        if st.button("Generate Form", type="primary", use_container_width=True, key="btn_beta_gen"):
+        beta_provider = st.selectbox(
+            "Delivery method",
+            list(PROVIDER_OPTIONS.keys()),
+            format_func=lambda k: PROVIDER_OPTIONS[k],
+            key="beta_provider",
+        )
+        beta_allow_external = st.checkbox(
+            "Allow external/anonymous responses (if org allows)",
+            value=False,
+            key="beta_allow_external",
+            help="For Google/Microsoft Forms; HTML download accepts anyone with the link.",
+        )
+        beta_label = f"Generate in {PROVIDER_OPTIONS.get(beta_provider, 'selected provider')}"
+        if st.button(beta_label, type="primary", use_container_width=True, key="btn_beta_gen"):
             with ai_activity("Generating form..."):
                 prompt = f"""
-                Create HTML5 Form. Title: 'Beta Testing Feedback for {cond}'. Condition: {cond}. Target Audience: {audience}.
-                Use Netlify Forms markup (no external action). Requirements:
-                - <form name="beta-testing-form" method="POST" data-netlify="true" netlify-honeypot="bot-field">
-                - Include hidden <input type="hidden" name="form-name" value="beta-testing-form">
-                - Include a hidden "bot-field" for honeypot.
-                Use Nielsen's heuristics and standard clinical informatics beta-testing frames (e.g., usability, safety, workflow fit, data quality). Include short guidance under each prompt to anchor responses. Tailor all content and questions for {audience}.
-                Form Questions:
-                1. Respondent Email (required) - "Your Email Address" (stored in submission only)
-                2. Usability (Nielsen alignment) Rating (1-5 scale) with brief description tailored to {audience}
-                3. Bugs/Issues Encountered (Textarea) with severity and reproducibility hints
-                4. Workflow Integration (Select: Excellent, Good, Fair, Poor) with prompt for specific context relevant to {audience}
-                5. Safety or Data Quality Concerns (Textarea)
-                6. Additional Feedback (Textarea)
-                7. At the bottom, add a field: "Email Address(es) for Form Submission" (required, allow comma-separated emails) - "Where should this form's submission be sent? (comma-separated for multiple recipients)"
-                No external FormSubmit action; rely on Netlify Forms submission capture.
+                Create a standalone HTML5 form for Beta Testing Feedback.
+                Title: Beta Testing Feedback for {cond}
+                Target Audience: {audience}
+                
+                IMPORTANT REQUIREMENTS:
+                1. Use a simple <form> tag with NO action or method attributes
+                2. Include professional styling with CarePathIQ colors
+                3. Make it mobile-responsive
+                4. DO NOT include a recipient email field (added automatically)
+                
+                Form fields based on Nielsen's heuristics and clinical informatics best practices:
+                1. Your Name (required)
+                2. Your Email (required)
+                3. Usability Rating (1-5 scale with descriptions tailored to {audience})
+                4. Bugs/Issues Encountered (textarea with prompts for severity and reproducibility)
+                5. Workflow Integration (select: Excellent, Good, Fair, Poor)
+                6. Safety or Data Quality Concerns (textarea)
+                7. Additional Feedback (textarea)
+                8. Submit button
+                
+                Return complete standalone HTML with inline CSS.
                 """
-                st.session_state.data['phase5']['beta_html'] = get_gemini_response(prompt)
-                if st.session_state.data['phase5']['beta_html']: 
-                    st.session_state.data['phase5']['beta_html'] += COPYRIGHT_HTML_FOOTER
+                beta_html = get_gemini_response(prompt)
+                if beta_html:
+                    use_html_fallback = False
+                    if beta_provider == "google":
+                        if not is_google_forms_configured():
+                            st.warning("Google Forms not configured; using HTML download fallback.")
+                            use_html_fallback = True
+                        else:
+                            st.info("Google Forms integration placeholder active; using HTML download until API hookup.")
+                            use_html_fallback = True
+                    elif beta_provider == "microsoft":
+                        if not is_ms_forms_configured():
+                            st.warning("Microsoft Forms not configured; using HTML download fallback.")
+                            use_html_fallback = True
+                        else:
+                            st.info("Microsoft Forms integration placeholder active; using HTML download until API hookup.")
+                            use_html_fallback = True
+                    else:
+                        use_html_fallback = True
+
+                    if use_html_fallback:
+                        beta_html = ensure_carepathiq_footer(beta_html)
+                        beta_html = create_formsubmit_html(beta_html)
+                        st.session_state.data['phase5']['beta_html'] = beta_html + COPYRIGHT_HTML_FOOTER
+                        st.rerun()
         
         if st.session_state.data['phase5'].get('beta_html'):
-            # Deploy button if token provided
-            if netlify_token:
-                if st.button("🚀 Deploy & Share", use_container_width=True, key="deploy_beta", type="primary"):
-                    with st.spinner("Deploying to Netlify..."):
-                        success, result = deploy_to_netlify(
-                            st.session_state.data['phase5']['beta_html'],
-                            f"beta-testing-{cond.lower().replace(' ', '-')}",
-                            netlify_token
-                        )
-                        if success:
-                            st.session_state.data['phase5']['beta_url'] = result
-                            st.rerun()
-                        else:
-                            st.error(f"Deployment failed: {result}")
-                
-                # Show URL if deployed
-                if st.session_state.data['phase5'].get('beta_url'):
-                    st.success("✅ Form deployed!")
-                    st.code(st.session_state.data['phase5']['beta_url'], language=None)
-                    st.markdown(f"[Open Form →]({st.session_state.data['phase5']['beta_url']})")
+            if st.button("View Form", use_container_width=True, key="view_beta", type="primary"):
+                st.session_state['show_beta_form'] = True
+                st.rerun()
             
-            # Always show download option
-            st.download_button("Download Form (.html)", st.session_state.data['phase5']['beta_html'], "BetaTestingForm.html", use_container_width=True)
+            st.download_button(
+                "Download HTML",
+                st.session_state.data['phase5']['beta_html'],
+                "BetaTestingForm.html",
+                mime="text/html",
+                use_container_width=True
+            )
+            
+            if st.session_state.get('show_beta_form'):
+                st.markdown("---")
+                st.markdown("### Beta Testing Form Preview")
+                close_col, _ = st.columns([1, 5])
+                with close_col:
+                    if st.button("Close Preview", key="close_beta_form"):
+                        st.session_state['show_beta_form'] = False
+                        st.rerun()
+                
+                components.html(st.session_state.data['phase5']['beta_html'], height=800, scrolling=True)
+                st.info("**To share:** Download and host this HTML file. Users enter their email in the form.")
             
             with st.expander("Refine Form"):
                 render_refine_suggestions("ref_beta", [
@@ -2221,14 +2438,17 @@ elif "Phase 5" in phase:
                     "Expand usability questions",
                     "Add severity field for bugs",
                     "Clarify workflow integration scale",
-                    "Include example responses",
-                    "Improve instructions"
+                    "Include example responses"
                 ])
-                refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add severity field for bugs; Improve instructions…")
+                refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed", placeholder="e.g., Add severity field...")
                 if st.button("Update Form", use_container_width=True, key="update_beta"):
                     with ai_activity("Updating beta testing form…"):
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
-                    if new_html: st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+                        if new_html:
+                            new_html = ensure_carepathiq_footer(new_html)
+                            new_html = create_formsubmit_html(new_html)
+                            st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER
+                            st.rerun()
     
     st.divider()
     
@@ -2242,59 +2462,112 @@ elif "Phase 5" in phase:
         if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
             with ai_activity("Generating module..."):
                 prompt = f"""
-                Create HTML Education Module for {cond}. Target Audience: {audience}.
-                Use Netlify Forms markup (no external action). Requirements:
-                - <form name="education-module" method="POST" data-netlify="true" netlify-honeypot="bot-field">
-                - Include hidden <input type="hidden" name="form-name" value="education-module">
-                - Include a hidden "bot-field" for honeypot.
-                IMPORTANT:
-                - The certificate MUST be in landscape orientation using CSS (@page size: landscape).
-                - Use CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1.
-                - The certificate block should have class ".cpq-certificate" and include header/body/footer sections.
-                - Replace any text like "Verified Education Credit" with exactly "Approved by CarePathIQ".
-                - Include a bottom-centered CarePathIQ logo (inline SVG with the above colors) and alt text "CarePathIQ logo".
-                - Content must be explicitly tailored to {audience} and improve understanding of the {cond} pathway steps, decision points, and rationale.
-                - Emphasize clarity, concise language, and actionable takeaways for {audience}.
-
-                Module sections:
-                1. Key Clinical Points (summary section with main takeaways tailored to {audience})
-                2. Interactive 5 Question Quiz with immediate feedback (correct/incorrect with explanations)
-                3. Certificate of Completion: 
-                    - Display personalized printable certificate with user's name in a styled .cpq-certificate container
-                    - No email collection or email delivery is needed
-                4. At the bottom, add a field: "Email Address(es) for Form Submission" (required, allow comma-separated emails) - "Where should this form's submission be sent? (comma-separated for multiple recipients)"
-                Return valid standalone HTML.
+                Create a standalone HTML5 interactive education module for {cond}.
+                Title: Staff Education Module for {cond}
+                Target Audience: {audience}
+                
+                CRITICAL REQUIREMENTS FOR INTERACTIVE QUIZ:
+                1. Use a simple <form> tag with NO action or method attributes
+                2. Include professional styling with CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1
+                3. Certificate MUST be landscape orientation: @page {{ size: landscape; margin: 1in; }}
+                4. Certificate should have class ".cpq-certificate"
+                5. Replace any "Verified Education Credit" text with "Approved by CarePathIQ"
+                6. Include inline SVG logo with CarePathIQ colors at bottom of certificate
+                7. Make it mobile-responsive
+                8. DO NOT include a recipient email field (added automatically)
+                
+                Module structure:
+                1. Introduction section: Overview of {cond} pathway tailored for {audience}
+                   - Use terminology and depth appropriate for {audience} (e.g., clinical jargon for clinicians, operational language for administrators)
+                
+                2. Key Clinical Points section:
+                   - Main takeaways about {cond} pathway
+                   - Decision points explained for {audience}
+                   - Rationale and best practices
+                   - Use clear, concise language
+                
+                3. Interactive Quiz (5 questions) - MUST USE JAVASCRIPT FOR REAL-TIME FEEDBACK:
+                   - Multiple choice questions (4 options each)
+                   - Questions MUST be tailored to {audience} knowledge level and terminology
+                   - REAL-TIME FEEDBACK REQUIREMENTS:
+                     * When user selects an answer: immediately show "Correct!" or "Not quite."
+                     * CORRECT answers: Show 2-3 sentence explanation of why it's correct with clinical/operational context
+                     * INCORRECT answers: Show "The correct answer is [X] because..." with 2-3 sentence explanation; show "Try Again" button
+                     * User CANNOT proceed to next question until they select the correct answer
+                     * Use JavaScript show/hide (not page reload) for instant feedback
+                   - SCORE TRACKING VISIBLE:
+                     * Display "Question 2 of 5 | Current Score: 40%" at top of each question
+                     * Update score after each correct answer
+                     * Final score displayed before certificate section
+                   - After all 5 questions: Show final score (must be X/5)
+                
+                4. Certificate of Completion:
+                   - CONDITIONAL DISPLAY: Certificate section and form ONLY appear if final quiz score = 5/5 (100%)
+                   - Form fields:
+                     * Participant Name (required)
+                     * Participant Email (required)
+                     * Date (auto-filled with current date)
+                   - Printable certificate appears after form submission
+                   - Certificate styled with .cpq-certificate class
+                   - Landscape orientation with CarePathIQ branding
+                   - Include: participant name, completion date, course title, "Successfully completed with 100% score"
+                   - Bottom: CarePathIQ logo (SVG) with "Approved by CarePathIQ" text
+                   - Print button for certificate
+                   - If score < 100%: Show message "Please answer all questions correctly to earn your certificate."
+                   
+                5. Submit button (submits completion record only if score = 100%)
+                
+                IMPLEMENTATION DETAILS:
+                - Include all CSS inline for standalone functionality
+                - JavaScript MUST:
+                  * Track quiz score as variable (quizScore = 0 to 5)
+                  * Show/hide feedback divs using display:none/block
+                  * Disable "Next Question" button until correct answer selected
+                  * Show/hide certificate section based on final score == 5
+                  * Display score percentage in real-time
+                - Return complete standalone HTML file.
                 """
-                st.session_state.data['phase5']['edu_html'] = get_gemini_response(prompt)
-                if st.session_state.data['phase5']['edu_html']:
-                    fixed_html = fix_edu_certificate_html(st.session_state.data['phase5']['edu_html'])
-                    st.session_state.data['phase5']['edu_html'] = fixed_html + COPYRIGHT_HTML_FOOTER
+                edu_html = get_gemini_response(prompt)
+                if edu_html:
+                    edu_html = ensure_carepathiq_footer(edu_html)
+                    edu_html = fix_edu_certificate_html(edu_html)
+                    edu_html = create_formsubmit_html(edu_html)
+                    st.session_state.data['phase5']['edu_html'] = edu_html + COPYRIGHT_HTML_FOOTER
+                    st.rerun()
         
         if st.session_state.data['phase5'].get('edu_html'):
-            # Deploy button if token provided
-            if netlify_token:
-                if st.button("🚀 Deploy & Share", use_container_width=True, key="deploy_edu", type="primary"):
-                    with st.spinner("Deploying to Netlify..."):
-                        success, result = deploy_to_netlify(
-                            st.session_state.data['phase5']['edu_html'],
-                            f"education-module-{cond.lower().replace(' ', '-')}",
-                            netlify_token
-                        )
-                        if success:
-                            st.session_state.data['phase5']['edu_url'] = result
-                            st.rerun()
-                        else:
-                            st.error(f"Deployment failed: {result}")
+            # View Module Link button
+            if st.button("View Module", use_container_width=True, key="view_edu", type="primary"):
+                st.session_state['show_edu_module'] = True
+                st.rerun()
+            
+            # Download button
+            st.download_button(
+                "Download HTML",
+                st.session_state.data['phase5']['edu_html'],
+                "EducationModule.html",
+                mime="text/html",
+                use_container_width=True
+            )
+            
+            # Show module in modal if requested
+            if st.session_state.get('show_edu_module'):
+                st.markdown("---")
+                st.markdown("### Staff Education Module Preview")
+                st.caption("Share this link with staff. They complete the module and enter their email for the completion certificate.")
                 
-                # Show URL if deployed
-                if st.session_state.data['phase5'].get('edu_url'):
-                    st.success("✅ Module deployed!")
-                    st.code(st.session_state.data['phase5']['edu_url'], language=None)
-                    st.markdown(f"[Open Module →]({st.session_state.data['phase5']['edu_url']})")
+                close_col, _ = st.columns([1, 5])
+                with close_col:
+                    if st.button("Close Preview", key="close_edu_module"):
+                        st.session_state['show_edu_module'] = False
+                        st.rerun()
+                
+                # Display module in iframe
+                components.html(st.session_state.data['phase5']['edu_html'], height=800, scrolling=True)
+                
+                st.info("**To share this module:** Download the HTML file and upload it to any web hosting service (GitHub Pages, your hospital's learning management system, etc.). Staff members will complete the module and enter their email to receive completion records.")
             
-            # Always show download option
-            st.download_button("Download Module (.html)", st.session_state.data['phase5']['edu_html'], "EducationModule.html", use_container_width=True)
-            
+            # Refine section
             with st.expander("Refine Module"):
                 render_refine_suggestions("ref_edu", [
                     "Make more detailed",
@@ -2304,30 +2577,52 @@ elif "Phase 5" in phase:
                     "Refine certificate typography",
                     "Align with hospital policy"
                 ])
-                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add clinical case examples; Improve visuals…")
+                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed", placeholder="e.g., Add clinical case examples; Improve visuals...")
                 if st.button("Update Module", use_container_width=True, key="update_edu"):
                     with ai_activity("Updating education module…"):
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
-                    if new_html: st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER; st.rerun()
+                        if new_html:
+                            new_html = ensure_carepathiq_footer(new_html)
+                            new_html = fix_edu_certificate_html(new_html)
+                            new_html = create_formsubmit_html(new_html)
+                            st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER
+                            st.rerun()
     
     # Executive Summary
     with c4:
         st.markdown("#### Executive Summary")
-        st.caption("Audience: Hospital Leadership (Audience-Agnostic)")
+        st.caption("Audience: Hospital Leadership")
         if st.button("Generate Report", type="primary", use_container_width=True, key="btn_exec_gen"):
             with ai_activity("Generating report..."):
                 prompt = f"""
                 Write executive summary for {cond} pathway. 
-                Audience: Hospital Leadership (write in a general, audience-agnostic style suitable for executive stakeholders).
+                Audience: Hospital Leadership.
                 Include: clinical rationale, expected outcomes, implementation timeline, resource requirements, and expected ROI.
                 Return markdown formatted text.
                 """
                 st.session_state.data['phase5']['exec_summary'] = get_gemini_response(prompt)
 
         if st.session_state.data['phase5'].get('exec_summary'):
-            st.markdown(st.session_state.data['phase5']['exec_summary'][:500] + "..." if len(st.session_state.data['phase5']['exec_summary']) > 500 else st.session_state.data['phase5']['exec_summary'])
+            # Show preview
+            preview_length = 500
+            summary_text = st.session_state.data['phase5']['exec_summary']
+            if len(summary_text) > preview_length:
+                st.markdown(summary_text[:preview_length] + "...")
+            else:
+                st.markdown(summary_text)
+            
+            # Download button
             doc = create_exec_summary_docx(st.session_state.data['phase5']['exec_summary'], cond)
-            if doc: st.download_button("Download Report (.docx)", doc, "ExecSummary.docx", use_container_width=True)
+            if doc:
+                st.download_button(
+                    "Download Report (.docx)",
+                    doc,
+                    "ExecSummary.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True,
+                    type="primary"
+                )
+            
             with st.expander("Refine Summary"):
                 render_refine_suggestions("ref_exec", [
                     "Make more detailed",
@@ -2337,11 +2632,13 @@ elif "Phase 5" in phase:
                     "Emphasize patient safety",
                     "Strengthen executive call-to-action"
                 ])
-                refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed", placeholder="e.g., Make more concise; Add key metrics and timeline; Emphasize patient safety…")
+                refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed", placeholder="e.g., Make more concise; Add key metrics...")
                 if st.button("Update Summary", use_container_width=True, key="update_exec"):
                     with ai_activity("Updating executive summary…"):
                         new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
-                    if new_sum: st.session_state.data['phase5']['exec_summary'] = new_sum; st.rerun()
+                        if new_sum:
+                            st.session_state.data['phase5']['exec_summary'] = new_sum
+                            st.rerun()
 
     render_bottom_navigation()
 
