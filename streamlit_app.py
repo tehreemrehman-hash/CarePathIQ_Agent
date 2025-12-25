@@ -335,8 +335,7 @@ PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Ph
 
 PROVIDER_OPTIONS = {
     "google": "Google Forms (user account)",
-    "microsoft": "Microsoft Forms (user account)",
-    "html": "HTML Download (FormSubmit.co)",
+    "html": "HTML Preview (no submission)",
 }
 
 # ==========================================
@@ -509,6 +508,45 @@ def create_formsubmit_html(form_html: str) -> str:
     return form_html
 
 
+def make_preview_only(form_html: str) -> str:
+    """Convert a generated form to preview-only by hiding email/submit fields and blocking submission."""
+    try:
+        if not form_html:
+            return form_html
+        banner = (
+            '<div style="background:#FFF3CD;border:1px solid #F0AD4E;color:#8A6D3B;'
+            'padding:12px;border-radius:6px;margin:12px 0;">\n'
+            '  Preview only — responses are not collected here. Use Google Forms to collect submissions.\n'
+            '</div>\n'
+        )
+        style_js = (
+            '<style id="cpq-preview-only">\n'
+            'form input[type="email"],\n'
+            'form input[type="submit"],\n'
+            'form button[type="submit"],\n'
+            'form button.submit,\n'
+            'form .submit,\n'
+            'form .cpq-submit { display: none !important; }\n'
+            '</style>\n'
+            '<script>\n'
+            "document.addEventListener('DOMContentLoaded', function() {\n"
+            "  document.querySelectorAll('form').forEach(function(f) {\n"
+            "    f.addEventListener('submit', function(e) {\n"
+            "      e.preventDefault();\n"
+            "      alert('Preview only — responses are not collected here.');\n"
+            "    });\n"
+            "  });\n"
+            "});\n"
+            '</script>\n'
+        )
+        injection = style_js + banner
+        if "</body>" in form_html:
+            return form_html.replace("</body>", injection + "</body>")
+        return injection + form_html
+    except Exception:
+        return form_html
+
+
 def mark_provider_connected(provider: str):
     if "oauth" not in st.session_state:
         st.session_state["oauth"] = {}
@@ -559,20 +597,6 @@ def is_google_forms_configured() -> bool:
     return bool(has_env or has_session)
 
 
-def is_ms_forms_configured() -> bool:
-    keys = [
-        "MS_GRAPH_CLIENT_ID",
-        "MS_GRAPH_CLIENT_SECRET",
-        "MS_GRAPH_TENANT_ID",
-        "AZURE_CLIENT_ID",
-        "AZURE_CLIENT_SECRET",
-        "AZURE_TENANT_ID",
-    ]
-    has_env = is_configured(keys)
-    has_session = "oauth" in st.session_state and st.session_state["oauth"].get("microsoft")
-    return bool(has_env or has_session)
-
-
 def _get_secret(key: str, default: str | None = None) -> str | None:
     try:
         if hasattr(st, "secrets") and key in st.secrets:
@@ -611,34 +635,6 @@ def build_google_auth_url() -> str | None:
     return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
 
 
-def build_ms_auth_url() -> str | None:
-    client_id = _get_secret("MS_GRAPH_CLIENT_ID") or _get_secret("AZURE_CLIENT_ID")
-    tenant = _get_secret("MS_GRAPH_TENANT_ID", _get_secret("AZURE_TENANT_ID", "common"))
-    redirect_uri = _get_secret("MS_REDIRECT_URI", _get_secret("OAUTH_REDIRECT_URI", "http://localhost:8501/"))
-    scopes = [
-        "openid",
-        "profile",
-        "offline_access",
-        "User.Read",
-        "Forms.ReadWrite.All",
-    ]
-    if not client_id or not redirect_uri:
-        return None
-    state = secrets.token_urlsafe(16)
-    if "oauth" not in st.session_state:
-        st.session_state["oauth"] = {}
-    st.session_state["oauth"]["microsoft_state"] = state
-    params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "response_mode": "query",
-        "scope": " ".join(scopes),
-        "state": state,
-    }
-    return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?" + urllib.parse.urlencode(params)
-
-
 def complete_google_oauth(params: dict) -> bool:
     code = params.get("code", [None])[0]
     state = params.get("state", [None])[0]
@@ -669,42 +665,10 @@ def complete_google_oauth(params: dict) -> bool:
     return False
 
 
-def complete_ms_oauth(params: dict) -> bool:
-    code = params.get("code", [None])[0]
-    state = params.get("state", [None])[0]
-    expected = st.session_state.get("oauth", {}).get("microsoft_state")
-    if not code or not state or state != expected:
-        return False
-    client_id = _get_secret("MS_GRAPH_CLIENT_ID") or _get_secret("AZURE_CLIENT_ID")
-    client_secret = _get_secret("MS_GRAPH_CLIENT_SECRET") or _get_secret("AZURE_CLIENT_SECRET")
-    tenant = _get_secret("MS_GRAPH_TENANT_ID", _get_secret("AZURE_TENANT_ID", "common"))
-    redirect_uri = _get_secret("MS_REDIRECT_URI", _get_secret("OAUTH_REDIRECT_URI", "http://localhost:8501/"))
-    token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-    data = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "code": code,
-        "redirect_uri": redirect_uri,
-        "grant_type": "authorization_code",
-    }
-    try:
-        import requests
-        resp = requests.post(token_url, data=data, timeout=10)
-        if resp.status_code == 200:
-            token = resp.json()
-            st.session_state.setdefault("oauth_tokens", {})["microsoft"] = token
-            st.session_state["oauth"]["microsoft"] = True
-            return True
-    except Exception:
-        return False
-    return False
-
-
 def render_connect_link(provider_key: str):
-    if provider_key == "google":
-        url = build_google_auth_url()
-    else:
-        url = build_ms_auth_url()
+    if provider_key != "google":
+        return
+    url = build_google_auth_url()
     if url:
         st.link_button("Open consent window", url, use_container_width=True)
     else:
@@ -2297,7 +2261,7 @@ elif "Phase 5" in phase:
             audience = "Multidisciplinary Team"
     
     with info_col:
-        st.info("Select a delivery method per form: Google Forms, Microsoft Forms, or HTML download (FormSubmit fallback). If Google/Microsoft credentials are not configured, we will fall back to the HTML download. Recipients can choose whether to allow external/anonymous responses based on org policy.")
+        st.info("Select a delivery method per form: Google Forms or HTML Preview. Google creates the form in your account; HTML is preview-only (no submissions).")
 
     # Handle OAuth callback if present
     try:
@@ -2305,78 +2269,51 @@ elif "Phase 5" in phase:
     except Exception:
         params = {}
     if params.get("code") and params.get("state"):
-        # Attempt both providers
         if complete_google_oauth(params):
             st.success("Google connected for this session. The forms will be created in your Google account.")
-        elif complete_ms_oauth(params):
-            st.success("Microsoft connected for this session. The forms will be created in your Microsoft account.")
         else:
             st.warning("OAuth callback did not match expected state. Please try connecting again.")
 
     st.markdown("#### Form Ownership & Delivery")
-    st.caption("Connect your own Google/Microsoft account so the form is created in your account—you own edits and sharing. Or use the HTML download if you prefer not to connect.")
-    pc1, pc2 = st.columns(2)
-    with pc1:
-        render_provider_card(
-            "Google Forms",
-            "google",
-            "Creates the form in your Google Forms/Drive; you control sharing and edits.",
-            is_google_forms_configured(),
-            [
-                "Owned by your Google account",
-                "Edit/share from Google Forms UI",
-                "Org policy controls external/anonymous access",
-            ],
-            button_key="connect_google"
-        )
-        if st.session_state.get("oauth", {}).get("google") is not True:
-            render_connect_link("google")
-    with pc2:
-        render_provider_card(
-            "Microsoft Forms",
-            "microsoft",
-            "Creates the form in your Microsoft Forms; you control sharing and edits.",
-            is_ms_forms_configured(),
-            [
-                "Owned by your Microsoft account",
-                "Edit/share from Microsoft Forms UI",
-                "Tenant policy controls external/anonymous access",
-            ],
-            button_key="connect_ms"
-        )
-        if st.session_state.get("oauth", {}).get("microsoft") is not True:
-            render_connect_link("microsoft")
+    st.caption("Connect your own Google account so the form is created in your account—you own edits and sharing. Use the HTML preview if you prefer not to connect; it is view-only.")
+    render_provider_card(
+        "Google Forms",
+        "google",
+        "Creates the form in your Google Forms/Drive; you control sharing and edits.",
+        is_google_forms_configured(),
+        [
+            "Owned by your Google account",
+            "Edit/share from Google Forms UI",
+            "Org policy controls external/anonymous access",
+        ],
+        button_key="connect_google"
+    )
+    if st.session_state.get("oauth", {}).get("google") is not True:
+        render_connect_link("google")
 
-    with st.expander("OAuth Setup (Google & Microsoft)"):
-        st.markdown("This section provides exact values to paste into provider consoles and Streamlit Secrets so any end user can connect.")
+    with st.expander("OAuth Setup (Google)"):
+        st.markdown("This section provides exact values to paste into Google Cloud console and Streamlit Secrets so any end user can connect.")
         owner = "tehreemrehman-hash"
         repo = "CarePathIQ_Agent"
         branch = "main"
         host = f"https://{owner}-{repo}-{branch}.streamlit.app"
         google_cb = f"{host}/oauth/google/callback"
-        ms_cb = f"{host}/oauth/ms/callback"
         st.markdown("**Probable Hostname (Streamlit Cloud):**")
         st.code(host)
         st.markdown("**Redirect URIs to register:**")
-        st.code(f"Google: {google_cb}\nMicrosoft: {ms_cb}")
+        st.code(f"Google: {google_cb}")
         st.markdown("**Streamlit Secrets (paste real client values):**")
         secrets_toml = f"""
 GOOGLE_FORMS_CLIENT_ID = "your-google-client-id"
 GOOGLE_FORMS_CLIENT_SECRET = "your-google-client-secret"
 GOOGLE_REDIRECT_URI = "{google_cb}"
-
-MS_GRAPH_CLIENT_ID = "your-azure-app-client-id"
-MS_GRAPH_CLIENT_SECRET = "your-azure-app-client-secret"
-MS_GRAPH_TENANT_ID = "organizations"
-MS_REDIRECT_URI = "{ms_cb}"
 """
         st.code(secrets_toml, language="toml")
         st.markdown("**Scopes to configure:**")
         st.markdown("- Google: `forms.body`, `forms.body.readonly` (optional: `forms.responses.readonly`, `drive.file`)")
-        st.markdown("- Microsoft: `User.Read`, `Forms.ReadWrite.All`, `offline_access`")
         st.markdown("**Authorized domains (Google consent screen):**")
         st.code("streamlit.app\n(your custom domain if used)")
-        st.info("Admin consent may be required for Microsoft `Forms.ReadWrite.All`. Ask your IT admin to grant consent in Entra.")
+        st.info("If your org restricts external responses, adjust Google Forms sharing accordingly.")
 
     
     st.divider()
@@ -2395,10 +2332,10 @@ MS_REDIRECT_URI = "{ms_cb}"
             key="expert_provider",
         )
         expert_allow_external = st.checkbox(
-            "Allow external/anonymous responses (if org allows)",
+            "Allow external/anonymous responses (Google controls this)",
             value=False,
             key="expert_allow_external",
-            help="For Google/Microsoft Forms; HTML download accepts anyone with the link.",
+            help="Google Forms respects your org policy. HTML is preview-only.",
         )
         expert_label = f"Generate in {PROVIDER_OPTIONS.get(expert_provider, 'selected provider')}"
         if st.button(expert_label, type="primary", use_container_width=True, key="btn_expert_gen"):
@@ -2456,26 +2393,17 @@ MS_REDIRECT_URI = "{ms_cb}"
                     use_html_fallback = False
                     if expert_provider == "google":
                         if not is_google_forms_configured():
-                            st.warning("Google Forms not configured; using HTML download fallback.")
+                            st.warning("Google Forms not configured; showing HTML preview instead.")
                             use_html_fallback = True
                         else:
-                            # TODO: Implement Google Forms creation using stored tokens
-                            st.info("Creating Google Form under your account (scaffold). Falling back to HTML until API hookup.")
-                            use_html_fallback = True
-                    elif expert_provider == "microsoft":
-                        if not is_ms_forms_configured():
-                            st.warning("Microsoft Forms not configured; using HTML download fallback.")
-                            use_html_fallback = True
-                        else:
-                            # TODO: Implement Microsoft Forms creation using stored tokens
-                            st.info("Creating Microsoft Form under your account (scaffold). Falling back to HTML until API hookup.")
+                            st.info("Creating Google Form under your account (scaffold). Showing HTML preview until API hookup.")
                             use_html_fallback = True
                     else:
                         use_html_fallback = True
 
                     if use_html_fallback:
                         expert_html = ensure_carepathiq_footer(expert_html)
-                        expert_html = create_formsubmit_html(expert_html)
+                        expert_html = make_preview_only(expert_html)
                         st.session_state.data['phase5']['expert_html'] = expert_html + COPYRIGHT_HTML_FOOTER
                         st.rerun()
         
@@ -2498,7 +2426,7 @@ MS_REDIRECT_URI = "{ms_cb}"
             if st.session_state.get('show_expert_form'):
                 st.markdown("---")
                 st.markdown("### Expert Panel Feedback Form Preview")
-                st.caption("Share this link with panel members. They will enter their email in the form.")
+                st.caption("Preview only — use Google Forms to collect responses.")
                 
                 close_col, _ = st.columns([1, 5])
                 with close_col:
@@ -2509,7 +2437,7 @@ MS_REDIRECT_URI = "{ms_cb}"
                 # Display form in iframe
                 components.html(st.session_state.data['phase5']['expert_html'], height=800, scrolling=True)
                 
-                st.info("**To share this form:** Download the HTML file and upload it to any web hosting service (GitHub Pages, Netlify, your hospital's server, etc.). Recipients will enter their email address directly in the form.")
+                st.info("Download and host this HTML if you need a visual preview. Responses are not collected from this preview.")
             
             # Refine section
             with st.expander("Refine Form"):
@@ -2527,7 +2455,7 @@ MS_REDIRECT_URI = "{ms_cb}"
                         new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
                         if new_html:
                             new_html = ensure_carepathiq_footer(new_html)
-                            new_html = create_formsubmit_html(new_html)
+                            new_html = make_preview_only(new_html)
                             st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER
                             st.rerun()
     
@@ -2542,10 +2470,10 @@ MS_REDIRECT_URI = "{ms_cb}"
             key="beta_provider",
         )
         beta_allow_external = st.checkbox(
-            "Allow external/anonymous responses (if org allows)",
+            "Allow external/anonymous responses (Google controls this)",
             value=False,
             key="beta_allow_external",
-            help="For Google/Microsoft Forms; HTML download accepts anyone with the link.",
+            help="Google Forms respects your org policy. HTML is preview-only.",
         )
         beta_label = f"Generate in {PROVIDER_OPTIONS.get(beta_provider, 'selected provider')}"
         if st.button(beta_label, type="primary", use_container_width=True, key="btn_beta_gen"):
@@ -2578,24 +2506,17 @@ MS_REDIRECT_URI = "{ms_cb}"
                     use_html_fallback = False
                     if beta_provider == "google":
                         if not is_google_forms_configured():
-                            st.warning("Google Forms not configured; using HTML download fallback.")
+                            st.warning("Google Forms not configured; showing HTML preview instead.")
                             use_html_fallback = True
                         else:
-                            st.info("Creating Google Form under your account (scaffold). Falling back to HTML until API hookup.")
-                            use_html_fallback = True
-                    elif beta_provider == "microsoft":
-                        if not is_ms_forms_configured():
-                            st.warning("Microsoft Forms not configured; using HTML download fallback.")
-                            use_html_fallback = True
-                        else:
-                            st.info("Creating Microsoft Form under your account (scaffold). Falling back to HTML until API hookup.")
+                            st.info("Creating Google Form under your account (scaffold). Showing HTML preview until API hookup.")
                             use_html_fallback = True
                     else:
                         use_html_fallback = True
 
                     if use_html_fallback:
                         beta_html = ensure_carepathiq_footer(beta_html)
-                        beta_html = create_formsubmit_html(beta_html)
+                        beta_html = make_preview_only(beta_html)
                         st.session_state.data['phase5']['beta_html'] = beta_html + COPYRIGHT_HTML_FOOTER
                         st.rerun()
         
@@ -2622,7 +2543,7 @@ MS_REDIRECT_URI = "{ms_cb}"
                         st.rerun()
                 
                 components.html(st.session_state.data['phase5']['beta_html'], height=800, scrolling=True)
-                st.info("**To share:** Download and host this HTML file. Users enter their email in the form.")
+                st.info("Preview only — download and host for viewing. Use Google Forms to collect responses.")
             
             with st.expander("Refine Form"):
                 render_refine_suggestions("ref_beta", [
@@ -2638,7 +2559,7 @@ MS_REDIRECT_URI = "{ms_cb}"
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
                         if new_html:
                             new_html = ensure_carepathiq_footer(new_html)
-                            new_html = create_formsubmit_html(new_html)
+                            new_html = make_preview_only(new_html)
                             st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER
                             st.rerun()
     
