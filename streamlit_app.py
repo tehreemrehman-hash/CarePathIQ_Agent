@@ -380,7 +380,7 @@ def render_bottom_navigation():
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                st.button(f"{next_phase.split(':')[0]}", key="bottom_next", width="stretch", type="primary", on_click=change_phase, args=(next_phase,))
+                st.button(f"{next_phase.split(':')[0]}", key="bottom_next", use_container_width=True, type="secondary", on_click=change_phase, args=(next_phase,))
 
 def calculate_granular_progress():
     if 'data' not in st.session_state: return 0.0
@@ -1510,9 +1510,28 @@ if "Phase 1" in phase:
     # Natural Language Refinement Section
     st.subheader("Refine Content")
     st.text_area("", placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...", key="p1_refine_input")
-    if st.button("Apply Refinements", type="primary"):
-        apply_refinements()
-        st.success("Refinements applied!")
+    
+    # Reset refinement applied flag if text area content changes
+    if 'p1_last_refine_input' not in st.session_state:
+        st.session_state['p1_last_refine_input'] = ""
+    
+    current_p1_refine = st.session_state.get('p1_refine_input', '').strip()
+    if current_p1_refine != st.session_state['p1_last_refine_input']:
+        st.session_state['p1_refinement_applied'] = False
+        st.session_state['p1_last_refine_input'] = current_p1_refine
+    
+    # Check if refinements were just applied
+    p1_refinement_applied = st.session_state.get('p1_refinement_applied', False)
+    
+    # Determine button type and label
+    p1_refine_button_type = "primary" if p1_refinement_applied else "secondary"
+    p1_refine_button_label = "Applied" if p1_refinement_applied else "Apply Refinements"
+    
+    if st.button(p1_refine_button_label, type=p1_refine_button_type, key="p1_apply_refine_btn"):
+        if not p1_refinement_applied:
+            apply_refinements()
+            st.session_state['p1_refinement_applied'] = True
+            st.success("Refinements applied!")
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -1547,7 +1566,7 @@ if "Phase 1" in phase:
             ).properties(height=300).interactive()
             st.altair_chart(chart, width="stretch")
     
-    if st.button("Generate Project Charter", type="primary", width="stretch"):
+    if st.button("Generate Project Charter", type="secondary", use_container_width=True):
         sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
@@ -1753,28 +1772,31 @@ elif "Phase 2" in phase:
             with c1:
                 if show_table:
                     st.subheader("Detailed Evidence Table", help="Includes journal, year, authors, and abstract for all results.")
-                    # Add spacing to align with the selectbox height in c2
-                    st.markdown("<div style='height: 38px;'></div>", unsafe_allow_html=True)
                     full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
                     full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
                     csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
-                    # Center the download button within the left column
-                    _, btn_col1, _ = st.columns([1, 1, 1])
-                    with btn_col1:
-                        st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", width="stretch")
 
             with c2:
                 if show_citations:
                     st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
                     citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
-                    
                     references_source = display_data if display_data else evidence_data
+
+            # Align download buttons horizontally in a new row
+            btn_c1, btn_c2 = st.columns(2)
+            with btn_c1:
+                if show_table:
+                    _, btn_col1, _ = st.columns([1, 1, 1])
+                    with btn_col1:
+                        st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
+            
+            with btn_c2:
+                if show_citations:
                     if not references_source:
                         st.info("Add or unfilter evidence to generate references.")
                     else:
                         references_doc = create_references_docx(references_source, citation_style)
                         if references_doc:
-                            # Center the download button within the right column
                             _, btn_col2, _ = st.columns([1, 1, 1])
                             with btn_col2:
                                 st.download_button(
@@ -1783,7 +1805,7 @@ elif "Phase 2" in phase:
                                     f"references_{citation_style.lower()}.docx",
                                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                     key="dl_refs_docx",
-                                    width="stretch"
+                                    use_container_width=True
                                 )
                         else:
                             st.warning("python-docx is not available; install it to enable Word downloads.")
@@ -1991,15 +2013,14 @@ elif "Phase 3" in phase:
     applied_flag = st.session_state.data['phase3'].get('large_rec_applied', False)
     if node_count > 20:
         styled_info("<b>Note:</b> Large pathway detected. Recommend organizing into multiple decision trees (e.g., Initial Evaluation, Diagnosis/Treatment, Re-evaluation) for clarity.")
-        if not applied_flag:
-            if st.button("Apply Recommendations", type="primary", key="p3_apply_reco_btn"):
+        
+        # Determine button type and label
+        reco_button_type = "primary" if applied_flag else "secondary"
+        reco_button_label = "Applied" if applied_flag else "Apply Recommendations"
+        
+        if st.button(reco_button_label, type=reco_button_type, key="p3_apply_reco_btn"):
+            if not applied_flag:
                 apply_large_pathway_recommendations()
-        else:
-            st.markdown("""
-                <div style="background-color: #FFB0C9; color: black; padding: 10px 20px; border-radius: 5px; border: 1px solid black; text-align: center; font-weight: 600; margin-bottom: 10px;">
-                    Recommendations Applied
-                </div>
-            """, unsafe_allow_html=True)
 
     st.divider()
 
@@ -2010,9 +2031,27 @@ elif "Phase 3" in phase:
         key="p3_refine_input",
         height=80
     )
-    if st.button("Apply Refinements", type="primary"):
-        refinement_request = st.session_state.get('p3_refine_input', '').strip()
-        if refinement_request and st.session_state.data['phase3']['nodes']:
+    
+    # Reset refinement applied flag if text area content changes
+    if 'p3_last_refine_input' not in st.session_state:
+        st.session_state['p3_last_refine_input'] = ""
+    
+    current_refine_input = st.session_state.get('p3_refine_input', '').strip()
+    if current_refine_input != st.session_state['p3_last_refine_input']:
+        st.session_state['p3_refinement_applied'] = False
+        st.session_state['p3_last_refine_input'] = current_refine_input
+    
+    # Check if refinements were just applied
+    p3_refinement_applied = st.session_state.get('p3_refinement_applied', False)
+    
+    # Determine button type and label
+    refine_button_type = "primary" if p3_refinement_applied else "secondary"
+    refine_button_label = "Applied" if p3_refinement_applied else "Apply Refinements"
+    
+    if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
+        if not p3_refinement_applied:
+            refinement_request = st.session_state.get('p3_refine_input', '').strip()
+            if refinement_request and st.session_state.data['phase3']['nodes']:
             with ai_activity("Applying refinements to decision tree..."):
                 current_nodes = st.session_state.data['phase3']['nodes']
                 ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
@@ -2044,6 +2083,7 @@ elif "Phase 3" in phase:
                 nodes = get_gemini_response(prompt, json_mode=True)
                 if isinstance(nodes, list) and len(nodes) > 0:
                     st.session_state.data['phase3']['nodes'] = nodes
+                    st.session_state['p3_refinement_applied'] = True
                     st.success("Refinements applied")
                     st.rerun()
     
@@ -2071,6 +2111,29 @@ elif "Phase 4" in phase:
         st.session_state.data['phase4']['viz_height'] = 400
     if 'fullscreen_modal' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['fullscreen_modal'] = False
+
+    # FULLSCREEN MODE - Render only this and stop
+    if st.session_state.data['phase4'].get('fullscreen_modal'):
+        st.markdown("---")
+        st.markdown("### Fullscreen Pathway Visualization")
+        close_col, spacer = st.columns([1, 10])
+        with close_col:
+            if st.button("Close", use_container_width=True, key="p4_close_fullscreen"):
+                st.session_state.data['phase4']['fullscreen_modal'] = False
+                st.rerun()
+        
+        # Prepare nodes
+        nodes_for_viz = nodes if nodes else [
+            {"label": "Start", "type": "Start"},
+            {"label": "Add nodes in Phase 3", "type": "Process"},
+            {"label": "End", "type": "End"},
+        ]
+        g = build_graphviz_from_nodes(nodes_for_viz, "TD")
+        if g:
+            svg_bytes = render_graphviz_bytes(g, "svg")
+            if svg_bytes:
+                components.html(svg_bytes.decode('utf-8'), height=900, scrolling=True)
+        st.stop()  # Stop rendering after fullscreen modal
 
     # Auto-run heuristics once if data exists but heuristics not yet generated
     if nodes and not st.session_state.data['phase4']['heuristics_data'] and not st.session_state.data['phase4']['auto_heuristics_done']:
@@ -2107,8 +2170,9 @@ elif "Phase 4" in phase:
             viz_height = st.slider("Height (px)", 300, 800, st.session_state.data['phase4']['viz_height'], step=50, key="p4_viz_height")
             st.session_state.data['phase4']['viz_height'] = viz_height
         with viz_col2:
-            if st.button("Fullscreen", width="stretch", key="p4_fullscreen_btn"):
+            if st.button("Fullscreen", use_container_width=True, key="p4_fullscreen_btn"):
                 st.session_state.data['phase4']['fullscreen_modal'] = True
+                st.rerun()
         with viz_col3:
             generate_png = st.checkbox("PNG export", value=False, key="p4_png_toggle")
         
@@ -2250,30 +2314,47 @@ elif "Phase 4" in phase:
         height=80
     )
     
+    # Reset the refinement applied flag if text area content changes
+    if 'p4_last_custom_ref' not in st.session_state:
+        st.session_state['p4_last_custom_ref'] = ""
+    
+    if custom_ref != st.session_state['p4_last_custom_ref']:
+        st.session_state['p4_refinement_applied'] = False
+        st.session_state['p4_last_custom_ref'] = custom_ref
+    
     col_refine, col_undo = st.columns([1, 1])
     with col_refine:
-        if st.button("Apply Refinements", type="primary", width="stretch", key="p4_apply_ref"):
-            if custom_ref.strip():
-                if 'nodes_history' not in st.session_state.data['phase4']:
-                    st.session_state.data['phase4']['nodes_history'] = []
-                st.session_state.data['phase4']['nodes_history'].append(copy.deepcopy(nodes))
-                
-                with ai_activity("Applying refinements…"):
-                    p_custom = f"""
-                    Update this clinical pathway based on user feedback:
-                    {custom_ref}
+        # Check if refinements were just applied in this session
+        refinement_applied = st.session_state.get('p4_refinement_applied', False)
+        
+        # Determine button type and label
+        button_type = "primary" if refinement_applied else "secondary"
+        button_label = "Applied" if refinement_applied else "Apply Refinements"
+        
+        if st.button(button_label, type=button_type, use_container_width=True, key="p4_apply_ref"):
+            if not refinement_applied:  # Only apply if not already applied
+                if custom_ref.strip():
+                    if 'nodes_history' not in st.session_state.data['phase4']:
+                        st.session_state.data['phase4']['nodes_history'] = []
+                    st.session_state.data['phase4']['nodes_history'].append(copy.deepcopy(nodes))
                     
-                    Current pathway: {json.dumps(nodes)}
-                    
-                    Return ONLY the updated JSON array.
-                    """
-                    new_nodes = get_gemini_response(p_custom, json_mode=True)
-                    if new_nodes and isinstance(new_nodes, list):
-                        st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                        st.success("Refinements applied")
-                        st.rerun()
-            else:
-                st.warning("Please describe your refinement first.")
+                    with ai_activity("Applying refinements…"):
+                        p_custom = f"""
+                        Update this clinical pathway based on user feedback:
+                        {custom_ref}
+                        
+                        Current pathway: {json.dumps(nodes)}
+                        
+                        Return ONLY the updated JSON array.
+                        """
+                        new_nodes = get_gemini_response(p_custom, json_mode=True)
+                        if new_nodes and isinstance(new_nodes, list):
+                            st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                            st.session_state['p4_refinement_applied'] = True
+                            st.success("Refinements applied")
+                            st.rerun()
+                else:
+                    st.warning("Please describe your refinement first.")
     
     with col_undo:
         if st.session_state.data['phase4'].get('nodes_history'):
@@ -2284,23 +2365,6 @@ elif "Phase 4" in phase:
                 st.rerun()
     
     render_bottom_navigation()
-    
-    # FULLSCREEN MODAL for visualization (appears AFTER navigation)
-    if st.session_state.data['phase4'].get('fullscreen_modal'):
-        st.markdown("---")
-        st.markdown("### Fullscreen Pathway Visualization")
-        close_col, spacer = st.columns([1, 10])
-        with close_col:
-            if st.button("Close", width="stretch", key="p4_close_fullscreen"):
-                st.session_state.data['phase4']['fullscreen_modal'] = False
-                st.rerun()
-        
-        g = build_graphviz_from_nodes(nodes, "TD")
-        if g:
-            svg_bytes = render_graphviz_bytes(g, "svg")
-            if svg_bytes:
-                components.html(svg_bytes.decode('utf-8'), height=900, scrolling=True)
-        st.stop()  # Stop rendering after fullscreen modal
 
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
