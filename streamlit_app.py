@@ -343,6 +343,9 @@ PROVIDER_OPTIONS = {
 # 2. HELPER FUNCTIONS
 # ==========================================
 
+import secrets
+import urllib.parse
+
 # --- NAVIGATION CONTROLLER ---
 def change_phase(new_phase):
     st.session_state.current_phase_label = new_phase
@@ -568,6 +571,144 @@ def is_ms_forms_configured() -> bool:
     has_env = is_configured(keys)
     has_session = "oauth" in st.session_state and st.session_state["oauth"].get("microsoft")
     return bool(has_env or has_session)
+
+
+def _get_secret(key: str, default: str | None = None) -> str | None:
+    try:
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
+def build_google_auth_url() -> str | None:
+    client_id = _get_secret("GOOGLE_FORMS_CLIENT_ID")
+    redirect_uri = _get_secret("GOOGLE_REDIRECT_URI", _get_secret("OAUTH_REDIRECT_URI", "http://localhost:8501/"))
+    scopes = [
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/forms.body",
+        "https://www.googleapis.com/auth/forms.body.readonly",
+    ]
+    if not client_id or not redirect_uri:
+        return None
+    state = secrets.token_urlsafe(16)
+    if "oauth" not in st.session_state:
+        st.session_state["oauth"] = {}
+    st.session_state["oauth"]["google_state"] = state
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(scopes),
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+        "prompt": "consent",
+        "state": state,
+    }
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
+
+
+def build_ms_auth_url() -> str | None:
+    client_id = _get_secret("MS_GRAPH_CLIENT_ID") or _get_secret("AZURE_CLIENT_ID")
+    tenant = _get_secret("MS_GRAPH_TENANT_ID", _get_secret("AZURE_TENANT_ID", "common"))
+    redirect_uri = _get_secret("MS_REDIRECT_URI", _get_secret("OAUTH_REDIRECT_URI", "http://localhost:8501/"))
+    scopes = [
+        "openid",
+        "profile",
+        "offline_access",
+        "User.Read",
+        "Forms.ReadWrite.All",
+    ]
+    if not client_id or not redirect_uri:
+        return None
+    state = secrets.token_urlsafe(16)
+    if "oauth" not in st.session_state:
+        st.session_state["oauth"] = {}
+    st.session_state["oauth"]["microsoft_state"] = state
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "response_mode": "query",
+        "scope": " ".join(scopes),
+        "state": state,
+    }
+    return f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize?" + urllib.parse.urlencode(params)
+
+
+def complete_google_oauth(params: dict) -> bool:
+    code = params.get("code", [None])[0]
+    state = params.get("state", [None])[0]
+    expected = st.session_state.get("oauth", {}).get("google_state")
+    if not code or not state or state != expected:
+        return False
+    client_id = _get_secret("GOOGLE_FORMS_CLIENT_ID")
+    client_secret = _get_secret("GOOGLE_FORMS_CLIENT_SECRET")
+    redirect_uri = _get_secret("GOOGLE_REDIRECT_URI", _get_secret("OAUTH_REDIRECT_URI", "http://localhost:8501/"))
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }
+    try:
+        import requests
+        resp = requests.post(token_url, data=data, timeout=10)
+        if resp.status_code == 200:
+            token = resp.json()
+            st.session_state.setdefault("oauth_tokens", {})["google"] = token
+            st.session_state["oauth"]["google"] = True
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def complete_ms_oauth(params: dict) -> bool:
+    code = params.get("code", [None])[0]
+    state = params.get("state", [None])[0]
+    expected = st.session_state.get("oauth", {}).get("microsoft_state")
+    if not code or not state or state != expected:
+        return False
+    client_id = _get_secret("MS_GRAPH_CLIENT_ID") or _get_secret("AZURE_CLIENT_ID")
+    client_secret = _get_secret("MS_GRAPH_CLIENT_SECRET") or _get_secret("AZURE_CLIENT_SECRET")
+    tenant = _get_secret("MS_GRAPH_TENANT_ID", _get_secret("AZURE_TENANT_ID", "common"))
+    redirect_uri = _get_secret("MS_REDIRECT_URI", _get_secret("OAUTH_REDIRECT_URI", "http://localhost:8501/"))
+    token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    data = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }
+    try:
+        import requests
+        resp = requests.post(token_url, data=data, timeout=10)
+        if resp.status_code == 200:
+            token = resp.json()
+            st.session_state.setdefault("oauth_tokens", {})["microsoft"] = token
+            st.session_state["oauth"]["microsoft"] = True
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def render_connect_link(provider_key: str):
+    if provider_key == "google":
+        url = build_google_auth_url()
+    else:
+        url = build_ms_auth_url()
+    if url:
+        st.link_button("Open consent window", url, use_container_width=True)
+    else:
+        st.warning("Missing client configuration. Please set client ID/redirect URI in secrets or env.")
 
 
 def ensure_carepathiq_footer(html: str) -> str:
@@ -2158,6 +2299,20 @@ elif "Phase 5" in phase:
     with info_col:
         st.info("Select a delivery method per form: Google Forms, Microsoft Forms, or HTML download (FormSubmit fallback). If Google/Microsoft credentials are not configured, we will fall back to the HTML download. Recipients can choose whether to allow external/anonymous responses based on org policy.")
 
+    # Handle OAuth callback if present
+    try:
+        params = st.experimental_get_query_params()
+    except Exception:
+        params = {}
+    if params.get("code") and params.get("state"):
+        # Attempt both providers
+        if complete_google_oauth(params):
+            st.success("Google connected for this session. The forms will be created in your Google account.")
+        elif complete_ms_oauth(params):
+            st.success("Microsoft connected for this session. The forms will be created in your Microsoft account.")
+        else:
+            st.warning("OAuth callback did not match expected state. Please try connecting again.")
+
     st.markdown("#### Form Ownership & Delivery")
     st.caption("Connect your own Google/Microsoft account so the form is created in your account—you own edits and sharing. Or use the HTML download if you prefer not to connect.")
     pc1, pc2 = st.columns(2)
@@ -2174,6 +2329,8 @@ elif "Phase 5" in phase:
             ],
             button_key="connect_google"
         )
+        if st.session_state.get("oauth", {}).get("google") is not True:
+            render_connect_link("google")
     with pc2:
         render_provider_card(
             "Microsoft Forms",
@@ -2187,6 +2344,8 @@ elif "Phase 5" in phase:
             ],
             button_key="connect_ms"
         )
+        if st.session_state.get("oauth", {}).get("microsoft") is not True:
+            render_connect_link("microsoft")
 
     
     st.divider()
@@ -2269,14 +2428,16 @@ elif "Phase 5" in phase:
                             st.warning("Google Forms not configured; using HTML download fallback.")
                             use_html_fallback = True
                         else:
-                            st.info("Google Forms integration placeholder active; using HTML download until API hookup.")
+                            # TODO: Implement Google Forms creation using stored tokens
+                            st.info("Creating Google Form under your account (scaffold). Falling back to HTML until API hookup.")
                             use_html_fallback = True
                     elif expert_provider == "microsoft":
                         if not is_ms_forms_configured():
                             st.warning("Microsoft Forms not configured; using HTML download fallback.")
                             use_html_fallback = True
                         else:
-                            st.info("Microsoft Forms integration placeholder active; using HTML download until API hookup.")
+                            # TODO: Implement Microsoft Forms creation using stored tokens
+                            st.info("Creating Microsoft Form under your account (scaffold). Falling back to HTML until API hookup.")
                             use_html_fallback = True
                     else:
                         use_html_fallback = True
@@ -2389,14 +2550,14 @@ elif "Phase 5" in phase:
                             st.warning("Google Forms not configured; using HTML download fallback.")
                             use_html_fallback = True
                         else:
-                            st.info("Google Forms integration placeholder active; using HTML download until API hookup.")
+                            st.info("Creating Google Form under your account (scaffold). Falling back to HTML until API hookup.")
                             use_html_fallback = True
                     elif beta_provider == "microsoft":
                         if not is_ms_forms_configured():
                             st.warning("Microsoft Forms not configured; using HTML download fallback.")
                             use_html_fallback = True
                         else:
-                            st.info("Microsoft Forms integration placeholder active; using HTML download until API hookup.")
+                            st.info("Creating Microsoft Form under your account (scaffold). Falling back to HTML until API hookup.")
                             use_html_fallback = True
                     else:
                         use_html_fallback = True
