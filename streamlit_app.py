@@ -2347,6 +2347,37 @@ elif "Phase 5" in phase:
         if st.session_state.get("oauth", {}).get("microsoft") is not True:
             render_connect_link("microsoft")
 
+    with st.expander("OAuth Setup (Google & Microsoft)"):
+        st.markdown("This section provides exact values to paste into provider consoles and Streamlit Secrets so any end user can connect.")
+        owner = "tehreemrehman-hash"
+        repo = "CarePathIQ_Agent"
+        branch = "main"
+        host = f"https://{owner}-{repo}-{branch}.streamlit.app"
+        google_cb = f"{host}/oauth/google/callback"
+        ms_cb = f"{host}/oauth/ms/callback"
+        st.markdown("**Probable Hostname (Streamlit Cloud):**")
+        st.code(host)
+        st.markdown("**Redirect URIs to register:**")
+        st.code(f"Google: {google_cb}\nMicrosoft: {ms_cb}")
+        st.markdown("**Streamlit Secrets (paste real client values):**")
+        secrets_toml = f"""
+GOOGLE_FORMS_CLIENT_ID = "your-google-client-id"
+GOOGLE_FORMS_CLIENT_SECRET = "your-google-client-secret"
+GOOGLE_REDIRECT_URI = "{google_cb}"
+
+MS_GRAPH_CLIENT_ID = "your-azure-app-client-id"
+MS_GRAPH_CLIENT_SECRET = "your-azure-app-client-secret"
+MS_GRAPH_TENANT_ID = "organizations"
+MS_REDIRECT_URI = "{ms_cb}"
+"""
+        st.code(secrets_toml, language="toml")
+        st.markdown("**Scopes to configure:**")
+        st.markdown("- Google: `forms.body`, `forms.body.readonly` (optional: `forms.responses.readonly`, `drive.file`)")
+        st.markdown("- Microsoft: `User.Read`, `Forms.ReadWrite.All`, `offline_access`")
+        st.markdown("**Authorized domains (Google consent screen):**")
+        st.code("streamlit.app\n(your custom domain if used)")
+        st.info("Admin consent may be required for Microsoft `Forms.ReadWrite.All`. Ask your IT admin to grant consent in Entra.")
+
     
     st.divider()
     
