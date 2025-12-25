@@ -18,6 +18,7 @@ import altair as alt
 from contextlib import contextmanager
 import requests
 import hashlib
+import textwrap
 
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
@@ -88,23 +89,26 @@ st.markdown("""
     }
     
     /* BUTTONS */
-    div.stButton > button, 
-    div[data-testid="stButton"] > button,
-    button[kind="secondary"] {
+    /* Style secondary (non-active) buttons as brown. Avoid overriding primary. */
+    button[kind="secondary"],
+    div.stButton > button:not([kind="primary"]),
+    div[data-testid="stButton"] > button:not([kind="primary"]) {
         background-color: #5D4037 !important; 
         color: white !important;
         border: 1px solid #5D4037 !important;
         border-radius: 5px !important;
         font-weight: 600 !important;
     }
-    div.stButton > button:hover, 
-    div[data-testid="stButton"] > button:hover {
+    button[kind="secondary"]:hover,
+    div.stButton > button:not([kind="primary"]):hover,
+    div[data-testid="stButton"] > button:not([kind="primary"]):hover {
         background-color: #3E2723 !important; 
         border-color: #3E2723 !important;
         color: white !important;
     }
     
     /* PRIMARY BUTTONS (Current Phase) */
+    div.stButton > button[kind="primary"],
     button[kind="primary"] {
         background-color: #FFB0C9 !important; 
         color: black !important;
@@ -112,6 +116,7 @@ st.markdown("""
         border-radius: 5px !important;
         font-weight: 600 !important;
     }
+    div.stButton > button[kind="primary"]:hover,
     button[kind="primary"]:hover {
         background-color: #FF9BB8 !important; 
         border-color: black !important;
@@ -331,6 +336,18 @@ HEURISTIC_DEFS = {
     "H9": "Help users recognize, diagnose, and recover from errors: Error messages in plain language.",
     "H10": "Help and documentation: Provide concise, concrete documentation focused on user tasks."
 }
+ROLE_COLORS = {
+    "Physician": "#E3F2FD",
+    "Doctor": "#E3F2FD",
+    "MD": "#E3F2FD",
+    "Nurse": "#E8F5E9",
+    "RN": "#E8F5E9",
+    "Pharmacist": "#F3E5F5",
+    "PharmD": "#F3E5F5",
+    "Patient": "#FFF3E0",
+    "Care Coordinator": "#FFF8E1",
+    "Process": "#FFFDE7",
+}
 PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
 
 PROVIDER_OPTIONS = {
@@ -359,11 +376,11 @@ def render_bottom_navigation():
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                st.button(f"{prev_phase.split(':')[0]}", key="bottom_prev", use_container_width=True, on_click=change_phase, args=(prev_phase,))
+                st.button(f"{prev_phase.split(':')[0]}", key="bottom_prev", width="stretch", on_click=change_phase, args=(prev_phase,))
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                st.button(f"{next_phase.split(':')[0]}", key="bottom_next", use_container_width=True, type="primary", on_click=change_phase, args=(next_phase,))
+                st.button(f"{next_phase.split(':')[0]}", key="bottom_next", width="stretch", type="primary", on_click=change_phase, args=(next_phase,))
 
 def calculate_granular_progress():
     if 'data' not in st.session_state: return 0.0
@@ -566,7 +583,7 @@ def render_provider_card(name: str, provider_key: str, description: str, configu
                 f"<div style='color:#444;margin:6px 0;'>{description}</div>\n"
                 + "".join([f"<div style='color:#555;font-size:13px;'>• {b}</div>" for b in bullets]) +
                 "</div>", unsafe_allow_html=True)
-    if st.button(f"Connect {name.split()[0]}", use_container_width=True, key=button_key):
+    if st.button(f"Connect {name.split()[0]}", width="stretch", key=button_key):
         mark_provider_connected(provider_key)
         st.success(f"{name} connected for this session (placeholder; add OAuth to persist).")
 
@@ -670,7 +687,7 @@ def render_connect_link(provider_key: str):
         return
     url = build_google_auth_url()
     if url:
-        st.link_button("Open consent window", url, use_container_width=True)
+        st.link_button("Open consent window", url, width="stretch")
     else:
         st.warning("Missing client configuration. Please set client ID/redirect URI in secrets or env.")
 
@@ -771,7 +788,7 @@ def render_refine_suggestions(target_key: str, suggestions: list[str]):
         cols = st.columns(len(row))
         for idx, s in enumerate(row):
             with cols[idx]:
-                if st.button(s, key=f"{target_key}_sugg_{i+idx}", use_container_width=True):
+                if st.button(s, key=f"{target_key}_sugg_{i+idx}", width="stretch"):
                     st.session_state[target_key] = s
                     st.rerun()
 
@@ -994,6 +1011,17 @@ def _escape_label(text: str) -> str:
     # Escape quotes and backslashes for DOT labels
     return str(text).replace("\\", "\\\\").replace("\"", "'").replace("\n", "\\n")
 
+def _wrap_label(text: str, width: int = 22) -> str:
+    if not text:
+        return ""
+    wrapped = textwrap.wrap(str(text), width=width)
+    return "\\n".join(wrapped) if wrapped else str(text)
+
+def _role_fill(role: str, default_fill: str) -> str:
+    if not role:
+        return default_fill
+    return ROLE_COLORS.get(role, ROLE_COLORS.get(str(role).title(), default_fill))
+
 def dot_from_nodes(nodes, orientation="TD") -> str:
     """Generate Graphviz DOT source from pathway nodes. Does not require graphviz package."""
     if not nodes:
@@ -1014,8 +1042,8 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
         lines.append("    style=filled; color=lightgrey;")
         for i, n in n_list:
             nid = f"N{i}"; node_id_map[i] = nid
-            label = _escape_label(n.get('label', 'Step'))
-            detail = _escape_label(n.get('detail', ''))
+            label = _escape_label(_wrap_label(n.get('label', 'Step')))
+            detail = _escape_label(_wrap_label(n.get('detail', '')))
             meds = _escape_label(n.get('medications', ''))
             if meds:
                 detail = f"{detail}\\nMeds: {meds}" if detail else f"Meds: {meds}"
@@ -1024,6 +1052,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
             elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
             else: shape, fill = 'box', '#FFF2CC'
+            fill = _role_fill(n.get('role', ''), fill)
             lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
         lines.append("  }")
     # Edges
@@ -1071,8 +1100,8 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
             c.attr(style='filled', color='lightgrey')
             for i, n in n_list:
                 nid = f"N{i}"; node_id_map[i] = nid
-                label = _escape_label(n.get('label', 'Step'))
-                detail = _escape_label(n.get('detail', ''))
+                label = _escape_label(_wrap_label(n.get('label', 'Step')))
+                detail = _escape_label(_wrap_label(n.get('detail', '')))
                 meds = _escape_label(n.get('medications', ''))
                 if meds:
                     detail = f"{detail}\\nMeds: {meds}" if detail else f"Meds: {meds}"
@@ -1081,6 +1110,7 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
                 elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
                 else: shape, fill = 'box', '#FFF2CC'
+                fill = _role_fill(n.get('role', ''), fill)
                 c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
@@ -1335,7 +1365,7 @@ for idx, phase_name in enumerate(PHASES):
         if st.button(
             phase_name.split(":")[0],
             key=f"phase_btn_{idx}",
-            use_container_width=True,
+            width="stretch",
             type=button_type
         ):
             st.session_state.top_nav_radio = phase_name
@@ -1515,9 +1545,9 @@ if "Phase 1" in phase:
             chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Start', title='Date'), x2='End', y=alt.Y('Stage', sort=None), color='Owner', tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
     
-    if st.button("Generate Project Charter", type="primary", use_container_width=True):
+    if st.button("Generate Project Charter", type="primary", width="stretch"):
         sync_p1_widgets()
         d = st.session_state.data['phase1']
         if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
@@ -1728,10 +1758,10 @@ elif "Phase 2" in phase:
                     full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
                     full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
                     csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
-                    # Use nested columns to make button half width
-                    btn_col1, _, _ = st.columns([1, 1, 0.1])
+                    # Center the download button within the left column
+                    _, btn_col1, _ = st.columns([1, 1, 1])
                     with btn_col1:
-                        st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", use_container_width=True)
+                        st.download_button("Download", csv_data_full, "detailed_evidence_summary.csv", "text/csv", key="dl_csv_full", width="stretch")
 
             with c2:
                 if show_citations:
@@ -1744,8 +1774,8 @@ elif "Phase 2" in phase:
                     else:
                         references_doc = create_references_docx(references_source, citation_style)
                         if references_doc:
-                            # Use nested columns to make button half width
-                            btn_col2, _, _ = st.columns([1, 1, 0.1])
+                            # Center the download button within the right column
+                            _, btn_col2, _ = st.columns([1, 1, 1])
                             with btn_col2:
                                 st.download_button(
                                     "Download",
@@ -1753,7 +1783,7 @@ elif "Phase 2" in phase:
                                     f"references_{citation_style.lower()}.docx",
                                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                     key="dl_refs_docx",
-                                    use_container_width=True
+                                    width="stretch"
                                 )
                         else:
                             st.warning("python-docx is not available; install it to enable Word downloads.")
@@ -1920,7 +1950,7 @@ elif "Phase 3" in phase:
         },
         num_rows="dynamic",
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         key="p3_editor"
     )
     # Auto-save on edit
@@ -2026,11 +2056,9 @@ elif "Phase 4" in phase:
     
     nodes = st.session_state.data['phase3']['nodes']
     
-    # GUARD: Check if nodes exist, prevent Phase 3 bleed
+    # GUARD: If no nodes, continue rendering Phase 4 with guidance
     if not nodes:
-        st.warning("No pathway nodes found. Please complete Phase 3 first.")
-        render_bottom_navigation()
-        st.stop()
+        st.warning("No pathway nodes found. You can still review heuristics and apply custom refinements below.")
     
     # Initialize Phase 4 data structure
     if 'nodes_history' not in st.session_state.data['phase4']:
@@ -2058,6 +2086,15 @@ elif "Phase 4" in phase:
                 st.session_state.data['phase4']['heuristics_data'] = res
         st.session_state.data['phase4']['auto_heuristics_done'] = True
     
+    # Prepare nodes for visualization with a lightweight cache
+    nodes_for_viz = nodes if nodes else [
+        {"label": "Start", "type": "Start"},
+        {"label": "Add nodes in Phase 3", "type": "Process"},
+        {"label": "End", "type": "End"},
+    ]
+    cache = st.session_state.data['phase4'].setdefault('viz_cache', {})
+    sig = hashlib.md5(json.dumps(nodes_for_viz, sort_keys=True).encode('utf-8')).hexdigest()
+
     # TWO-COLUMN LAYOUT: Visualization (Left) + Heuristics (Right)
     col_left, col_right = st.columns([2, 1])
     
@@ -2070,36 +2107,49 @@ elif "Phase 4" in phase:
             viz_height = st.slider("Height (px)", 300, 800, st.session_state.data['phase4']['viz_height'], step=50, key="p4_viz_height")
             st.session_state.data['phase4']['viz_height'] = viz_height
         with viz_col2:
-            if st.button("Fullscreen", use_container_width=True, key="p4_fullscreen_btn"):
+            if st.button("Fullscreen", width="stretch", key="p4_fullscreen_btn"):
                 st.session_state.data['phase4']['fullscreen_modal'] = True
+        with viz_col3:
+            generate_png = st.checkbox("PNG export", value=False, key="p4_png_toggle")
         
         # Render graphviz visualization
-        g = build_graphviz_from_nodes(nodes, "TD")
-        svg_bytes = None
-        png_bytes = None
-        if g:
-            svg_bytes = render_graphviz_bytes(g, "svg")
-            png_bytes = render_graphviz_bytes(g, "png")
-            if svg_bytes:
-                components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
+        svg_bytes = cache.get(sig, {}).get("svg")
+        png_bytes = cache.get(sig, {}).get("png")
+        needs_png = generate_png and png_bytes is None
+
+        if svg_bytes is None or needs_png:
+            g = build_graphviz_from_nodes(nodes_for_viz, "TD")
+            if g:
+                new_svg = render_graphviz_bytes(g, "svg")
+                new_png = render_graphviz_bytes(g, "png") if generate_png else None
+                cache[sig] = {"svg": new_svg, "png": new_png}
+                svg_bytes = new_svg
+                png_bytes = new_png
+        # Keep cache bounded to the latest signature only
+        st.session_state.data['phase4']['viz_cache'] = {sig: cache.get(sig, {})}
+
+        if svg_bytes:
+            components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
         
         # Download buttons (DOT, SVG, PNG)
         st.markdown("**Export Formats:**")
         col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
-        dot_text = dot_from_nodes(nodes, "TD")
+        dot_text = dot_from_nodes(nodes_for_viz, "TD")
         with col_dl_dot:
-            st.download_button("DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
+            st.download_button("DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", width="stretch")
         
         with col_dl_svg:
             if svg_bytes:
-                st.download_button("SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+                st.download_button("SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", width="stretch")
             else:
                 st.caption("SVG unavailable")
         with col_dl_png:
-            if png_bytes:
-                st.download_button("PNG", png_bytes, file_name="pathway.png", mime="image/png", use_container_width=True)
-            else:
+            if generate_png and png_bytes:
+                st.download_button("PNG", png_bytes, file_name="pathway.png", mime="image/png", width="stretch")
+            elif generate_png:
                 st.caption("PNG unavailable")
+            else:
+                st.caption("PNG off (enable above)")
         
         # Edit pathway data with Node ID column
         with st.expander("Edit Pathway Data", expanded=False):
@@ -2110,7 +2160,7 @@ elif "Phase 4" in phase:
             else:
                 df_p4['node_id'] = range(1, len(df_p4) + 1)
             
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", width="stretch")
             if not df_p4.equals(edited_p4):
                 # Remove node_id before saving (it's display-only)
                 if 'node_id' in edited_p4.columns:
@@ -2128,50 +2178,66 @@ elif "Phase 4" in phase:
             st.caption(f"**{heuristic_key}:** {definition}")
         
         st.divider()
-        
-        # Analyze button
-        if st.button("Analyze", type="primary", use_container_width=True, key="p4_analyze_btn"):
-            with ai_activity("Analyzing usability heuristics…"):
-                prompt = f"""
-                Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
-                For each heuristic (H1-H10), provide a specific, actionable critique and suggestion.
-                
-                Pathway nodes: {json.dumps(nodes)}
-                
-                Return ONLY a JSON object with this exact structure:
-                {{
-                    "H1": "specific insight and fix",
-                    "H2": "specific insight and fix",
-                    "H3": "specific insight and fix",
-                    "H4": "specific insight and fix",
-                    "H5": "specific insight and fix",
-                    "H6": "specific insight and fix",
-                    "H7": "specific insight and fix",
-                    "H8": "specific insight and fix",
-                    "H9": "specific insight and fix",
-                    "H10": "specific insight and fix"
-                }}
-                """
-                res = get_gemini_response(prompt, json_mode=True)
-                if res:
-                    st.session_state.data['phase4']['heuristics_data'] = res
-                    st.rerun()
-        
-        # Display heuristics inline with tooltips
+
+        # Display heuristics with per-item actions
         h_data = st.session_state.data['phase4'].get('heuristics_data', {})
         if h_data:
-            st.markdown("**AI Analysis:**")
+            st.markdown("**AI Recommendations:**")
             for heuristic_key in sorted(h_data.keys()):
                 insight = h_data[heuristic_key]
                 definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
-                
-                # Display with tooltip on hover
+
+                # Title with tooltip
                 st.markdown(f"""
-                <div style="margin-bottom: 5px;">
-                    <span class="heuristic-title" title="{definition}">{heuristic_key} Insight (Hover for Definition)</span>
+                <div style="margin-bottom: 6px;">
+                    <span class="heuristic-title" title="{definition}"><strong>{heuristic_key}</strong> — hover for definition</span>
                 </div>
                 """, unsafe_allow_html=True)
                 st.info(insight)
+
+                # Refine note (optional)
+                refine_note = st.text_input(
+                    f"Refine {heuristic_key} (optional)",
+                    value="",
+                    key=f"p4_refine_note_{heuristic_key}"
+                )
+
+                # Action buttons for this heuristic
+                act_left, act_right = st.columns([1, 1])
+                with act_left:
+                    if st.button(f"Apply {heuristic_key}", key=f"p4_apply_{heuristic_key}", width="stretch"):
+                        # Snapshot current nodes for undo
+                        st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        with ai_activity(f"Applying {heuristic_key} recommendation…"):
+                            prompt_apply = f"""
+                            Update the clinical pathway by applying this specific usability recommendation.
+                            Heuristic {heuristic_key} recommendation: {insight}
+                            Current pathway: {json.dumps(nodes)}
+                            Return ONLY the updated JSON array of nodes.
+                            """
+                            new_nodes = get_gemini_response(prompt_apply, json_mode=True)
+                            if new_nodes and isinstance(new_nodes, list):
+                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                st.success(f"Applied {heuristic_key}")
+                                st.rerun()
+                with act_right:
+                    if st.button(f"Refine {heuristic_key}", key=f"p4_refine_{heuristic_key}", width="stretch"):
+                        # Snapshot for undo
+                        st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        user_note = refine_note.strip()
+                        with ai_activity(f"Refining via {heuristic_key}…"):
+                            prompt_refine = f"""
+                            Refine the clinical pathway using this heuristic and user note.
+                            Heuristic {heuristic_key} recommendation: {insight}
+                            User note: {user_note if user_note else '(none)'}
+                            Current pathway: {json.dumps(nodes)}
+                            Return ONLY the updated JSON array of nodes.
+                            """
+                            new_nodes = get_gemini_response(prompt_refine, json_mode=True)
+                            if new_nodes and isinstance(new_nodes, list):
+                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                st.success(f"Refined via {heuristic_key}")
+                                st.rerun()
     
     st.divider()
     
@@ -2186,7 +2252,7 @@ elif "Phase 4" in phase:
     
     col_refine, col_undo = st.columns([1, 1])
     with col_refine:
-        if st.button("Apply Refinements", type="primary", use_container_width=True, key="p4_apply_ref"):
+        if st.button("Apply Refinements", type="primary", width="stretch", key="p4_apply_ref"):
             if custom_ref.strip():
                 if 'nodes_history' not in st.session_state.data['phase4']:
                     st.session_state.data['phase4']['nodes_history'] = []
@@ -2211,7 +2277,7 @@ elif "Phase 4" in phase:
     
     with col_undo:
         if st.session_state.data['phase4'].get('nodes_history'):
-            if st.button("Undo Last Change", use_container_width=True, key="p4_undo_btn"):
+            if st.button("Undo Last Change", width="stretch", key="p4_undo_btn"):
                 old_nodes = st.session_state.data['phase4']['nodes_history'].pop()
                 st.session_state.data['phase3']['nodes'] = old_nodes
                 st.success("Change undone")
@@ -2225,7 +2291,7 @@ elif "Phase 4" in phase:
         st.markdown("### Fullscreen Pathway Visualization")
         close_col, spacer = st.columns([1, 10])
         with close_col:
-            if st.button("Close", use_container_width=True, key="p4_close_fullscreen"):
+            if st.button("Close", width="stretch", key="p4_close_fullscreen"):
                 st.session_state.data['phase4']['fullscreen_modal'] = False
                 st.rerun()
         
@@ -2338,7 +2404,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
             help="Google Forms respects your org policy. HTML is preview-only.",
         )
         expert_label = f"Generate in {PROVIDER_OPTIONS.get(expert_provider, 'selected provider')}"
-        if st.button(expert_label, type="primary", use_container_width=True, key="btn_expert_gen"):
+        if st.button(expert_label, type="primary", width="stretch", key="btn_expert_gen"):
             with ai_activity("Generating form..."):
                 nodes = st.session_state.data['phase3']['nodes']
                 s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
@@ -2409,7 +2475,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
         
         if st.session_state.data['phase5'].get('expert_html'):
             # View Form Link button
-            if st.button("View Form", use_container_width=True, key="view_expert", type="primary"):
+            if st.button("View Form", width="stretch", key="view_expert", type="primary"):
                 st.session_state['show_expert_form'] = True
                 st.rerun()
             
@@ -2419,7 +2485,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                 st.session_state.data['phase5']['expert_html'], 
                 "ExpertPanelForm.html",
                 mime="text/html",
-                use_container_width=True
+                width="stretch"
             )
             
             # Show form in modal if requested
@@ -2450,7 +2516,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                     "Improve section headings"
                 ])
                 refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add examples...")
-                if st.button("Update Form", use_container_width=True, key="update_expert"):
+                if st.button("Update Form", width="stretch", key="update_expert"):
                     with ai_activity("Updating expert feedback form…"):
                         new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
                         if new_html:
@@ -2476,7 +2542,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
             help="Google Forms respects your org policy. HTML is preview-only.",
         )
         beta_label = f"Generate in {PROVIDER_OPTIONS.get(beta_provider, 'selected provider')}"
-        if st.button(beta_label, type="primary", use_container_width=True, key="btn_beta_gen"):
+        if st.button(beta_label, type="primary", width="stretch", key="btn_beta_gen"):
             with ai_activity("Generating form..."):
                 prompt = f"""
                 Create a standalone HTML5 form for Beta Testing Feedback.
@@ -2521,7 +2587,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                         st.rerun()
         
         if st.session_state.data['phase5'].get('beta_html'):
-            if st.button("View Form", use_container_width=True, key="view_beta", type="primary"):
+            if st.button("View Form", width="stretch", key="view_beta", type="primary"):
                 st.session_state['show_beta_form'] = True
                 st.rerun()
             
@@ -2530,7 +2596,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                 st.session_state.data['phase5']['beta_html'],
                 "BetaTestingForm.html",
                 mime="text/html",
-                use_container_width=True
+                width="stretch"
             )
             
             if st.session_state.get('show_beta_form'):
@@ -2554,7 +2620,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                     "Include example responses"
                 ])
                 refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed", placeholder="e.g., Add severity field...")
-                if st.button("Update Form", use_container_width=True, key="update_beta"):
+                if st.button("Update Form", width="stretch", key="update_beta"):
                     with ai_activity("Updating beta testing form…"):
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
                         if new_html:
@@ -2572,7 +2638,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
     with c3:
         st.markdown("#### Staff Education Module")
         st.caption(f"Target Audience: {audience}")
-        if st.button("Generate Module", type="primary", use_container_width=True, key="btn_edu_gen"):
+        if st.button("Generate Module", type="primary", width="stretch", key="btn_edu_gen"):
             with ai_activity("Generating module..."):
                 prompt = f"""
                 Create a standalone HTML5 interactive education module for {cond}.
@@ -2650,7 +2716,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
         
         if st.session_state.data['phase5'].get('edu_html'):
             # View Module Link button
-            if st.button("View Module", use_container_width=True, key="view_edu", type="primary"):
+            if st.button("View Module", width="stretch", key="view_edu", type="primary"):
                 st.session_state['show_edu_module'] = True
                 st.rerun()
             
@@ -2660,7 +2726,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                 st.session_state.data['phase5']['edu_html'],
                 "EducationModule.html",
                 mime="text/html",
-                use_container_width=True
+                width="stretch"
             )
             
             # Show module in modal if requested
@@ -2691,7 +2757,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                     "Align with hospital policy"
                 ])
                 refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed", placeholder="e.g., Add clinical case examples; Improve visuals...")
-                if st.button("Update Module", use_container_width=True, key="update_edu"):
+                if st.button("Update Module", width="stretch", key="update_edu"):
                     with ai_activity("Updating education module…"):
                         new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
                         if new_html:
@@ -2705,7 +2771,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
     with c4:
         st.markdown("#### Executive Summary")
         st.caption("Audience: Hospital Leadership")
-        if st.button("Generate Report", type="primary", use_container_width=True, key="btn_exec_gen"):
+        if st.button("Generate Report", type="primary", width="stretch", key="btn_exec_gen"):
             with ai_activity("Generating report..."):
                 prompt = f"""
                 Write executive summary for {cond} pathway. 
@@ -2732,7 +2798,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                     doc,
                     "ExecSummary.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary"
                 )
             
@@ -2746,7 +2812,7 @@ GOOGLE_REDIRECT_URI = "{google_cb}"
                     "Strengthen executive call-to-action"
                 ])
                 refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed", placeholder="e.g., Make more concise; Add key metrics...")
-                if st.button("Update Summary", use_container_width=True, key="update_exec"):
+                if st.button("Update Summary", width="stretch", key="update_exec"):
                     with ai_activity("Updating executive summary…"):
                         new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
                         if new_sum:
