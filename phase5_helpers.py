@@ -798,6 +798,8 @@ const SUS_ITEMS = [
   "I needed to learn a lot of things before I could get going with this system."
 ];
 
+const condition = "{condition}";
+const STORAGE_KEY = "betaFormState_" + condition.replace(/\s+/g, '_');
 const NODES = {nodes_json};
 
 function pad(n) { return String(n).padStart(2,'0'); }
@@ -861,6 +863,110 @@ function renderRuns() {
         tr.innerHTML = `<td>${name}</td><td>${r.seconds}</td><td>${r.timestamp}</td>`;
         body.appendChild(tr);
     });
+}
+
+// Autosave helpers and run exports
+let _saveDebounce = null;
+function scheduleSave() {
+  clearTimeout(_saveDebounce);
+  _saveDebounce = setTimeout(saveState, 300);
+}
+function saveState() {
+  try {
+    const { summary, nodes } = collectData();
+    const state = { summary, nodes, runs, scenarioTimes };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {}
+}
+function restoreState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    const setVal = (id, val) => { const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; } else if (typeof val !== 'undefined' && val !== null) { el.value = val; } };
+
+    // Scenario timers
+    if (state.scenarioTimes) {
+      scenarioTimes = state.scenarioTimes;
+      activeTimer = null;
+      startEpoch = null;
+      renderAllTimers();
+    }
+
+    const s = state.summary || {};
+    setVal('tester_name', s.testerName || '');
+    setVal('tester_email', s.testerEmail || '');
+    setVal('tester_role', s.testerRole || '');
+    setVal('ease', s.ease);
+    setVal('fit', s.fit);
+    setVal('positives', s.positives || '');
+    setVal('improvements', s.improvements || '');
+
+    // Heuristics
+    if (Array.isArray(s.heuristics)) {
+      s.heuristics.forEach((h, i) => {
+        setVal('h_rate_'+i, h.rating);
+        setVal('h_comment_'+i, h.comments || '');
+      });
+    }
+
+    // SUS
+    if (s.susEnabled) {
+      const chk = document.getElementById('susEnable');
+      if (chk) {
+        chk.checked = true;
+        document.getElementById('susBlock').style.display = 'block';
+        if (document.getElementById('susBody').children.length === 0) { renderSUS(); }
+      }
+      if (Array.isArray(s.susScores)) {
+        s.susScores.forEach((v,i) => setVal('sus_'+i, v));
+        computeSUS();
+      }
+    }
+
+    // Nodes
+    if (Array.isArray(state.nodes)) {
+      state.nodes.forEach((n, idx) => {
+        setVal('correct_'+idx, n.correctness);
+        setVal('errors_'+idx, n.errors);
+        setVal('time_'+idx, n.timeSeconds);
+        const uc = document.getElementById('unclear_'+idx); if (uc) uc.checked = !!n.unclear;
+        setVal('issue_'+idx, n.issue || '');
+        setVal('suggest_'+idx, n.suggestion || '');
+      });
+    }
+
+    // Runs
+    if (Array.isArray(state.runs)) {
+      runs = state.runs;
+      renderRuns();
+    }
+  } catch (e) {}
+}
+
+// Wire autosave on form changes
+const _formEl = document.getElementById('betaForm');
+if (_formEl) {
+  _formEl.addEventListener('input', scheduleSave);
+  _formEl.addEventListener('change', scheduleSave);
+}
+
+function downloadRunsCSV() {
+  const rows = runs.map(r => ({
+    scenario: SCENARIOS[r.scenario]?.name || r.scenario,
+    seconds: r.seconds,
+    timestamp: r.timestamp
+  }));
+  if (!rows.length) { alert('No runs recorded yet.'); return; }
+  const safeCondition = condition.replace(/\s+/g, '_');
+  download(`Beta_Runs_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), 'text/csv');
+}
+
+function clearSaved() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  runs = [];
+  renderRuns();
+  alert('Saved state cleared for this form.');
 }
 
 // Render Nielsen Heuristics
@@ -1067,10 +1173,13 @@ function downloadNodeCSV() {
 
 function downloadJSON() {{
   const {{summary, nodes}} = collectData();
-  const payload = {{ summary, nodes, timestamp: "{timestamp}" }};
+  const payload = {{ summary, nodes, runs, timestamp: "{timestamp}" }};
   const safeCondition = condition.replace(/\\s+/g, '_');
   download(`Beta_${{safeCondition}}_{timestamp}.json`, JSON.stringify(payload, null, 2), "application/json");
 }}
+
+// Restore autosaved state on load
+restoreState();
 </script>
 </body>
 </html>
