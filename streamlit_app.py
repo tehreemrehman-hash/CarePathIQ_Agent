@@ -1599,13 +1599,13 @@ if "Phase 1" in phase:
         sync_p1_widgets()
         trigger_p1_draft()
 
-    # Always sync widget keys from saved data to show AI-generated content
-    st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
-    st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
-    st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
-    st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
-    st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
-    st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
+    # Always seed widget keys from saved data without clobbering in-progress input
+    st.session_state.setdefault('p1_cond_input', st.session_state.data['phase1'].get('condition', ''))
+    st.session_state.setdefault('p1_setting',    st.session_state.data['phase1'].get('setting', ''))
+    st.session_state.setdefault('p1_inc',        st.session_state.data['phase1'].get('inclusion', ''))
+    st.session_state.setdefault('p1_exc',        st.session_state.data['phase1'].get('exclusion', ''))
+    st.session_state.setdefault('p1_prob',       st.session_state.data['phase1'].get('problem', ''))
+    st.session_state.setdefault('p1_obj',        st.session_state.data['phase1'].get('objectives', ''))
     
     st.title("Phase 1: Scoping & Charter")
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
