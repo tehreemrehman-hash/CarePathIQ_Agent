@@ -1209,6 +1209,98 @@ def search_pubmed(query):
         return citations
     except Exception as e: st.error(f"PubMed Search Error: {e}"); return []
 
+def fetch_single_pmid(pmid):
+    """Fetch metadata for a single PMID from PubMed. Returns evidence dict with default grade."""
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+    try:
+        # With rate limiting: respect NCBI 3 requests/second limit
+        time.sleep(0.4)
+        
+        fetch_params = {'db': 'pubmed', 'id': pmid, 'retmode': 'xml'}
+        with urllib.request.urlopen(base_url + "efetch.fcgi?" + urllib.parse.urlencode(fetch_params)) as response:
+            root = ET.fromstring(response.read().decode())
+        
+        article = root.find('.//PubmedArticle')
+        if article is None:
+            return None
+        
+        medline = article.find('MedlineCitation')
+        if medline is None:
+            return None
+        
+        pmid_elem = medline.find('PMID')
+        title_elem = medline.find('Article/ArticleTitle')
+        
+        if pmid_elem is None or title_elem is None:
+            return None
+        
+        # Authors
+        author_list = article.findall('.//Author')
+        authors_str = "Unknown"
+        if author_list:
+            authors = []
+            for auth in author_list[:3]:
+                lname = auth.find('LastName')
+                init = auth.find('Initials')
+                if lname is not None and init is not None:
+                    authors.append(f"{lname.text} {init.text}")
+            authors_str = ", ".join(authors)
+            if len(author_list) > 3:
+                authors_str += ", et al."
+        
+        # Year
+        year_node = article.find('.//PubDate/Year')
+        year = year_node.text if year_node is not None else "N/A"
+        
+        # Journal
+        journal = medline.find('Article/Journal/Title').text if medline.find('Article/Journal/Title') is not None else "N/A"
+        
+        # Abstract
+        abs_node = medline.find('Article/Abstract')
+        abstract_text = " ".join([e.text for e in abs_node.findall('AbstractText') if e.text]) if abs_node is not None else "No abstract."
+        
+        return {
+            "id": pmid_elem.text,
+            "title": title_elem.text,
+            "authors": authors_str,
+            "year": year,
+            "journal": journal,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid_elem.text}/",
+            "abstract": abstract_text,
+            "grade": "Un-graded",
+            "rationale": "Added from Phase 3 pathway - pending review",
+            "source": "enriched_from_phase3"
+        }
+    except Exception as e:
+        return None
+
+def extract_pmids_from_nodes(nodes):
+    """Extract all unique PMIDs from pathway nodes that are not 'N/A'."""
+    pmids = set()
+    for node in nodes:
+        pmid = node.get('evidence', 'N/A')
+        if pmid and pmid not in ['N/A', '', None]:
+            pmids.add(str(pmid).strip())
+    return pmids
+
+def enrich_phase2_with_new_pmids(new_pmids, existing_pmids):
+    """
+    Compare Phase 3 PMIDs with Phase 2 PMIDs.
+    Fetch and add any new PMIDs to Phase 2 evidence.
+    Returns list of newly added evidence entries.
+    """
+    pmids_to_add = new_pmids - existing_pmids
+    if not pmids_to_add:
+        return []
+    
+    new_evidence = []
+    for pmid in sorted(pmids_to_add):
+        evidence_entry = fetch_single_pmid(pmid)
+        if evidence_entry:
+            new_evidence.append(evidence_entry)
+    
+    return new_evidence
+
 def format_as_numbered_list(items):
     """Ensure numbered list formatting with a blank line between items.
     - Accepts list or string; outputs a string with "1. ..." and blank lines.
@@ -1574,6 +1666,7 @@ if "Phase 1" in phase:
                     else:
                         status.update(label="Word export unavailable. Please ensure python-docx is installed.", state="error")
     render_bottom_navigation()
+    st.stop()
 
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
@@ -1715,16 +1808,21 @@ elif "Phase 2" in phase:
         
         if not df_ev.empty:
             # Ensure all required columns exist in DataFrame
-            required_cols = ["id", "title", "grade", "rationale", "url", "authors", "abstract", "year", "journal"]
+            required_cols = ["id", "title", "grade", "rationale", "url", "authors", "abstract", "year", "journal", "source"]
             for col in required_cols:
                 if col not in df_ev.columns:
                     df_ev[col] = ""
+            
+            # Add visual indicator for enriched entries
+            df_ev["source"] = df_ev.get("source", "").fillna("")
+            df_ev.insert(0, "status", df_ev["source"].apply(lambda x: "🔄 From Phase 3" if x == "enriched_from_phase3" else ""))
 
-            styled_info("<b>Tip:</b> Hover over the top right of the table to download the CSV. You can edit GRADE and Rationale directly in the table.")
+            styled_info("<b>Tip:</b> Entries marked with 🔄 were auto-enriched from Phase 3 pathway citations. Review and finalize their GRADE assessments. Hover over the top right of the table to download the CSV.")
 
             edited_ev = st.data_editor(
-                df_ev[["id", "title", "grade", "rationale", "url"]], 
+                df_ev[["status", "id", "title", "grade", "rationale", "url"]], 
                 column_config={
+                    "status": st.column_config.TextColumn("", disabled=True, width="small"),
                     "id": st.column_config.TextColumn("PMID", disabled=True, width="small"),
                     "title": st.column_config.TextColumn("Title", width="large"),
                     "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small"),
@@ -1865,11 +1963,23 @@ elif "Phase 2" in phase:
             full_q = search_q if '"last 5 years"[dp]' in search_q else f"{search_q} AND (\"last 5 years\"[dp])"
             st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
     render_bottom_navigation()
+    st.stop()
 
 # --- PHASE 3 ---
 elif "Phase 3" in phase:
     st.title("Phase 3: Decision Science")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
+    
+    # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
+    # This is a safety mechanism to detect changes from previous session
+    if 'p3_last_nodes_state' not in st.session_state:
+        st.session_state['p3_last_nodes_state'] = None
+    
+    current_nodes_state = str(st.session_state.data.get('phase3', {}).get('nodes', []))
+    if current_nodes_state != st.session_state['p3_last_nodes_state']:
+        # Nodes have changed (new entry or edit); reset enrichment to allow re-detection
+        st.session_state['p3_enrichment_performed'] = False
+        st.session_state['p3_last_nodes_state'] = current_nodes_state
     
     # Auto-generate table on first entry to Phase 3
     cond = st.session_state.data['phase1']['condition']
@@ -1954,46 +2064,57 @@ elif "Phase 3" in phase:
     # Auto-save on edit
     st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
     
-    # Display pathway metrics with evidence validation
+    # Display pathway metrics with evidence enrichment
     node_count = len(st.session_state.data['phase3']['nodes'])
     
-    # Validate evidence citations against Phase 2 data
+    # Extract all PMIDs from Phase 3 nodes
+    phase3_pmids = extract_pmids_from_nodes(st.session_state.data['phase3']['nodes'])
     phase2_pmids = set([e['id'] for e in evidence_list])
-    evidence_backed_nodes = []
-    for n in st.session_state.data['phase3']['nodes']:
-        pmid = n.get('evidence', 'N/A')
-        if pmid and pmid not in ['N/A', '', None]:
-            # Check if PMID exists in Phase 2 evidence
-            is_valid = pmid in phase2_pmids
-            evidence_backed_nodes.append({'node': n, 'valid': is_valid})
     
+    # Identify new PMIDs in Phase 3 not yet in Phase 2
+    new_pmids_in_phase3 = phase3_pmids - phase2_pmids
+    
+    # Count evidence-backed nodes (nodes with non-'N/A' evidence field)
+    evidence_backed_nodes = [n for n in st.session_state.data['phase3']['nodes'] 
+                            if n.get('evidence', 'N/A') not in ['N/A', '', None]]
     evidence_backed_count = len(evidence_backed_nodes)
-    valid_evidence_count = len([e for e in evidence_backed_nodes if e['valid']])
-    invalid_evidence_count = evidence_backed_count - valid_evidence_count
     
-    # Create colored metrics
+    # Check if auto-enrichment has been performed in this session
+    if 'p3_enrichment_performed' not in st.session_state:
+        st.session_state['p3_enrichment_performed'] = False
+    
+    # Auto-enrich Phase 2 with new PMIDs if not yet done this session
+    enriched_count = 0
+    if new_pmids_in_phase3 and not st.session_state['p3_enrichment_performed']:
+        with ai_activity("Enriching Phase 2 evidence with new PMIDs from pathway..."):
+            new_evidence_list = enrich_phase2_with_new_pmids(new_pmids_in_phase3, phase2_pmids)
+            
+            if new_evidence_list:
+                # Add new evidence to Phase 2
+                st.session_state.data['phase2']['evidence'].extend(new_evidence_list)
+                enriched_count = len(new_evidence_list)
+                st.session_state['p3_enrichment_performed'] = True
+                st.session_state['p3_new_pmids_enriched'] = enriched_count
+    else:
+        enriched_count = st.session_state.get('p3_new_pmids_enriched', 0)
+    
+    # Create metrics display similar to total nodes and evidence-based nodes pattern
     if evidence_backed_count == 0:
         evidence_status = "⚪ No evidence citations"
-        status_color = "gray"
-    elif valid_evidence_count == evidence_backed_count:
-        evidence_status = f"✅ All {evidence_backed_count} citations validated"
-        status_color = "green"
-    elif valid_evidence_count > 0:
-        evidence_status = f"⚠️ {valid_evidence_count} valid, {invalid_evidence_count} unvalidated"
-        status_color = "orange"
     else:
-        evidence_status = f"❌ {invalid_evidence_count} unvalidated citations"
-        status_color = "red"
+        evidence_status = f"✅ {evidence_backed_count} evidence-based nodes"
+        if enriched_count > 0:
+            evidence_status += f" | 🔄 {enriched_count} new PMID(s) enriched to Phase 2"
     
-    st.markdown(f"**Pathway Metrics:** {node_count} nodes | **Evidence Status:** {evidence_status}")
+    st.markdown(f"**Pathway Metrics:** {node_count} total nodes | {evidence_status}")
     
-    if invalid_evidence_count > 0:
-        with st.expander(f"⚠️ View {invalid_evidence_count} Unvalidated Citations", expanded=False):
-            invalid_nodes = [e for e in evidence_backed_nodes if not e['valid']]
-            for item in invalid_nodes:
-                node = item['node']
-                st.markdown(f"- **{node.get('label', 'Unknown')}**: PMID `{node.get('evidence')}` not found in Phase 2 evidence")
-            st.caption("Tip: Add missing PMIDs in Phase 2 or correct the citation.")
+    # Show tip if new PMIDs were enriched
+    if enriched_count > 0:
+        styled_info(
+            f"<b>🔄 Evidence Updated:</b> Found {enriched_count} new PMID(s) in your pathway. "
+            f"Auto-added to Phase 2 evidence table with 'Un-graded' status. "
+            f"<b>Visit Phase 2 to review and finalize GRADE assessments</b> for these new citations."
+        )
 
     def apply_large_pathway_recommendations():
         current_nodes = st.session_state.data['phase3']['nodes']
@@ -2100,6 +2221,7 @@ elif "Phase 3" in phase:
                         st.rerun()
     
     render_bottom_navigation()
+    st.stop()
 
 # --- PHASE 4 ---
 elif "Phase 4" in phase:
@@ -2452,6 +2574,7 @@ elif "Phase 4" in phase:
                 st.rerun()
     
     render_bottom_navigation()
+    st.stop()
 
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
@@ -2839,5 +2962,6 @@ elif "Phase 5" in phase:
         """)
     
     render_bottom_navigation()
+    st.stop()
 
 st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
