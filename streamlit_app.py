@@ -1456,7 +1456,7 @@ with st.sidebar:
 
     if gemini_api_key:
         try:
-            st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key, http_options={"api_version": "v1"})
+            st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
             should_validate = st.session_state.get("last_tested_key") != gemini_api_key
             if should_validate:
                 st.session_state["last_tested_key"] = gemini_api_key
