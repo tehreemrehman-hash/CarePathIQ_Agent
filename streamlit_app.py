@@ -446,13 +446,13 @@ def styled_info(text):
     st.markdown(f"""
     <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
         {formatted_text}
-            background-color: #FFB0C9;
-            border-left: 5px solid #5D4037;
-            padding: 16px;
-            border-radius: 6px;
-            color: #3E2723;
-            margin-bottom: 20px;">
-            <strong>Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get it <a href=\"https://aistudio.google.com/app/apikey\" target=\"_blank\">here</a>.
+    </div>""", unsafe_allow_html=True)
+
+def auto_grade_evidence_list(evidence_list):
+    """Assign GRADE and rationale for a list of evidence items in-place using the existing AI helper.
+    Falls back to safe defaults when the AI response is missing or malformed.
+    """
+    try:
         payload = [
             {k: v for k, v in e.items() if k in ["id", "title"]}
             for e in evidence_list if e.get("id") and e.get("title")
@@ -1432,11 +1432,8 @@ with st.sidebar:
 
     st.title("AI Agent")
     st.divider()
-    try:
-        default_key = st.secrets.get("GEMINI_API_KEY", "")
-    except:
-        default_key = ""
-    gemini_api_key = st.text_input("Gemini API Key", value=default_key, type="password")
+    # Do not prefill from secrets so landing shows on first load
+    gemini_api_key = st.text_input("Gemini API Key", value="", type="password")
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
@@ -1506,13 +1503,13 @@ if not gemini_api_key:
     st.markdown(
         """
         <div style="
-            background-color: #EFEBE9;
+            background-color: #FFB0C9;
             border-left: 5px solid #5D4037;
             padding: 16px;
             border-radius: 6px;
             color: #3E2723;
             margin-bottom: 20px;">
-            <strong>👋 Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get it <a href="https://aistudio.google.com/app/apikey" target="_blank">here</a>.
+            <strong>Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get it <a href="https://aistudio.google.com/app/apikey" target="_blank">here</a>.
         </div>
         """,
         unsafe_allow_html=True,
