@@ -1453,7 +1453,7 @@ with st.sidebar:
     if gemini_api_key:
         try:
             st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
-            st.success("AI Connected")
+            st.success("Key entered — AI will connect on first use")
         except Exception as e:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
