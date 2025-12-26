@@ -1433,7 +1433,13 @@ with st.sidebar:
     st.title("AI Agent")
     st.divider()
     # Do not prefill from secrets so landing shows on first load
-    gemini_api_key = st.text_input("Gemini API Key", value="", type="password")
+    gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
+    # Convenience: allow clearing the key to view landing
+    clear_col1, clear_col2 = st.columns([1, 3])
+    with clear_col1:
+        if st.button("Clear Key", type="secondary"):
+            st.session_state["gemini_key"] = ""
+            st.experimental_rerun()
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
