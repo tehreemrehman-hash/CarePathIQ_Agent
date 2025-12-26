@@ -2166,45 +2166,44 @@ elif "Phase 3" in phase:
                             if n.get('evidence', 'N/A') not in ['N/A', '', None]]
     evidence_backed_count = len(evidence_backed_nodes)
     
-    # Check if auto-enrichment has been performed in this session
-    if 'p3_enrichment_performed' not in st.session_state:
-        st.session_state['p3_enrichment_performed'] = False
+    # Track enrichment state: re-enrich only when new PMIDs appear that haven't been processed
+    if 'p3_last_enriched_pmids' not in st.session_state:
+        st.session_state['p3_last_enriched_pmids'] = set()
     
-    # Auto-enrich Phase 2 with new PMIDs if not yet done this session
     enriched_count = 0
-    if new_pmids_in_phase3 and not st.session_state['p3_enrichment_performed']:
+    pmids_to_enrich_now = new_pmids_in_phase3 - st.session_state['p3_last_enriched_pmids']
+    
+    # Auto-enrich Phase 2 with truly NEW PMIDs (not previously enriched)
+    if pmids_to_enrich_now:
         with ai_activity("Enriching evidence and auto‑grading new PMIDs…"):
-            new_evidence_list = enrich_phase2_with_new_pmids(new_pmids_in_phase3, phase2_pmids)
+            new_evidence_list = enrich_phase2_with_new_pmids(pmids_to_enrich_now, phase2_pmids)
             if new_evidence_list:
                 # Auto‑grade the newly added items
                 auto_grade_evidence_list(new_evidence_list)
-                # Mark as new for visual highlight, set neutral source
+                # Mark as new for visual highlight and add to Phase 2
                 for e in new_evidence_list:
                     e["is_new"] = True
                     if not e.get("source"):
                         e["source"] = "enriched_from_phase3"
-                # Add to Phase 2 repository
                 st.session_state.data['phase2']['evidence'].extend(new_evidence_list)
                 enriched_count = len(new_evidence_list)
-                st.session_state['p3_enrichment_performed'] = True
-                st.session_state['p3_new_pmids_enriched'] = enriched_count
-    else:
-        enriched_count = st.session_state.get('p3_new_pmids_enriched', 0)
+        # Update tracking to prevent re-enrichment of same PMIDs
+        st.session_state['p3_last_enriched_pmids'] = new_pmids_in_phase3.copy()
     
-    # Create metrics display similar to total nodes and evidence-based nodes pattern
+    # Create metrics display
     if evidence_backed_count == 0:
         evidence_status = "No evidence citations"
     else:
         evidence_status = f"{evidence_backed_count} evidence-based nodes"
-        if enriched_count > 0:
-            evidence_status += f" | new evidence auto-graded: {enriched_count}"
+        if len(new_pmids_in_phase3) > 0:
+            evidence_status += f" | {len(new_pmids_in_phase3)} new evidence in Phase 2"
     
     st.markdown(f"**Pathway Metrics:** {node_count} total nodes | {evidence_status}")
     
-    # Show tip if new PMIDs were enriched
-    if enriched_count > 0:
+    # Show tip if new PMIDs detected (whether just enriched or already enriched)
+    if new_pmids_in_phase3:
         styled_info(
-            f"<b>Evidence updated:</b> {enriched_count} new PMID(s) auto-graded and added to Phase 2 (pink-highlighted). "
+            f"<b>New evidence identified:</b> {len(new_pmids_in_phase3)} PMID(s) from Phase 3 auto-graded and added to Phase 2 (pink-highlighted). "
             f"<b>Visit Phase 2</b> to review and finalize."
         )
 
@@ -2340,15 +2339,25 @@ elif "Phase 4" in phase:
     # Auto-run heuristics once if pathway data exists
     if nodes and not p4_state['heuristics_data'] and not p4_state['auto_heuristics_done']:
         with ai_activity("Analyzing usability heuristics…"):
+            # Limit nodes in prompt to avoid token overflow
+            nodes_sample = nodes[:10] if len(nodes) > 10 else nodes
             prompt = f"""
             Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
-            For each heuristic (H1-H10), provide a specific, actionable critique and suggestion.
-            Pathway nodes: {json.dumps(nodes)}
-            Return ONLY a JSON object with keys H1-H10.
+            For each heuristic (H1-H10), provide a specific, actionable critique and suggestion in 2-3 sentences.
+            
+            Pathway nodes: {json.dumps(nodes_sample)}
+            
+            Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
+            Each value should be a string with the recommendation.
+            
+            Example format: {{"H1": "The pathway lacks clear status indicators...", "H2": "Medical jargon should be..."}}
             """
             res = get_gemini_response(prompt, json_mode=True)
-            if res:
+            if res and isinstance(res, dict) and len(res) >= 10:
                 p4_state['heuristics_data'] = res
+                p4_state['auto_heuristics_done'] = True
+            else:
+                # Mark as attempted to allow manual retry
                 p4_state['auto_heuristics_done'] = True
 
     # Prepare nodes for visualization with a lightweight cache
@@ -2423,7 +2432,7 @@ elif "Phase 4" in phase:
         # Validate and render SVG with proper width parameter
         if svg_bytes and isinstance(svg_bytes, bytes) and len(svg_bytes) > 0:
             try:
-                st.image(svg_bytes, width=None)
+                st.image(svg_bytes, use_column_width=True)
             except Exception as e:
                 st.warning(f"Unable to render SVG image. {str(e)[:100]}")
         else:
@@ -2479,17 +2488,28 @@ elif "Phase 4" in phase:
 
         if st.button(btn_label, use_container_width=True, key="p4_run_heuristics_btn"):
             with ai_activity("Analyzing usability heuristics…"):
+                nodes_sample = nodes[:10] if len(nodes) > 10 else nodes
                 prompt = f"""
                 Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
-                For each heuristic (H1-H10), provide a specific, actionable critique and suggestion.
-                Pathway nodes: {json.dumps(nodes)}
-                Return ONLY a JSON object with keys H1-H10.
+                For each heuristic (H1-H10), provide a specific, actionable critique and suggestion in 2-3 sentences.
+                
+                Pathway nodes: {json.dumps(nodes_sample)}
+                
+                Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
+                Each value should be a string with the recommendation.
+                
+                Example format: {{"H1": "The pathway lacks clear status indicators...", "H2": "Medical jargon should be..."}}
                 """
                 res = get_gemini_response(prompt, json_mode=True)
-                if res:
+                if res and isinstance(res, dict):
                     p4_state['heuristics_data'] = res
                     h_data = res
-                p4_state['auto_heuristics_done'] = True
+                    p4_state['auto_heuristics_done'] = True
+                    st.success("Heuristics analyzed successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to generate heuristics. Please try again.")
+                    p4_state['auto_heuristics_done'] = True
 
         if not h_data:
             styled_info("No heuristics yet. Click 'Run heuristics' to analyze this pathway.")
