@@ -1701,7 +1701,12 @@ if "Phase 1" in phase:
     
     # Natural Language Refinement Section
     st.subheader("Refine Content")
-    st.text_area("", placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...", key="p1_refine_input")
+    st.text_area(
+        "Refinement instructions",
+        placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...",
+        key="p1_refine_input",
+        label_visibility="collapsed",
+    )
     
     # Reset refinement applied flag if text area content changes
     if 'p1_last_refine_input' not in st.session_state:
