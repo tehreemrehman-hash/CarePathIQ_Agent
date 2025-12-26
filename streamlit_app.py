@@ -1,6 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import google.generativeai as genai
+import google.genai as genai
 import pandas as pd
 import urllib.request
 import urllib.parse
