@@ -1877,41 +1877,44 @@ elif "Phase 3" in phase:
     evidence_list = st.session_state.data['phase2']['evidence']
     
     if not st.session_state.data['phase3']['nodes'] and cond:
-        with ai_activity("Auto-generating decision science table based on Phase 1 & 2..."):
-            ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
-            prompt = f"""
-            Act as a Clinical Decision Scientist. Build a comprehensive decision-science pathway for managing patients with {cond} in {setting}.
-            
-            Ground the design in CGT/Ad/it principles and the Users' Guide to Medical Decision Analysis (Dobler et al., Mayo Clin Proc 2021): separate structure from content, make decision/chance/terminal flows explicit, trade off benefits vs harms, and rely on evidence-based probabilities and utilities.
+        st.info("⏳ Auto-generating decision tree from Phase 1 & 2 data...")
+        ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+        prompt = f"""
+        Act as a Clinical Decision Scientist. Build a comprehensive decision-science pathway for managing patients with {cond} in {setting}.
+        
+        Ground the design in CGT/Ad/it principles and the Users' Guide to Medical Decision Analysis (Dobler et al., Mayo Clin Proc 2021): separate structure from content, make decision/chance/terminal flows explicit, trade off benefits vs harms, and rely on evidence-based probabilities and utilities.
 
-            Available Evidence:
-            {ev_context}
-            
-            The pathway MUST cover these clinical stages:
-            1. Initial Evaluation (presenting symptoms, vital signs, initial assessment)
-            2. Diagnosis and Treatment (diagnostic workup, interventions, medications)
-            3. Re-evaluation (response to treatment, monitoring criteria)
-            4. Final Disposition (discharge with prescriptions/referrals, observe, admit, transfer to higher level of care)
-            
-            Output: JSON array of nodes. Each object must have:
-            - "type": one of "Start", "Decision", "Process", "End"
-            - "label": concise, actionable clinical step using medical acronyms where appropriate (e.g., BP, HR, CBC, CXR, IV, PO, etc.)
-            - "evidence": PMID from evidence list when step is evidence-backed; otherwise "N/A"
-            
-            Rules:
-            - First node: type "Start", label "patient present to {setting} with {cond}"
-            - Focus on ACTION and SPECIFICITY (e.g., "Order CBC, BMP, troponin" not "Order labs")
-            - Use BREVITY with standard medical abbreviations
-            - Include discharge details: specific prescriptions (drug, dose, route) and outpatient referrals when applicable
-            - NO arbitrary node count limit - build as many nodes as needed for complete clinical flow
-            - If pathway exceeds 20 nodes, organize into logical sections or create sub-pathways for special populations
-            - Prefer evidence-backed steps; cite PMIDs where available
-            - Highlight benefit/harm trade-offs at decision points
-            """
+        Available Evidence:
+        {ev_context}
+        
+        The pathway MUST cover these clinical stages:
+        1. Initial Evaluation (presenting symptoms, vital signs, initial assessment)
+        2. Diagnosis and Treatment (diagnostic workup, interventions, medications)
+        3. Re-evaluation (response to treatment, monitoring criteria)
+        4. Final Disposition (discharge with prescriptions/referrals, observe, admit, transfer to higher level of care)
+        
+        Output: JSON array of nodes. Each object must have:
+        - "type": one of "Start", "Decision", "Process", "End"
+        - "label": concise, actionable clinical step using medical acronyms where appropriate (e.g., BP, HR, CBC, CXR, IV, PO, etc.)
+        - "evidence": PMID from evidence list when step is evidence-backed; otherwise "N/A"
+        
+        Rules:
+        - First node: type "Start", label "patient present to {setting} with {cond}"
+        - Focus on ACTION and SPECIFICITY (e.g., "Order CBC, BMP, troponin" not "Order labs")
+        - Use BREVITY with standard medical abbreviations
+        - Include discharge details: specific prescriptions (drug, dose, route) and outpatient referrals when applicable
+        - NO arbitrary node count limit - build as many nodes as needed for complete clinical flow
+        - If pathway exceeds 20 nodes, organize into logical sections or create sub-pathways for special populations
+        - Prefer evidence-backed steps; cite PMIDs where available
+        - Highlight benefit/harm trade-offs at decision points
+        """
+        with ai_activity("Auto-generating decision science table based on Phase 1 & 2..."):
             nodes = get_gemini_response(prompt, json_mode=True)
             if isinstance(nodes, list) and len(nodes) > 0:
                 st.session_state.data['phase3']['nodes'] = nodes
                 st.rerun()
+            else:
+                st.warning("Could not auto-generate decision tree. Please manually add nodes in the table below or try refreshing the page.")
     
     st.divider()
     st.markdown("### Decision Tree")
