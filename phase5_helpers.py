@@ -469,11 +469,12 @@ def generate_expert_form_html(
             ).join('\\n');
 
             // Download
+            const safeCondition = condition.replace(/\\s+/g, '_');
             const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
             link.setAttribute('href', url);
-            link.setAttribute('download', `expert_feedback_${{condition.replace(/\\s+/g, '_')}}_${{timestamp}}.csv`);
+            link.setAttribute('download', `expert_feedback_${{safeCondition}}_${{timestamp}}.csv`);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
@@ -509,11 +510,12 @@ def generate_expert_form_html(
             }});
 
             const json = JSON.stringify(formData, null, 2);
+            const safeCondition = condition.replace(/\\s+/g, '_');
             const blob = new Blob([json], {{ type: 'application/json' }});
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
             link.setAttribute('href', url);
-            link.setAttribute('download', `expert_feedback_${{condition.replace(/\\s+/g, '_')}}_${{timestamp}}.json`);
+            link.setAttribute('download', `expert_feedback_${{safeCondition}}_${{timestamp}}.json`);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
@@ -960,7 +962,8 @@ function downloadSummaryCSV() {{
     }});
   }}
 
-  download("Beta_Summary_{condition.replace(/\s+/g, '_')}_{timestamp}.csv", toCSV(rows), "text/csv");
+  const safeCondition = condition.replace(/\\s+/g, '_');
+  download(`Beta_Summary_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), "text/csv");
 }}
 
 function downloadNodeCSV() {{
@@ -978,13 +981,15 @@ function downloadNodeCSV() {{
     issue: n.issue,
     suggestion: n.suggestion
   }}));
-  download("Beta_NodeDetails_{condition.replace(/\s+/g, '_')}_{timestamp}.csv", toCSV(rows), "text/csv");
+  const safeCondition = condition.replace(/\\s+/g, '_');
+  download(`Beta_NodeDetails_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), "text/csv");
 }}
 
 function downloadJSON() {{
   const {{summary, nodes}} = collectData();
   const payload = {{ summary, nodes, timestamp: "{timestamp}" }};
-  download("Beta_{condition.replace(/\s+/g, '_')}_{timestamp}.json", JSON.stringify(payload, null, 2), "application/json");
+  const safeCondition = condition.replace(/\\s+/g, '_');
+  download(`Beta_${{safeCondition}}_{timestamp}.json`, JSON.stringify(payload, null, 2), "application/json");
 }}
 </script>
 </body>
