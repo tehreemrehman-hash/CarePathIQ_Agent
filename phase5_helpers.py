@@ -340,9 +340,9 @@ def generate_expert_form_html(
             </div>
 
             <div class="button-group">
-                <button type="button" onclick="downloadAsCSV()">📥 Download Responses (CSV)</button>
-                <button type="button" onclick="downloadAsJSON()">📥 Download Responses (JSON)</button>
-                <button type="reset">🔄 Reset Form</button>
+                <button type="button" onclick="downloadAsCSV()">Download Responses (CSV)</button>
+                <button type="button" onclick="downloadAsJSON()">Download Responses (JSON)</button>
+                <button type="reset">Reset Form</button>
             </div>
         </form>
 
@@ -581,7 +581,7 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <body>
 <div class="container">
 <div class="header">
-<h1>🩺 {condition} — Beta Testing</h1>
+<h1>{condition} — Beta Testing</h1>
 <p style="margin-top:8px">Scenario-based usability evaluation • Nielsen heuristics • Optional SUS</p>
 <p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
 </div>
@@ -606,7 +606,7 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
 
 <!-- Scenario Selector & Timer -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">📋 Test Scenario</h2>
+<h2 style="color:var(--brown-dark);margin-bottom:15px">Test Scenario</h2>
 <div class="row">
 <div class="form-group">
 <label for="scenario">Select Scenario</label>
@@ -620,9 +620,9 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <label>Timer</label>
 <div class="flex">
 <span id="timer" class="timer badge">00:00</span>
-<button type="button" id="startTimer" class="secondary">▶ Start</button>
-<button type="button" id="stopTimer" class="secondary">⏸ Stop</button>
-<button type="button" id="resetTimer" class="secondary">↺ Reset</button>
+<button type="button" id="startTimer" class="secondary">Start</button>
+<button type="button" id="stopTimer" class="secondary">Stop</button>
+<button type="button" id="resetTimer" class="secondary">Reset</button>
 </div>
 </div>
 </div>
@@ -631,7 +631,7 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
 
 <!-- Nielsen Heuristics -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">🔍 Nielsen Heuristics (1–5)</h2>
+<h2 style="color:var(--brown-dark);margin-bottom:15px">Nielsen Heuristics (1–5)</h2>
 <table>
 <thead><tr><th>Heuristic</th><th>Rating</th><th>Comments</th></tr></thead>
 <tbody id="heuristicsBody"></tbody>
@@ -641,7 +641,7 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 
 <!-- System Usability Scale (SUS) -->
 <div class="flex" style="justify-content:space-between">
-<h2 style="color:var(--brown-dark);margin:0">📊 System Usability Scale (SUS)</h2>
+<h2 style="color:var(--brown-dark);margin:0">System Usability Scale (SUS)</h2>
 <label class="flex" style="font-weight:normal;margin:0">
 <input type="checkbox" id="susEnable" style="width:auto;margin-right:6px"> Include SUS
 </label>
@@ -661,13 +661,13 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
 
 <!-- Workflow Nodes -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">🔗 Workflow Nodes</h2>
+<h2 style="color:var(--brown-dark);margin-bottom:15px">Workflow Nodes</h2>
 <div id="nodesContainer"></div>
 
 <hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
 
 <!-- Overall Experience -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">💬 Overall Experience</h2>
+<h2 style="color:var(--brown-dark);margin-bottom:15px">Overall Experience</h2>
 <div class="row">
 <div class="form-group">
 <label for="ease">Ease of use (1–5)</label>
@@ -694,10 +694,10 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 </div>
 
 <div class="button-group">
-<button type="button" onclick="downloadSummaryCSV()">📥 Download Summary CSV</button>
-<button type="button" onclick="downloadNodeCSV()">📥 Download Node Details CSV</button>
-<button type="button" onclick="downloadJSON()">📥 Download JSON</button>
-<button type="reset">🔄 Reset Form</button>
+<button type="button" onclick="downloadSummaryCSV()">Download Summary CSV</button>
+<button type="button" onclick="downloadNodeCSV()">Download Node Details CSV</button>
+<button type="button" onclick="downloadJSON()">Download JSON</button>
+<button type="reset">Reset Form</button>
 </div>
 </form>
 
@@ -1312,9 +1312,9 @@ def generate_education_module_html(
         </div>
 
         <div style="margin-top: 30px; display: flex; gap: 10px; flex-wrap: wrap;">
-            <button type="button" onclick="downloadCertificateImage()" id="downloadCertBtn" style="display: none;">📥 Download Certificate (PNG)</button>
-            <button type="button" onclick="printCertificate()" id="printCertBtn" style="display: none;">🖨️ Print Certificate</button>
-            <button type="button" onclick="restartCourse()" id="restartBtn" style="display: none;">🔄 Restart Course</button>
+            <button type="button" onclick="downloadCertificateImage()" id="downloadCertBtn" style="display: none;">Download Certificate (PNG)</button>
+            <button type="button" onclick="printCertificate()" id="printCertBtn" style="display: none;">Print Certificate</button>
+            <button type="button" onclick="restartCourse()" id="restartBtn" style="display: none;">Restart Course</button>
         </div>
 
         {CAREPATHIQ_FOOTER}
