@@ -1139,11 +1139,11 @@ def create_education_module_template(
   </foreignObject>
 </svg>`;
             
-            const blob = new Blob([svgWrapper], { type: 'image/svg+xml' });
+            const blob = new Blob([svgWrapper], {{ type: 'image/svg+xml' }});
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `Certificate_${recipientName.replace(/\s+/g, '_')}_${certId}.svg`;
+            link.download = 'Certificate_' + recipientName.replace(/\s+/g, '_') + '_' + certId + '.svg';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

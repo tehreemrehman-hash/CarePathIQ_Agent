@@ -391,7 +391,6 @@ def generate_expert_form_html(
                                     <option value="Peer-Reviewed Literature">Peer-Reviewed Literature</option>
                                     <option value="National Guideline">National Guideline (ACLS, AHA, etc.)</option>
                                     <option value="Institutional Policy">Institutional Policy</option>
-                                    <option value="Clinical Experience">Clinical Experience</option>
                                     <option value="Patient Safety Concern">Patient Safety Concern</option>
                                     <option value="Feasibility Issue">Feasibility Issue</option>
                                     <option value="Other">Other</option>

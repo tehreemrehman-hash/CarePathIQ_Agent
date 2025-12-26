@@ -308,7 +308,8 @@ st.markdown("""
     }
     
     /* BOTTOM NAVIGATION */
-    footer {
+    /* Hide only Streamlit's default footer, not custom navigation */
+    footer[data-testid="stBottom"] {
         visibility: hidden;
     }
 </style>
@@ -318,15 +319,6 @@ st.markdown("""
 
 # Importing necessary functions from phase5_helpers
 from phase5_helpers import CAREPATHIQ_COLORS, CAREPATHIQ_FOOTER, SHARED_CSS
-
-# Use the shared constants and styles in the Streamlit app
-st.markdown(f'<style>{SHARED_CSS}</style>', unsafe_allow_html=True)
-
-# Example usage of CAREPATHIQ_COLORS
-st.markdown(f'<div style="color: {CAREPATHIQ_COLORS["brown"]};">Welcome to CarePathIQ!</div>', unsafe_allow_html=True)
-
-# Footer integration
-st.markdown(CAREPATHIQ_FOOTER, unsafe_allow_html=True)
 
 # CONSTANTS
 COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
@@ -368,7 +360,7 @@ ROLE_COLORS = {
     "Care Coordinator": "#FFF8E1",
     "Process": "#FFFDE7",
 }
-PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Rapid Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
+PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
 
 PROVIDER_OPTIONS = {
     "google": "Google Forms (user account)",
@@ -1446,10 +1438,6 @@ with st.sidebar:
 
 # LANDING PAGE LOGIC
 if not gemini_api_key:
-    st.title("CarePathIQ AI Agent")
-    st.markdown('<p style="font-size: 1.2em; color: #5D4037; margin-top: -10px; margin-bottom: 20px;"><strong><em>Intelligently build and deploy clinical pathways</em></strong></p>', unsafe_allow_html=True)
-    st.markdown("""<div style="background-color: #5D4037; padding: 15px; border-radius: 5px; color: white; margin-bottom: 20px;"><strong>Welcome.</strong> Please enter your <strong>Gemini API Key</strong> in the sidebar to activate the AI Agent. <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #A9EED1; font-weight: bold; text-decoration: underline;">Get a free API key here</a>.</div>""", unsafe_allow_html=True)
-    st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
 
 if "current_phase_label" not in st.session_state:
@@ -1714,7 +1702,7 @@ if "Phase 1" in phase:
 
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
-    st.title("Phase 2: Rapid Evidence Appraisal")
+    st.title("Phase 2: Evidence Appraisal")
 
     # Build robust default query from Phase 1 if none saved
     # Format: "managing patients with [clinical condition] in [care setting]" using PubMed syntax
@@ -1869,12 +1857,12 @@ elif "Phase 2" in phase:
             df_ev.insert(0, "new", df_ev["is_new"].astype(bool))
 
             # Neutral tip without Phase 3 reference
-            styled_info("<b>Tip:</b> Review the auto-graded GRADE and rationale. Hover over the top right of the table for more options including CSV download.")
+            styled_info("<b>Tip:</b> New evidence is marked with a checked box in the first table column. Review the auto-graded GRADE and rationale. Hover over the top right of the table for more options including CSV download.")
 
             edited_ev = st.data_editor(
                 df_ev[["new", "id", "title", "grade", "rationale", "url"]], 
                 column_config={
-                    "new": st.column_config.CheckboxColumn("New", disabled=True, help="Auto-added and auto-graded; highlighted in pink."),
+                    "new": st.column_config.CheckboxColumn("New", disabled=True, help="Auto-added and auto-graded from Phase 3."),
                     "id": st.column_config.TextColumn("PMID", disabled=True, width="small"),
                     "title": st.column_config.TextColumn("Title", width="large"),
                     "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small"),
@@ -2180,7 +2168,7 @@ elif "Phase 3" in phase:
     # Show tip if new PMIDs detected (whether just enriched or already enriched)
     if new_pmids_in_phase3:
         styled_info(
-            f"<b>New evidence identified:</b> {len(new_pmids_in_phase3)} PMID(s) from Phase 3 auto-graded and added to Phase 2 (pink-highlighted). "
+            f"<b>New evidence identified:</b> {len(new_pmids_in_phase3)} PMID(s) from Phase 3 auto-graded and added to Phase 2 (marked with checked box in first column). "
             f"<b>Visit Phase 2</b> to review and finalize."
         )
 
@@ -2412,7 +2400,7 @@ elif "Phase 4" in phase:
         # Validate and render SVG with proper width parameter
         if svg_bytes and isinstance(svg_bytes, bytes) and len(svg_bytes) > 0:
             try:
-                st.image(svg_bytes, use_column_width=True)
+                st.image(svg_bytes, use_container_width=True)
             except Exception as e:
                 st.warning(f"Unable to render SVG image. {str(e)[:100]}")
         else:
