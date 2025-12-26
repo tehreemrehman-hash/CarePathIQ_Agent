@@ -446,13 +446,13 @@ def styled_info(text):
     st.markdown(f"""
     <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
         {formatted_text}
-    </div>""", unsafe_allow_html=True)
-
-def auto_grade_evidence_list(evidence_list):
-    """Assign GRADE and rationale for a list of evidence items in-place using the existing AI helper.
-    Falls back to safe defaults when the AI response is missing or malformed.
-    """
-    try:
+            background-color: #FFB0C9;
+            border-left: 5px solid #5D4037;
+            padding: 16px;
+            border-radius: 6px;
+            color: #3E2723;
+            margin-bottom: 20px;">
+            <strong>Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get it <a href=\"https://aistudio.google.com/app/apikey\" target=\"_blank\">here</a>.
         payload = [
             {k: v for k, v in e.items() if k in ["id", "title"]}
             for e in evidence_list if e.get("id") and e.get("title")
@@ -518,7 +518,7 @@ def create_formsubmit_html(form_html: str) -> str:
         str: HTML with FormSubmit integration and dynamic submission
     """
     # Add JavaScript to handle dynamic form submission
-    formsubmit_script = """
+    formsubmit_script = r'''
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         const form = document.querySelector('form');
@@ -547,7 +547,7 @@ def create_formsubmit_html(form_html: str) -> str:
                 e.preventDefault();
                 const recipientEmail = form.querySelector('input[name="recipient_email"]').value;
                 if (recipientEmail) {
-                    form.action = \`https://formsubmit.co/\${recipientEmail}\`;
+                    form.action = `https://formsubmit.co/${recipientEmail}`;
                     form.method = 'POST';
                     // Add FormSubmit configuration fields
                     if (!form.querySelector('input[name="_subject"]')) {
@@ -579,7 +579,7 @@ def create_formsubmit_html(form_html: str) -> str:
         }
     });
     </script>
-    """
+    '''
     
     # Insert script before closing body tag
     if '</body>' in form_html:
@@ -1440,6 +1440,13 @@ with st.sidebar:
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
+    # Preview all phases before activation
+    if not gemini_api_key:
+        st.divider()
+        st.caption("Preview of workflow phases")
+        for p in PHASES:
+            st.markdown(f"- {p}")
+
     if gemini_api_key:
         try:
             st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
@@ -1449,16 +1456,16 @@ with st.sidebar:
             st.stop()
         st.divider()
 
-        # Navigation Logic for sidebar buttons (only when activated)
-        for p in PHASES:
-            st.button(
-                p,
-                key=f"nav_{p}",
-                width="stretch",
-                type="primary" if st.session_state.get('current_phase_label') == p else "secondary",
-                on_click=change_phase,
-                args=(p,)
-            )
+        # Navigation Logic for sidebar buttons (only current phase after activation)
+        current_phase = st.session_state.get('current_phase_label', PHASES[0])
+        st.button(
+            current_phase,
+            key=f"nav_{current_phase}",
+            width="stretch",
+            type="primary",
+            on_click=change_phase,
+            args=(current_phase,)
+        )
 
         st.markdown(
             f"""
@@ -1470,9 +1477,48 @@ with st.sidebar:
         )
         st.divider()
         st.progress(calculate_granular_progress())
+        # Status box styling aligned to legacy sidebar (no email gating)
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #EFEBE9;
+                color: #3E2723;
+                padding: 10px;
+                border-radius: 5px;
+                border-left: 5px solid #5D4037;
+                font-weight: bold;
+                font-size: 0.9em;
+                margin-top: 10px;">
+                Current Phase: <br>
+                <span style="font-size: 1.1em; color: #4E342E;">{st.session_state.get('current_phase_label', PHASES[0])}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# LANDING PAGE LOGIC
+# LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
+    st.title("CarePathIQ AI Agent")
+    st.markdown(
+        "<h3 style='color:#5D4037;font-style:italic;'>Intelligently build and deploy clinical pathways</h3>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div style="
+            background-color: #EFEBE9;
+            border-left: 5px solid #5D4037;
+            padding: 16px;
+            border-radius: 6px;
+            color: #3E2723;
+            margin-bottom: 20px;">
+            <strong>👋 Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get it <a href="https://aistudio.google.com/app/apikey" target="_blank">here</a>.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
     st.stop()
 
 if "current_phase_label" not in st.session_state:
