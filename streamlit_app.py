@@ -1767,7 +1767,7 @@ elif "Phase 2" in phase:
             with btn_c2:
                 if show_citations:
                     if not references_source:
-                        st.info("Add or unfilter evidence to generate references.")
+                        styled_info("Add or unfilter evidence to generate references.")
                     else:
                         references_doc = create_references_docx(references_source, citation_style)
                         if references_doc:
@@ -1786,7 +1786,7 @@ elif "Phase 2" in phase:
 
     else:
         # If nothing to show, provide a helpful prompt and the PubMed link if available
-        st.info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
+        styled_info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
         # Offer quick broaden options
         c = st.session_state.data['phase1'].get('condition', '')
         s = st.session_state.data['phase1'].get('setting', '')
@@ -1954,10 +1954,38 @@ elif "Phase 3" in phase:
     # Auto-save on edit
     st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
     
-    # Display pathway metrics
+    # Display pathway metrics with evidence validation
     node_count = len(st.session_state.data['phase3']['nodes'])
-    evidence_backed = len([n for n in st.session_state.data['phase3']['nodes'] if n.get('evidence') not in ['N/A', '', None]])
-    st.caption(f"Pathway contains {node_count} nodes | {evidence_backed} evidence-backed steps")
+    
+    # Validate evidence citations against Phase 2 data
+    phase2_pmids = set([e['id'] for e in evidence_list])
+    evidence_backed_nodes = []
+    for n in st.session_state.data['phase3']['nodes']:
+        pmid = n.get('evidence', 'N/A')
+        if pmid and pmid not in ['N/A', '', None]:
+            # Check if PMID exists in Phase 2 evidence
+            is_valid = pmid in phase2_pmids
+            evidence_backed_nodes.append({'node': n, 'valid': is_valid})
+    
+    evidence_backed_count = len(evidence_backed_nodes)
+    valid_evidence_count = len([e for e in evidence_backed_nodes if e['valid']])
+    invalid_evidence_count = evidence_backed_count - valid_evidence_count
+    
+    # Create colored metrics
+    if evidence_backed_count == 0:
+        evidence_status = "⚪ No evidence citations"
+        status_color = "gray"
+    elif valid_evidence_count == evidence_backed_count:
+        evidence_status = f"✅ All {evidence_backed_count} citations validated"
+        status_color = "green"
+    elif valid_evidence_count > 0:
+        evidence_status = f"⚠️ {valid_evidence_count} valid, {invalid_evidence_count} unvalidated"
+        status_color = "orange"
+    else:
+        evidence_status = f"❌ {invalid_evidence_count} unvalidated citations"
+        status_color = "red"
+    
+    st.markdown(f"**Pathway Metrics:** {node_count} nodes | **Evidence Status:** {evidence_status}\")\n    \n    if invalid_evidence_count > 0:\n        with st.expander(f\"⚠️ View {invalid_evidence_count} Unvalidated Citations\", expanded=False):\n            invalid_nodes = [e for e in evidence_backed_nodes if not e['valid']]\n            for item in invalid_nodes:\n                node = item['node']\n                st.markdown(f\"- **{node.get('label', 'Unknown')}**: PMID `{node.get('evidence')}` not found in Phase 2 evidence\")\n            st.caption(\"Tip: Add missing PMIDs in Phase 2 or correct the citation.\")
 
     def apply_large_pathway_recommendations():
         current_nodes = st.session_state.data['phase3']['nodes']
@@ -2251,7 +2279,7 @@ elif "Phase 4" in phase:
                 st.session_state.data['phase4']['auto_heuristics_done'] = True
 
         if not h_data:
-            st.info("No heuristics yet. Click 'Run heuristics' to analyze this pathway.")
+            styled_info("No heuristics yet. Click 'Run heuristics' to analyze this pathway.")
         else:
             # Batch Apply All Heuristics
             if st.button("Apply All Heuristics", use_container_width=True, key="p4_apply_all_heuristics_btn"):
@@ -2287,64 +2315,72 @@ elif "Phase 4" in phase:
 
         st.divider()
 
-        # Display heuristics with per-item actions
+        # Display heuristics with per-item actions (collapsible expanders)
         if h_data:
-            st.markdown("**AI Recommendations:**")
+            st.markdown("**AI Recommendations** (click to expand):")
             for heuristic_key in sorted(h_data.keys()):
                 insight = h_data[heuristic_key]
                 definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
 
-                # Title with tooltip
-                st.markdown(f"""
-                <div style="margin-bottom: 6px;">
-                    <span class="heuristic-title" title="{definition}"><strong>{heuristic_key}</strong> — hover for definition</span>
-                </div>
-                """, unsafe_allow_html=True)
-                st.info(insight)
+                # Collapsible expander with heuristic title
+                with st.expander(f"{heuristic_key}", expanded=False):
+                    # Display definition with CarePathIQ styling (light teal background)
+                    st.markdown(f"""
+                    <div style="padding: 10px; background-color: #A9EED1; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #5D4037;">
+                        <strong style="color: #5D4037;">Definition:</strong><br/>
+                        <span style="color: #333; font-size: 0.95em;">{definition}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # AI Recommendation in info box
+                    st.info(insight)
 
-                # Refine note (optional)
-                refine_note = st.text_input(
-                    f"Refine {heuristic_key} (optional)",
-                    value="",
-                    key=f"p4_refine_note_{heuristic_key}"
-                )
+                    # Refine note (optional)
+                    refine_note = st.text_input(
+                        f"Custom note for {heuristic_key}",
+                        value="",
+                        key=f"p4_refine_note_{heuristic_key}",
+                        placeholder="Optional: Add specific context or changes"
+                    )
 
-                # Action buttons for this heuristic
-                act_left, act_right = st.columns([1, 1])
-                with act_left:
-                    if st.button(f"Apply {heuristic_key}", key=f"p4_apply_{heuristic_key}", width="stretch"):
-                        # Snapshot current nodes for undo
-                        st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                        with ai_activity(f"Applying {heuristic_key} recommendation…"):
-                            prompt_apply = f"""
-                            Update the clinical pathway by applying this specific usability recommendation.
-                            Heuristic {heuristic_key} recommendation: {insight}
-                            Current pathway: {json.dumps(nodes)}
-                            Return ONLY the updated JSON array of nodes.
-                            """
-                            new_nodes = get_gemini_response(prompt_apply, json_mode=True)
-                            if new_nodes and isinstance(new_nodes, list):
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                st.success(f"Applied {heuristic_key}")
-                                st.rerun()
-                with act_right:
-                    if st.button(f"Refine {heuristic_key}", key=f"p4_refine_{heuristic_key}", width="stretch"):
-                        # Snapshot for undo
-                        st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                        user_note = refine_note.strip()
-                        with ai_activity(f"Refining via {heuristic_key}…"):
-                            prompt_refine = f"""
-                            Refine the clinical pathway using this heuristic and user note.
-                            Heuristic {heuristic_key} recommendation: {insight}
-                            User note: {user_note if user_note else '(none)'}
-                            Current pathway: {json.dumps(nodes)}
-                            Return ONLY the updated JSON array of nodes.
-                            """
-                            new_nodes = get_gemini_response(prompt_refine, json_mode=True)
-                            if new_nodes and isinstance(new_nodes, list):
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                st.success(f"Refined via {heuristic_key}")
-                                st.rerun()
+                    # Action buttons for this heuristic (side by side)
+                    act_left, act_right = st.columns([1, 1])
+                    
+                    with act_left:
+                        if st.button(f"Apply {heuristic_key}", key=f"p4_apply_{heuristic_key}", use_container_width=True):
+                            # Snapshot current nodes for undo
+                            st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                            with ai_activity(f"Applying {heuristic_key}…"):
+                                prompt_apply = f"""
+                                Update the clinical pathway by applying this specific usability recommendation.
+                                Heuristic {heuristic_key} recommendation: {insight}
+                                Current pathway: {json.dumps(nodes)}
+                                Return ONLY the updated JSON array of nodes.
+                                """
+                                new_nodes = get_gemini_response(prompt_apply, json_mode=True)
+                                if new_nodes and isinstance(new_nodes, list):
+                                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                    st.success(f"Applied {heuristic_key}")
+                                    st.rerun()
+                    
+                    with act_right:
+                        if st.button(f"Refine {heuristic_key}", key=f"p4_refine_{heuristic_key}", use_container_width=True):
+                            # Snapshot for undo
+                            st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                            user_note = refine_note.strip()
+                            with ai_activity(f"Refining via {heuristic_key}…"):
+                                prompt_refine = f"""
+                                Refine the clinical pathway using this heuristic and user note.
+                                Heuristic {heuristic_key} recommendation: {insight}
+                                User note: {user_note if user_note else '(none)'}
+                                Current pathway: {json.dumps(nodes)}
+                                Return ONLY the updated JSON array of nodes.
+                                """
+                                new_nodes = get_gemini_response(prompt_refine, json_mode=True)
+                                if new_nodes and isinstance(new_nodes, list):
+                                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                    st.success(f"Refined via {heuristic_key}")
+                                    st.rerun()
     
     st.divider()
     
@@ -2470,7 +2506,7 @@ elif "Phase 5" in phase:
     with col_exp1:
         st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
     with col_exp2:
-        if st.button("📋 Generate", key="gen_expert", use_container_width=True):
+        if st.button("Generate (5-10 sec)", key="gen_expert", use_container_width=True):
             with ai_activity("Generating expert feedback form..."):
                 expert_html = generate_expert_form_html(
                     condition=cond,
@@ -2484,12 +2520,16 @@ elif "Phase 5" in phase:
     if st.session_state.data['phase5'].get('expert_html'):
         col_view, col_dl = st.columns([1, 1])
         with col_view:
-            if st.button("👁️ Preview", key="view_expert_form", use_container_width=True):
-                st.session_state['show_expert_preview'] = not st.session_state.get('show_expert_preview', False)
+            expert_preview_active = st.session_state.get('show_expert_preview', False)
+            preview_btn_label = "Hide Preview" if expert_preview_active else "Preview"
+            preview_btn_type = "primary" if expert_preview_active else "secondary"
+            if st.button(preview_btn_label, key="view_expert_form", type=preview_btn_type, use_container_width=True):
+                st.session_state['show_expert_preview'] = not expert_preview_active
+                st.rerun()
         
         with col_dl:
             st.download_button(
-                "📥 Download HTML",
+                "Download HTML",
                 st.session_state.data['phase5']['expert_html'],
                 f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -2516,7 +2556,7 @@ elif "Phase 5" in phase:
     with col_beta1:
         st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
     with col_beta2:
-        if st.button("📋 Generate", key="gen_beta", use_container_width=True):
+        if st.button("Generate (5-10 sec)", key="gen_beta", use_container_width=True):
             with ai_activity("Generating beta testing form..."):
                 beta_html = generate_beta_form_html(
                     condition=cond,
@@ -2530,12 +2570,16 @@ elif "Phase 5" in phase:
     if st.session_state.data['phase5'].get('beta_html'):
         col_view, col_dl = st.columns([1, 1])
         with col_view:
-            if st.button("👁️ Preview", key="view_beta_form", use_container_width=True):
-                st.session_state['show_beta_preview'] = not st.session_state.get('show_beta_preview', False)
+            beta_preview_active = st.session_state.get('show_beta_preview', False)
+            preview_btn_label = "Hide Preview" if beta_preview_active else "Preview"
+            preview_btn_type = "primary" if beta_preview_active else "secondary"
+            if st.button(preview_btn_label, key="view_beta_form", type=preview_btn_type, use_container_width=True):
+                st.session_state['show_beta_preview'] = not beta_preview_active
+                st.rerun()
         
         with col_dl:
             st.download_button(
-                "📥 Download HTML",
+                "Download HTML",
                 st.session_state.data['phase5']['beta_html'],
                 f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -2562,7 +2606,7 @@ elif "Phase 5" in phase:
     with col_edu1:
         st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
     with col_edu2:
-        if st.button("📚 Generate", key="gen_edu", use_container_width=True):
+        if st.button("Generate (10-15 sec)", key="gen_edu", use_container_width=True):
             with ai_activity("Generating education module..."):
                 # Create default modules if none exist
                 edu_modules = [
@@ -2633,12 +2677,16 @@ elif "Phase 5" in phase:
     if st.session_state.data['phase5'].get('edu_html'):
         col_view, col_dl = st.columns([1, 1])
         with col_view:
-            if st.button("👁️ Preview", key="view_edu_form", use_container_width=True):
-                st.session_state['show_edu_preview'] = not st.session_state.get('show_edu_preview', False)
+            edu_preview_active = st.session_state.get('show_edu_preview', False)
+            preview_btn_label = "Hide Preview" if edu_preview_active else "Preview"
+            preview_btn_type = "primary" if edu_preview_active else "secondary"
+            if st.button(preview_btn_label, key="view_edu_form", type=preview_btn_type, use_container_width=True):
+                st.session_state['show_edu_preview'] = not edu_preview_active
+                st.rerun()
         
         with col_dl:
             st.download_button(
-                "📥 Download HTML",
+                "Download HTML",
                 st.session_state.data['phase5']['edu_html'],
                 f"EducationModule_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -2665,7 +2713,7 @@ elif "Phase 5" in phase:
     with col_exec1:
         st.markdown("Word document with project overview, evidence summary, pathway design, and implementation roadmap.")
     with col_exec2:
-        if st.button("📄 Generate", key="gen_exec", use_container_width=True):
+        if st.button("Generate (8-12 sec)", key="gen_exec", use_container_width=True):
             with ai_activity("Generating executive summary..."):
                 doc = create_phase5_executive_summary_docx(
                     st.session_state.data,
@@ -2679,7 +2727,7 @@ elif "Phase 5" in phase:
     
     if st.session_state.data['phase5'].get('exec_doc'):
         st.download_button(
-            "📥 Download Word Document",
+            "Download Word Document",
             st.session_state.data['phase5']['exec_doc'],
             f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -2689,11 +2737,61 @@ elif "Phase 5" in phase:
     st.divider()
     
     # ============================================================
+    # SHARING TIP & BULK DOWNLOAD
+    # ============================================================
+    styled_info("<b>Sharing Tip:</b> All HTML files can be shared as email attachments. End users can download their form responses as CSV files or certificates as PDF files directly from their browser — no server required.")
+    
+    # Bulk download option
+    if (st.session_state.data['phase5'].get('expert_html') and 
+        st.session_state.data['phase5'].get('beta_html') and 
+        st.session_state.data['phase5'].get('edu_html') and 
+        st.session_state.data['phase5'].get('exec_doc')):
+        
+        st.divider()
+        st.subheader("Bulk Download")
+        
+        if st.button("Download All Deliverables as ZIP", use_container_width=True, type="primary"):
+            import zipfile
+            from io import BytesIO
+            
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Add HTML files
+                zip_file.writestr(
+                    f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
+                    st.session_state.data['phase5']['expert_html']
+                )
+                zip_file.writestr(
+                    f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
+                    st.session_state.data['phase5']['beta_html']
+                )
+                zip_file.writestr(
+                    f"EducationModule_{cond.replace(' ', '_')}.html",
+                    st.session_state.data['phase5']['edu_html']
+                )
+                # Add Word doc
+                zip_file.writestr(
+                    f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+                    st.session_state.data['phase5']['exec_doc']
+                )
+            
+            zip_buffer.seek(0)
+            st.download_button(
+                "Click to Download ZIP",
+                zip_buffer,
+                f"CarePathIQ_Deliverables_{cond.replace(' ', '_')}.zip",
+                "application/zip",
+                use_container_width=True
+            )
+    
+    st.divider()
+    
+    # ============================================================
     # SHARING INSTRUCTIONS
     # ============================================================
     st.subheader("How to Share & Collect Feedback")
     
-    with st.expander("📧 Expert Panel Workflow", expanded=False):
+    with st.expander("Expert Panel Workflow", expanded=False):
         st.markdown("""
         1. **Download** ExpertPanelFeedback.html file
         2. **Share** the file (email, shared folder, LMS, etc.)
@@ -2703,7 +2801,7 @@ elif "Phase 5" in phase:
         6. **You import** CSV into your analysis tool
         """)
     
-    with st.expander("🧪 Beta Testing Workflow", expanded=False):
+    with st.expander("Beta Testing Workflow", expanded=False):
         st.markdown("""
         1. **Download** BetaTestingFeedback.html file
         2. **Share** with real users testing the pathway
@@ -2713,7 +2811,7 @@ elif "Phase 5" in phase:
         6. **Aggregate** feedback to identify usability issues
         """)
     
-    with st.expander("📚 Education Module Workflow", expanded=False):
+    with st.expander("Education Module Workflow", expanded=False):
         st.markdown("""
         1. **Download** EducationModule.html file
         2. **Host** on your institution's server or LMS
@@ -2724,39 +2822,12 @@ elif "Phase 5" in phase:
         7. **No email submission needed** — certificates are self-contained
         """)
     
-    with st.expander("📋 Executive Summary Workflow", expanded=False):
+    with st.expander("Executive Summary Workflow", expanded=False):
         st.markdown("""
         1. **Download** ExecutiveSummary.docx
         2. **Edit** in Microsoft Word to customize
         3. **Share** directly with hospital leadership
         4. **Use for** funding approval, policy alignment, go-live planning
-        """)
-    
-    st.divider()
-    
-    # ============================================================
-    # HOSTING & DISTRIBUTION OPTIONS
-    # ============================================================
-    st.subheader("Distribution Options")
-    
-    with st.expander("🌐 Where to Host HTML Files", expanded=False):
-        st.markdown("""
-        **Option 1: GitHub Pages (Free)**
-        - Create GitHub repo > Upload HTML files > Enable Pages > Share link
-        
-        **Option 2: Your Hospital Server**
-        - Upload to your web server or LMS
-        - Works on institution network
-        
-        **Option 3: Email (No Hosting)**
-        - Send HTML file directly to users
-        - They open file locally in browser (offline works fine)
-        - CSV downloads are all local — no data sent anywhere
-        
-        **Option 4: Cloud Storage**
-        - Google Drive (users can't execute HTML directly)
-        - OneDrive (same limitation)
-        - Better: upload to GitHub or web server
         """)
     
     render_bottom_navigation()
