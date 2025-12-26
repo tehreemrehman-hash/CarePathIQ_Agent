@@ -23,6 +23,10 @@ import textwrap
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
 
+# --- GOOGLE GENAI CLIENT HELPER ---
+def get_genai_client():
+    return st.session_state.get("genai_client")
+
 # --- LIBRARY HANDLING ---
 try:
     from docx import Document
@@ -1174,34 +1178,61 @@ def render_graphviz_bytes(graph, fmt="svg"):
     except Exception:
         return None
 
-@st.cache_data(ttl=3600)
 def get_gemini_response(prompt, json_mode=False, stream_container=None):
-    if not gemini_api_key: return None
-    candidates = ["gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
+    client = get_genai_client()
+    if not client:
+        st.error("AI Error. Please check API Key.")
+        return None
+
+    candidates = [
+        "gemini-3-flash-preview",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-1.5-pro",
+    ] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
+
     response = None
     for model_name in candidates:
         try:
-            model = genai.GenerativeModel(model_name)
             is_stream = stream_container is not None
-            response = model.generate_content(prompt, stream=is_stream)
-            if response: break 
-        except Exception: time.sleep(0.5); continue
-    if not response: st.error("AI Error. Please check API Key."); return None
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                stream=is_stream,
+            )
+            if response:
+                break
+        except Exception:
+            time.sleep(0.5)
+            continue
+
+    if not response:
+        st.error("AI Error. Please check API Key.")
+        return None
+
     try:
         if stream_container:
             text = ""
             for chunk in response:
-                if chunk.text: text += chunk.text; stream_container.markdown(text + "▌")
-            stream_container.markdown(text) 
-        else: text = response.text
+                if getattr(chunk, "text", None):
+                    text += chunk.text
+                    stream_container.markdown(text + "▌")
+            stream_container.markdown(text)
+        else:
+            text = getattr(response, "text", "")
+
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
             match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
-            if match: text = match.group(0)
-            try: return json.loads(text)
-            except: return None
+            if match:
+                text = match.group(0)
+            try:
+                return json.loads(text)
+            except Exception:
+                return None
         return text
-    except Exception: return None
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def search_pubmed(query):
@@ -1410,8 +1441,12 @@ with st.sidebar:
     model_choice = st.selectbox("Model", model_options, index=0)
     
     if gemini_api_key:
-        genai.configure(api_key=gemini_api_key)
-        st.success("AI Connected")
+        try:
+            st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
+            st.success("AI Connected")
+        except Exception as e:
+            st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
+            st.stop()
         st.divider()
 
         # Navigation Logic for sidebar buttons (only when activated)
