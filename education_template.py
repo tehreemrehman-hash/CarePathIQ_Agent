@@ -11,10 +11,13 @@ def create_education_module_template(
     condition: str,
     topics: list = None,
     organization: str = "CarePathIQ",
-    learning_objectives: list = None
+    learning_objectives: list = None,
+    target_audience: str = "Clinical Team",
+    require_100_percent: bool = True,
+    care_setting: str = None
 ) -> str:
     """
-    Create a complete, customizable education module template.
+    Create a complete, customizable education module template with certificate generation.
     
     Args:
         condition: Topic/condition name
@@ -22,9 +25,13 @@ def create_education_module_template(
                 - 'title': Module title
                 - 'content': HTML content
                 - 'learning_objectives': List of learning objectives
-                - 'quiz': List of quiz questions (dicts with 'question', 'options', 'correct')
+                - 'quiz': List of quiz questions (dicts with 'question', 'options', 'correct', 'explanation')
+                - 'time_minutes': Estimated time to complete
         organization: Organization name for certificate
         learning_objectives: Overall course learning objectives
+        target_audience: Target audience for the module
+        require_100_percent: If True, require 100% quiz completion for certificate
+        care_setting: Care setting/environment for the condition (e.g., "Emergency Department")
         
     Returns:
         Complete standalone HTML string
@@ -32,6 +39,14 @@ def create_education_module_template(
     
     if topics is None:
         topics = []
+    
+    # Calculate total time from topics
+    total_time_minutes = sum(topic.get('time_minutes', 5) for topic in topics) if topics else 15
+    
+    # Build full header with condition and care setting
+    header_display = f"{condition.title()}"
+    if care_setting:
+        header_display = f"{condition.title()} - {care_setting}"
     
     if learning_objectives is None:
         learning_objectives = [
@@ -50,7 +65,7 @@ def create_education_module_template(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Education Module: {condition}</title>
+    <title>Education Module: {header_display}</title>
     <style>
         :root {{
             --brown: #5D4037;
@@ -748,8 +763,8 @@ def create_education_module_template(
         <div class="main-content">
             <!-- Header -->
             <div class="header">
-                <h1>{condition}</h1>
-                <div class="header-subtitle">Interactive Learning Module</div>
+                <h1>{header_display}</h1>
+                <div class="header-subtitle">Interactive Pathway-Based Learning Module</div>
             </div>
 
             <!-- Progress Section -->
@@ -795,12 +810,12 @@ def create_education_module_template(
                         </div>
 
                         <p style="margin: 20px 0; font-size: 1.1em;">
-                            This interactive course will guide you through evidence-based learning on {condition}.
-                            Each module includes content, key takeaways, and a brief assessment.
+                            This interactive course will guide you through evidence-based learning on {condition} in {care_setting if care_setting else 'clinical practice'}.
+                            Each module includes content, key takeaways, and a brief assessment. Designed specifically for {target_audience}.
                         </p>
 
                         <p style="margin: 20px 0; color: #666;">
-                            <strong>Time to Complete:</strong> Approximately 30-45 minutes
+                            <strong>Time to Complete:</strong> {total_time_minutes} minutes ({len(topics)} modules)
                         </p>
 
                         <button class="nav-button" onclick="startCourse()" style="width: auto; margin-top: 20px;">

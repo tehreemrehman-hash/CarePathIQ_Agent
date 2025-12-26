@@ -269,7 +269,8 @@ def generate_expert_form_html(
     condition: str,
     nodes: list,
     audience: str = "Clinical Experts",
-    organization: str = "CarePathIQ"
+    organization: str = "CarePathIQ",
+    pathway_svg_b64: str = None
 ) -> str:
     """
     Generate standalone expert panel feedback form with CSV download capability.
@@ -279,12 +280,38 @@ def generate_expert_form_html(
         nodes: List of pathway nodes (dicts with 'type', 'label', 'evidence')
         audience: Target audience description
         organization: Organization name
+        pathway_svg_b64: Base64-encoded SVG of pathway visualization (optional)
         
     Returns:
         Complete standalone HTML string
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes)
+    
+    # Prepare pathway view button if SVG is provided
+    pathway_button_html = ""
+    pathway_script = ""
+    if pathway_svg_b64:
+        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">📊 View Pathway Visualization</button>'
+        pathway_script = f'''
+        <script>
+        function openPathway() {{
+            var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
+            if (w) {{
+                w.document.write('<html><head><title>Pathway Visualization</title>');
+                w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:20px auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
+                w.document.write('</head><body>');
+                w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
+                w.document.write('<p style="color:#666;">Reference this visualization while providing feedback</p>');
+                w.document.write('<img src="data:image/svg+xml;base64,{pathway_svg_b64}" alt="Pathway" />');
+                w.document.write('</body></html>');
+                w.document.close();
+            }} else {{
+                alert('Popup blocked. Please allow popups to view the pathway.');
+            }}
+        }}
+        </script>
+        '''
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -294,36 +321,49 @@ def generate_expert_form_html(
     <title>Expert Panel Feedback: {condition}</title>
     <style>
         {SHARED_CSS}
+        .info-grid {{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}}
+        @media (max-width: 768px) {{
+            .info-grid {{grid-template-columns:1fr}}
+        }}
+        .compact-node {{border:1px solid var(--border-gray);border-radius:6px;padding:15px;margin-bottom:15px;background:#fafafa}}
+        .compact-node h4 {{margin:0 0 8px 0;color:var(--brown-dark);font-size:1em}}
+        .compact-node .node-meta {{font-size:0.85em;color:#666;margin-bottom:10px}}
+        .feedback-section {{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border-gray)}}
+        .feedback-section.show {{display:block}}
+        .feedback-section textarea {{min-height:70px}}
+        .feedback-section select {{margin-bottom:10px}}
     </style>
+    {pathway_script}
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Expert Panel Feedback</h1>
-            <p><strong>{condition}</strong> Clinical Pathway Review</p>
-            <p style="font-size: 0.95em; margin-top: 10px;">Target Audience: {audience}</p>
+            <h1>Expert Panel Review & Feedback</h1>
+            <p style="font-size: 1.1em; color: var(--brown-dark); margin-bottom: 12px;"><strong>{condition}</strong> Clinical Decision Pathway</p>
+            <p style="font-size: 0.95em; color: #666; margin-top: 8px; line-height: 1.6;">We appreciate your expert evaluation of this evidence-based clinical pathway. Your feedback on clinical accuracy, feasibility, and alignment with current best practices is essential to pathway refinement. Please review the pathway nodes below and provide specific recommendations where appropriate.</p>
+            {pathway_button_html}
         </div>
 
         <form id="feedbackForm">
-            <div class="form-group">
-                <label for="reviewer_name">Your Name *</label>
-                <input type="text" id="reviewer_name" name="reviewer_name" required placeholder="Full name">
-            </div>
-
-            <div class="form-group">
-                <label for="reviewer_email">Your Email *</label>
-                <input type="email" id="reviewer_email" name="reviewer_email" required placeholder="email@institution.org">
-            </div>
-
-            <div class="form-group">
-                <label for="reviewer_role">Your Role/Title</label>
-                <input type="text" id="reviewer_role" name="reviewer_role" placeholder="e.g., Emergency Medicine Physician">
+            <div class="info-grid">
+                <div class="form-group">
+                    <label for="reviewer_name">Your Name *</label>
+                    <input type="text" id="reviewer_name" name="reviewer_name" required placeholder="Full name">
+                </div>
+                <div class="form-group">
+                    <label for="reviewer_email">Your Email *</label>
+                    <input type="email" id="reviewer_email" name="reviewer_email" required placeholder="email@institution.org">
+                </div>
+                <div class="form-group">
+                    <label for="reviewer_role">Your Role/Title</label>
+                    <input type="text" id="reviewer_role" name="reviewer_role" placeholder="e.g., EM Physician">
+                </div>
             </div>
 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--border-gray);">
 
-            <h2 style="color: var(--brown-dark); margin-bottom: 20px;">Pathway Nodes</h2>
-            <p style="margin-bottom: 20px; color: #666;">Please review each node and provide feedback. Only nodes with feedback will be included in the download.</p>
+            <h2 style="color: var(--brown-dark); margin: 25px 0 15px 0;">Pathway Nodes</h2>
+            <p style="margin-bottom: 15px; color: #666; font-size:0.95em;">Check nodes that need feedback. Only those will be included in the download.</p>
 
             <div id="nodesContainer"></div>
 
@@ -340,8 +380,7 @@ def generate_expert_form_html(
             </div>
 
             <div class="button-group">
-                <button type="button" onclick="downloadAsCSV()">Download Responses (CSV)</button>
-                <button type="button" onclick="downloadAsJSON()">Download Responses (JSON)</button>
+                <button type="button" onclick="downloadAsCSV()">Download Feedback (CSV)</button>
                 <button type="reset">Reset Form</button>
             </div>
         </form>
@@ -362,45 +401,35 @@ def generate_expert_form_html(
         function renderNodes() {{
             const container = document.getElementById('nodesContainer');
             pathwayNodes.forEach((node, idx) => {{
+                const evidence = node.evidence && node.evidence !== 'N/A' ? `PMID ${{node.evidence}}` : 'No evidence';
                 const nodeHTML = `
-                    <div class="node-card">
-                        <h3>
-                            <span class="node-badge">Node ${{idx + 1}}</span>
-                            ${{node.label || 'Step'}}
-                        </h3>
-                        <div class="node-type">
-                            <strong>Type:</strong> ${{node.type || 'Process'}}
-                            ${{node.evidence && node.evidence !== 'N/A' ? ` | <strong>Evidence:</strong> PMID ${{node.evidence}}` : ''}}
+                    <div class="compact-node">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                            <h4><span class="node-badge">N${{idx + 1}}</span> ${{node.label || 'Step'}}</h4>
+                            <label style="margin:0;cursor:pointer;font-weight:normal">
+                                <input type="checkbox" id="feedback_check_${{idx}}" onchange="toggleExpansion(${{idx}})" style="width:auto;margin-right:6px">
+                                Provide Feedback
+                            </label>
                         </div>
-                        
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="feedback_check_${{idx}}" onchange="toggleExpansion(${{idx}})">
-                            <label for="feedback_check_${{idx}}">I have feedback on this node</label>
-                        </div>
+                        <div class="node-meta">Type: ${{node.type || 'Process'}} | Evidence: ${{evidence}}</div>
 
-                        <div id="expansion_${{idx}}" class="expandable-section">
-                            <div class="form-group">
-                                <label for="feedback_${{idx}}">Proposed Change or Concern *</label>
-                                <textarea name="feedback_${{idx}}" id="feedback_${{idx}}" placeholder="Describe the issue or suggested improvement..." required></textarea>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="source_${{idx}}">Justification Source *</label>
-                                <select name="source_${{idx}}" id="source_${{idx}}" required>
-                                    <option value="">-- Select --</option>
-                                    <option value="Peer-Reviewed Literature">Peer-Reviewed Literature</option>
-                                    <option value="National Guideline">National Guideline (ACLS, AHA, etc.)</option>
-                                    <option value="Institutional Policy">Institutional Policy</option>
-                                    <option value="Patient Safety Concern">Patient Safety Concern</option>
-                                    <option value="Feasibility Issue">Feasibility Issue</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="details_${{idx}}">Supporting Details/Citation</label>
-                                <textarea name="details_${{idx}}" id="details_${{idx}}" placeholder="Reference, PMID, guideline citation, or rationale..."></textarea>
-                            </div>
+                        <div id="expansion_${{idx}}" class="feedback-section">
+                            <label for="feedback_${{idx}}" style="font-size:0.9em"><strong>Change/Concern *</strong></label>
+                            <textarea name="feedback_${{idx}}" id="feedback_${{idx}}" placeholder="Describe issue or suggested improvement..." required></textarea>
+                            
+                            <label for="source_${{idx}}" style="font-size:0.9em;margin-top:10px"><strong>Source *</strong></label>
+                            <select name="source_${{idx}}" id="source_${{idx}}" required>
+                                <option value="">-- Select Justification Source --</option>
+                                <option value="Peer-Reviewed Literature">Peer-Reviewed Literature</option>
+                                <option value="National Guideline">National Guideline (ACLS, AHA, etc.)</option>
+                                <option value="Institutional Policy">Institutional Policy</option>
+                                <option value="Patient Safety Concern">Patient Safety Concern</option>
+                                <option value="Feasibility Issue">Feasibility Issue</option>
+                                <option value="Other">Other</option>
+                            </select>
+                            
+                            <label for="details_${{idx}}" style="font-size:0.9em;margin-top:10px"><strong>Details/Citation</strong></label>
+                            <textarea name="details_${{idx}}" id="details_${{idx}}" placeholder="Reference, PMID, guideline, or rationale..." style="min-height:60px"></textarea>
                         </div>
                     </div>
                 `;
@@ -480,46 +509,7 @@ def generate_expert_form_html(
             document.body.removeChild(link);
         }}
 
-        function downloadAsJSON() {{
-            const formData = {{
-                timestamp: new Date().toISOString(),
-                condition: condition,
-                reviewer: {{
-                    name: document.getElementById('reviewer_name').value,
-                    email: document.getElementById('reviewer_email').value,
-                    role: document.getElementById('reviewer_role').value
-                }},
-                nodeFeedback: [],
-                overallFeedback: document.getElementById('overall_feedback').value,
-                implementationBarriers: document.getElementById('implementation_barriers').value
-            }};
 
-            pathwayNodes.forEach((node, idx) => {{
-                const checkbox = document.getElementById('feedback_check_' + idx);
-                if (checkbox && checkbox.checked) {{
-                    formData.nodeFeedback.push({{
-                        nodeId: 'N' + (idx + 1),
-                        nodeLabel: node.label,
-                        nodeType: node.type,
-                        feedback: document.getElementById('feedback_' + idx)?.value || '',
-                        source: document.getElementById('source_' + idx)?.value || '',
-                        details: document.getElementById('details_' + idx)?.value || ''
-                    }});
-                }}
-            }});
-
-            const json = JSON.stringify(formData, null, 2);
-            const safeCondition = condition.replace(/\\s+/g, '_');
-            const blob = new Blob([json], {{ type: 'application/json' }});
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `expert_feedback_${{safeCondition}}_${{timestamp}}.json`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }}
     </script>
 </body>
 </html>"""
@@ -535,27 +525,53 @@ def generate_beta_form_html(
     condition: str,
     nodes: list,
     audience: str = "Clinical Team",
-    organization: str = "CarePathIQ"
+    organization: str = "CarePathIQ",
+    pathway_svg_b64: str = None
 ) -> str:
     """
-    Generate enhanced standalone beta testing form with:
-    - Scenario-driven testing (typical, comorbidity, urgent)
+    Generate simplified beta testing form focused on:
+    - 3 scenario-based end-to-end pathway tests
     - Nielsen's 10 heuristics evaluation
-    - Per-node correctness, errors, time tracking
-    - Optional System Usability Scale (SUS)
-    - CSV exports (summary + node details) and JSON payload
+    - Overall usability feedback
+    - CSV export of results
     
     Args:
         condition: Clinical condition being tested
-        nodes: List of pathway nodes
+        nodes: List of pathway nodes (for reference)
         audience: Target audience description
         organization: Organization name
+        pathway_svg_b64: Base64-encoded SVG of pathway visualization (optional)
         
     Returns:
         Complete standalone HTML string
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
+    
+    # Prepare pathway view button if SVG is provided
+    pathway_button_html = ""
+    pathway_script = ""
+    if pathway_svg_b64:
+        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">📊 View Pathway Visualization</button>'
+        pathway_script = f'''
+<script>
+function openPathway() {{
+    var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
+    if (w) {{
+        w.document.write('<html><head><title>Pathway Visualization</title>');
+        w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:20px auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
+        w.document.write('</head><body>');
+        w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
+        w.document.write('<p style="color:#666;">Use this pathway for testing scenarios</p>');
+        w.document.write('<img src="data:image/svg+xml;base64,{pathway_svg_b64}" alt="Pathway" />');
+        w.document.write('</body></html>');
+        w.document.close();
+    }} else {{
+        alert('Popup blocked. Please allow popups to view the pathway.');
+    }}
+}}
+</script>
+'''
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -565,26 +581,39 @@ def generate_beta_form_html(
 <title>{condition} — Beta Testing</title>
 <style>
 {SHARED_CSS}
-.row {{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}}
-.row3 {{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}}
-.flex {{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
+{pathway_script}
+.scenario-card {{background:#fff;border:2px solid var(--border-gray);border-radius:8px;padding:20px;margin-bottom:20px}}
+.scenario-card h3 {{color:var(--brown-dark);margin:0 0 10px 0}}
+.scenario-card p {{margin:8px 0;color:#555}}
+.scenario-card .tasks {{margin:12px 0;padding-left:20px}}
+.scenario-card .tasks li {{margin:6px 0}}
+.checklist {{margin-top:12px}}
+.checklist label {{display:flex;align-items:center;margin:8px 0;cursor:pointer}}
+.checklist input[type="checkbox"] {{width:20px;height:20px;margin-right:10px;cursor:pointer}}
+.scenario-card textarea {{width:100%;min-height:80px;margin-top:8px;padding:10px;border:1px solid var(--border-gray);border-radius:4px;resize:vertical}}
 table {{width:100%;border-collapse:collapse;margin:15px 0}}
-th,td {{border:1px solid var(--border-gray);padding:10px;text-align:left}}
+th,td {{border:1px solid var(--border-gray);padding:12px;text-align:left}}
 th {{background:#f8f9fa;font-weight:600;color:var(--brown-dark)}}
-select,input[type="number"],textarea {{width:100%;padding:8px;border:1px solid var(--border-gray);border-radius:4px}}
-textarea {{min-height:60px;resize:vertical}}
-.badge {{display:inline-block;background:var(--teal);color:var(--brown-dark);padding:4px 10px;border-radius:12px;font-size:0.9em;font-weight:600}}
-.timer {{font-family:monospace;font-size:1.1em;font-weight:bold;color:var(--brown)}}
-button[type="button"] {{margin:5px;padding:10px 18px;font-size:0.95em}}
-label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}}
+select,input[type="text"],input[type="email"],textarea {{width:100%;padding:10px;border:1px solid var(--border-gray);border-radius:4px}}
+textarea {{min-height:70px;resize:vertical}}
+label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}}
+.form-row {{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}}
+.rating-scale {{display:flex;gap:8px;align-items:center}}
+.rating-scale input[type="radio"] {{width:auto;margin:0}}
+.rating-scale label {{margin:0;font-weight:normal;cursor:pointer}}
+.heuristic-row {{border-bottom:1px solid var(--border-gray);padding:16px 0}}
+.heuristic-row:last-child {{border-bottom:none}}
+.heuristic-title {{font-weight:600;color:var(--brown-dark);margin-bottom:8px}}
+.heuristic-desc {{font-size:0.9em;color:#666;margin-bottom:12px}}
 </style>
 </head>
 <body>
 <div class="container">
 <div class="header">
-<h1>{condition} — Beta Testing</h1>
-<p style="margin-top:8px">Scenario-based usability evaluation • Nielsen heuristics • Optional SUS</p>
+<h1>{condition} — Beta Testing Form</h1>
+<p style="margin-top:8px">Test the clinical pathway end-to-end using 3 scenarios and evaluate usability</p>
 <p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
+{pathway_button_html}
 </div>
 
 <form id="betaForm">
@@ -593,159 +622,122 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <label for="tester_name">Your Name *</label>
 <input type="text" id="tester_name" required placeholder="Full name">
 </div>
-<div class="row">
+<div class="form-row">
 <div class="form-group">
 <label for="tester_email">Email *</label>
 <input type="email" id="tester_email" required placeholder="email@example.com">
 </div>
 <div class="form-group">
 <label for="tester_role">Role *</label>
-<input type="text" id="tester_role" required placeholder="e.g., RN, Physician">
+<input type="text" id="tester_role" required placeholder="e.g., RN, Physician, APP">
 </div>
 </div>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+<hr style="margin:30px 0;border:none;border-top:2px solid var(--border-gray)">
 
-<!-- Scenario Timers -->
-<h2 style="color:var(--brown-dark);margin-bottom:10px">Clinical Scenarios</h2>
-<p style="margin:0 0 10px 0;color:#666">Work through each scenario using the pathway. Start/stop each timer as you complete the scenario.</p>
-<table>
-    <thead>
-        <tr>
-            <th style="width:220px">Scenario</th>
-            <th>Description</th>
-            <th style="width:240px">Timer</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td><strong>Typical: Stable Outpatient</strong></td>
-            <td id="desc_typical"></td>
-            <td>
-                <div class="flex">
-                    <span id="timer_typical" class="timer badge">00:00</span>
-                    <button type="button" onclick="startTimerFor('typical')">Start</button>
-                    <button type="button" onclick="stopTimerFor('typical')">Stop</button>
-                    <button type="button" onclick="resetTimerFor('typical')">Reset</button>
-                    <button type="button" onclick="recordRun('typical')">Record Run</button>
-                </div>
-            </td>
-        </tr>
-        <tr>
-            <td><strong>Complex: Multiple Comorbidities</strong></td>
-            <td id="desc_comorbidity"></td>
-            <td>
-                <div class="flex">
-                    <span id="timer_comorbidity" class="timer badge">00:00</span>
-                    <button type="button" onclick="startTimerFor('comorbidity')">Start</button>
-                    <button type="button" onclick="stopTimerFor('comorbidity')">Stop</button>
-                    <button type="button" onclick="resetTimerFor('comorbidity')">Reset</button>
-                    <button type="button" onclick="recordRun('comorbidity')">Record Run</button>
-                </div>
-            </td>
-        </tr>
-        <tr>
-            <td><strong>Urgent: Acute Presentation</strong></td>
-            <td id="desc_urgent"></td>
-            <td>
-                <div class="flex">
-                    <span id="timer_urgent" class="timer badge">00:00</span>
-                    <button type="button" onclick="startTimerFor('urgent')">Start</button>
-                    <button type="button" onclick="stopTimerFor('urgent')">Stop</button>
-                    <button type="button" onclick="resetTimerFor('urgent')">Reset</button>
-                    <button type="button" onclick="recordRun('urgent')">Record Run</button>
-                </div>
-            </td>
-        </tr>
-    </tbody>
-</table>
+<!-- Clinical Scenarios -->
+<h2 style="color:var(--brown-dark);margin-bottom:20px">Clinical Scenarios — End-to-End Testing</h2>
+<p style="margin-bottom:20px;color:#555">Complete each scenario using the pathway. Check off tasks as you go and note any issues.</p>
 
-<div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
-    <div style="font-weight:600;color:var(--brown-dark)">Recorded Runs</div>
-    <div class="flex">
-        <button type="button" onclick="downloadRunsCSV()">Download Runs CSV</button>
-        <button type="button" onclick="clearSaved()">Clear Saved</button>
-    </div>
-    <table style="width:100%">
-        <thead>
-            <tr><th style="width:220px">Scenario</th><th style="width:140px">Seconds</th><th>Timestamp</th></tr>
-        </thead>
-        <tbody id="runsBody"></tbody>
-    </table>
-  
+<div class="scenario-card">
+<h3>Scenario 1: Typical Stable Outpatient</h3>
+<p><strong>Description:</strong> A stable patient with straightforward presentation. Test the standard pathway flow.</p>
+<ul class="tasks">
+<li>Initial assessment and triage</li>
+<li>Diagnostic workup for typical presentation</li>
+<li>Standard treatment recommendations</li>
+<li>Follow-up and patient education</li>
+</ul>
+<div class="checklist">
+<strong>Did the pathway work smoothly?</strong>
+<label><input type="checkbox" class="scenario-check" data-scenario="typical"> ✓ Successfully completed from start to end</label>
+</div>
+<label style="margin-top:10px">Issues or observations (if any):</label>
+<textarea id="scenario1_notes" placeholder="Note any breaks, unclear steps, or confusing decisions..."></textarea>
 </div>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+<div class="scenario-card">
+<h3>Scenario 2: Complex Patient with Comorbidities</h3>
+<p><strong>Description:</strong> A patient with multiple chronic conditions. Test pathway flexibility and decision branching.</p>
+<ul class="tasks">
+<li>Navigate branching decisions for comorbid conditions</li>
+<li>Adjust diagnostic approach based on complexity</li>
+<li>Select appropriate multi-faceted treatment plan</li>
+<li>Address conflicting recommendations or contraindications</li>
+</ul>
+<div class="checklist">
+<strong>Did the pathway work smoothly?</strong>
+<label><input type="checkbox" class="scenario-check" data-scenario="complex"> ✓ Successfully completed from start to end</label>
+</div>
+<label style="margin-top:10px">Issues or observations (if any):</label>
+<textarea id="scenario2_notes" placeholder="Note any breaks, unclear steps, or confusing decisions..."></textarea>
+</div>
+
+<div class="scenario-card">
+<h3>Scenario 3: Urgent Acute Presentation</h3>
+<p><strong>Description:</strong> An urgent case requiring rapid triage and intervention. Test critical pathway efficiency.</p>
+<ul class="tasks">
+<li>Rapid triage and risk stratification</li>
+<li>Prioritize time-sensitive diagnostic tests</li>
+<li>Execute urgent treatment protocols</li>
+<li>Confirm safety checks and escalation criteria</li>
+</ul>
+<div class="checklist">
+<strong>Did the pathway work smoothly?</strong>
+<label><input type="checkbox" class="scenario-check" data-scenario="urgent"> ✓ Successfully completed from start to end</label>
+</div>
+<label style="margin-top:10px">Issues or observations (if any):</label>
+<textarea id="scenario3_notes" placeholder="Note any breaks, unclear steps, or confusing decisions..."></textarea>
+</div>
+
+<hr style="margin:30px 0;border:none;border-top:2px solid var(--border-gray)">
 
 <!-- Nielsen Heuristics -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">Nielsen Heuristics (1–5)</h2>
-<table>
-<thead><tr><th>Heuristic</th><th>Rating</th><th>Comments</th></tr></thead>
-<tbody id="heuristicsBody"></tbody>
-</table>
+<h2 style="color:var(--brown-dark);margin-bottom:20px">Nielsen's Usability Heuristics</h2>
+<p style="margin-bottom:20px;color:#555">Rate each heuristic from 1 (Poor) to 5 (Excellent) and provide comments.</p>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+<div id="heuristicsContainer"></div>
 
-<!-- System Usability Scale (SUS) -->
-<div class="flex" style="justify-content:space-between">
-<h2 style="color:var(--brown-dark);margin:0">System Usability Scale (SUS)</h2>
-<label class="flex" style="font-weight:normal;margin:0">
-<input type="checkbox" id="susEnable" style="width:auto;margin-right:6px"> Include SUS
-</label>
-</div>
-<div id="susBlock" style="display:none;margin-top:15px">
-<table>
-<thead><tr><th style="width:60px">#</th><th>Statement</th><th style="width:120px">Score (1–5)</th></tr></thead>
-<tbody id="susBody"></tbody>
-</table>
-<div class="flex" style="margin-top:12px">
-<span style="font-weight:600">SUS Score:</span>
-<span id="susScore" class="badge">—</span>
-<span style="font-size:0.85em;color:#666;margin-left:10px">(0–100 scale; ≥68 = above average)</span>
-</div>
-</div>
+<hr style="margin:30px 0;border:none;border-top:2px solid var(--border-gray)">
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
-
-<!-- Workflow Nodes -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">Workflow Nodes</h2>
-<div id="nodesContainer"></div>
-
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
-
-<!-- Overall Experience -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">Overall Experience</h2>
-<div class="row">
+<!-- Overall Feedback -->
+<h2 style="color:var(--brown-dark);margin-bottom:20px">Overall Feedback</h2>
+<div class="form-row">
 <div class="form-group">
-<label for="ease">Ease of use (1–5)</label>
-<select id="ease">
-<option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
+<label for="overall_rating">Overall Pathway Quality (1–5)</label>
+<select id="overall_rating">
+<option value="1">1 - Poor</option>
+<option value="2">2 - Fair</option>
+<option value="3" selected>3 - Good</option>
+<option value="4">4 - Very Good</option>
+<option value="5">5 - Excellent</option>
 </select>
 </div>
 <div class="form-group">
-<label for="fit">Workflow fit (1–5)</label>
-<select id="fit">
-<option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
+<label for="workflow_fit">Fits Clinical Workflow (1–5)</label>
+<select id="workflow_fit">
+<option value="1">1 - Poor Fit</option>
+<option value="2">2 - Fair Fit</option>
+<option value="3" selected>3 - Good Fit</option>
+<option value="4">4 - Very Good Fit</option>
+<option value="5">5 - Excellent Fit</option>
 </select>
 </div>
 </div>
-<div class="row">
+
 <div class="form-group">
-<label for="positives">What worked well?</label>
-<textarea id="positives" placeholder="Strengths and positive aspects..."></textarea>
-</div>
-<div class="form-group">
-<label for="improvements">What needs improvement?</label>
-<textarea id="improvements" placeholder="Issues or suggestions..."></textarea>
-</div>
+<label for="strengths">What worked well? (Strengths)</label>
+<textarea id="strengths" placeholder="Describe positive aspects, helpful features, clear sections..."></textarea>
 </div>
 
-<div class="button-group">
-<button type="button" onclick="downloadSummaryCSV()">Download Summary CSV</button>
-<button type="button" onclick="downloadNodeCSV()">Download Node Details CSV</button>
-<button type="button" onclick="downloadRunsCSV()">Download Runs CSV</button>
-<button type="button" onclick="downloadJSON()">Download JSON</button>
-<button type="reset">Reset Form</button>
+<div class="form-group">
+<label for="improvements">What needs improvement? (Issues & Suggestions)</label>
+<textarea id="improvements" placeholder="Describe problems encountered, confusing areas, missing features..."></textarea>
+</div>
+
+<div class="button-group" style="margin-top:30px">
+<button type="button" onclick="downloadCSV()" style="background:var(--brown);color:white;font-size:1.05em;padding:14px 28px">Download Feedback CSV</button>
+<button type="reset" style="background:#999;color:white">Reset Form</button>
 </div>
 </form>
 
@@ -753,432 +745,119 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 </div>
 
 <script>
-const SCENARIOS = {{
-  typical: {{
-    name: "Typical: Stable Outpatient",
-    desc: "A stable patient with a straightforward condition. Focus: clarity, speed, and guidance.",
-    tasks: ["Identify initial assessment path","Document routine follow-up","Recommend standard education"]
-  }},
-  comorbidity: {{
-    name: "Complex: Multiple Comorbidities",
-    desc: "A patient with multiple chronic conditions. Focus: flexibility, error prevention, and help.",
-    tasks: ["Navigate branching decisions","Resolve conflicting recommendations","Tailor education to comorbidities"]
-  }},
-  urgent: {{
-    name: "Urgent: Acute Presentation",
-    desc: "An urgent scenario requiring rapid triage. Focus: visibility, control, and feedback.",
-    tasks: ["Select urgent triage path","Prioritize critical actions","Confirm clear system status"]
-  }}
-}};
-
 const HEURISTICS = [
-  "Visibility of system status",
-  "Match between system and real world",
-  "User control and freedom",
-  "Consistency and standards",
-  "Error prevention",
-  "Recognition rather than recall",
-  "Flexibility and efficiency of use",
-  "Aesthetic and minimalist design",
-  "Help users recognize, diagnose, recover",
-  "Help and documentation"
-];
-
-const SUS_ITEMS = [
-  "I think that I would like to use this system frequently.",
-  "I found the system unnecessarily complex.",
-  "I thought the system was easy to use.",
-  "I think that I would need the support of a technical person to use this system.",
-  "I found the various functions in this system were well integrated.",
-  "I thought there was too much inconsistency in this system.",
-  "I would imagine that most people would learn to use this system very quickly.",
-  "I found the system very cumbersome to use.",
-  "I felt very confident using the system.",
-  "I needed to learn a lot of things before I could get going with this system."
+  {{id: "h1", name: "Visibility of System Status", desc: "Does the pathway clearly show where you are and what's happening?"}},
+  {{id: "h2", name: "Match Between System and Real World", desc: "Does it use familiar clinical language and concepts?"}},
+  {{id: "h3", name: "User Control and Freedom", desc: "Can you easily undo mistakes or go back to previous steps?"}},
+  {{id: "h4", name: "Consistency and Standards", desc: "Are terms, layouts, and actions consistent throughout?"}},
+  {{id: "h5", name: "Error Prevention", desc: "Does it prevent errors before they happen (not just detect)?"}},
+  {{id: "h6", name: "Recognition Rather Than Recall", desc: "Are options visible rather than requiring memorization?"}},
+  {{id: "h7", name: "Flexibility and Efficiency", desc: "Does it accommodate both novice and expert users?"}},
+  {{id: "h8", name: "Aesthetic and Minimalist Design", desc: "Is the interface clean without unnecessary information?"}},
+  {{id: "h9", name: "Help Users Recognize and Recover from Errors", desc: "Are error messages clear with suggested solutions?"}},
+  {{id: "h10", name: "Help and Documentation", desc: "Is help available when needed and easy to understand?"}}
 ];
 
 const condition = "{condition}";
-const STORAGE_KEY = "betaFormState_" + condition.replace(/\s+/g, '_');
-const NODES = {nodes_json};
+const nodes = {nodes_json};
 
-function pad(n) {{ return String(n).padStart(2,'0'); }}
-
-// Independent timers for three scenarios
-let scenarioTimes = {{ typical: 0, comorbidity: 0, urgent: 0 }};
-let runs = [];
-let activeTimer = null; // which scenario key is running
-let startEpoch = null;
-
-function renderAllTimers() {{
-    ['typical','comorbidity','urgent'].forEach(key => {{
-        const v = scenarioTimes[key] || 0;
-        const m = Math.floor(v/60), s = v%60;
-        const el = document.getElementById('timer_' + key);
-        if (el) el.textContent = pad(m)+':'+pad(s);
-    }});
-}}
-
-function tick() {{
-    if (!activeTimer || startEpoch === null) return;
-    const now = Date.now();
-    scenarioTimes[activeTimer] = Math.max(0, Math.floor((now - startEpoch)/1000));
-    renderAllTimers();
-}}
-setInterval(tick, 250);
-
-function startTimerFor(key) {{
-    activeTimer = key;
-    startEpoch = Date.now() - (scenarioTimes[key]*1000);
-}}
-function stopTimerFor(key) {{
-    if (activeTimer === key) {{ activeTimer = null; }}
-}}
-function resetTimerFor(key) {{
-    scenarioTimes[key] = 0;
-    if (activeTimer === key) {{ startEpoch = Date.now(); }}
-    renderAllTimers();
-}}
-
-// Scenario descriptions
-document.getElementById('desc_typical').innerHTML = SCENARIOS.typical.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.typical.tasks.join(' • ') + '</span>';
-document.getElementById('desc_comorbidity').innerHTML = SCENARIOS.comorbidity.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.comorbidity.tasks.join(' • ') + '</span>';
-document.getElementById('desc_urgent').innerHTML = SCENARIOS.urgent.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.urgent.tasks.join(' • ') + '</span>';
-renderAllTimers();
-
-function recordRun(key) {{
-    const secs = scenarioTimes[key] || 0;
-    runs.push({{ scenario: key, seconds: secs, timestamp: new Date().toISOString() }});
-    renderRuns();
-    scheduleSave();
-}}
-
-function renderRuns() {{
-    const body = document.getElementById('runsBody');
-    if (!body) return;
-    body.innerHTML = '';
-    runs.forEach(r => {{
-        const tr = document.createElement('tr');
-        const name = SCENARIOS[r.scenario]?.name || r.scenario;
-        tr.innerHTML = `<td>${{name}}</td><td>${{r.seconds}}</td><td>${{r.timestamp}}</td>`;
-        body.appendChild(tr);
-    }});
-}}
-
-// Autosave helpers and run exports
-let _saveDebounce = null;
-function scheduleSave() {{
-  clearTimeout(_saveDebounce);
-  _saveDebounce = setTimeout(saveState, 300);
-}}
-function saveState() {{
-  try {{
-    const {{ summary, nodes }} = collectData();
-    const state = {{ summary, nodes, runs, scenarioTimes }};
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }} catch (e) {{}}
-}}
-function restoreState() {{
-  try {{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const state = JSON.parse(raw);
-    const setVal = (id, val) => {{ const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') {{ el.checked = !!val; }} else if (typeof val !== 'undefined' && val !== null) {{ el.value = val; }} }};
-
-    // Scenario timers
-    if (state.scenarioTimes) {{
-      scenarioTimes = state.scenarioTimes;
-      activeTimer = null;
-      startEpoch = null;
-      renderAllTimers();
-    }}
-
-    const s = state.summary || {{}};
-    setVal('tester_name', s.testerName || '');
-    setVal('tester_email', s.testerEmail || '');
-    setVal('tester_role', s.testerRole || '');
-    setVal('ease', s.ease);
-    setVal('fit', s.fit);
-    setVal('positives', s.positives || '');
-    setVal('improvements', s.improvements || '');
-
-    // Heuristics
-    if (Array.isArray(s.heuristics)) {{
-      s.heuristics.forEach((h, i) => {{
-        setVal('h_rate_'+i, h.rating);
-        setVal('h_comment_'+i, h.comments || '');
-      }});
-    }}
-
-    // SUS
-    if (s.susEnabled) {{
-      const chk = document.getElementById('susEnable');
-      if (chk) {{
-        chk.checked = true;
-        document.getElementById('susBlock').style.display = 'block';
-        if (document.getElementById('susBody').children.length === 0) {{ renderSUS(); }}
-      }}
-      if (Array.isArray(s.susScores)) {{
-        s.susScores.forEach((v,i) => setVal('sus_'+i, v));
-        computeSUS();
-      }}
-    }}
-
-    // Nodes
-    if (Array.isArray(state.nodes)) {{
-      state.nodes.forEach((n, idx) => {{
-        setVal('correct_'+idx, n.correctness);
-        setVal('errors_'+idx, n.errors);
-        setVal('time_'+idx, n.timeSeconds);
-        const uc = document.getElementById('unclear_'+idx); if (uc) uc.checked = !!n.unclear;
-        setVal('issue_'+idx, n.issue || '');
-        setVal('suggest_'+idx, n.suggestion || '');
-      }});
-    }}
-
-    // Runs
-    if (Array.isArray(state.runs)) {{
-      runs = state.runs;
-      renderRuns();
-    }}
-  }} catch (e) {{}}
-}}
-
-// Wire autosave on form changes
-const _formEl = document.getElementById('betaForm');
-if (_formEl) {{
-  _formEl.addEventListener('input', scheduleSave);
-  _formEl.addEventListener('change', scheduleSave);
-}}
-
-function downloadRunsCSV() {{
-  const rows = runs.map(r => ({{
-    scenario: SCENARIOS[r.scenario]?.name || r.scenario,
-    seconds: r.seconds,
-    timestamp: r.timestamp
-  }}));
-  if (!rows.length) {{ alert('No runs recorded yet.'); return; }}
-  const safeCondition = condition.replace(/\s+/g, '_');
-  download(`Beta_Runs_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), 'text/csv');
-}}
-
-function clearSaved() {{
-  try {{ localStorage.removeItem(STORAGE_KEY); }} catch (e) {{}}
-  runs = [];
-  renderRuns();
-  alert('Saved state cleared for this form.');
-}}
-
-// Render Nielsen Heuristics
-HEURISTICS.forEach((h, i) => {{
-  const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${{h}}</td>
-  <td><select id="h_rate_${{i}}"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></td>
-  <td><textarea id="h_comment_${{i}}" placeholder="Notes (optional)"></textarea></td>`;
-  document.getElementById('heuristicsBody').appendChild(tr);
-}});
-
-// Render SUS
-function renderSUS() {{
-  const tbody = document.getElementById('susBody');
-  SUS_ITEMS.forEach((txt, i) => {{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${{i+1}}</td><td>${{txt}}</td>
-    <td><select id="sus_${{i}}"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></td>`;
-    tbody.appendChild(tr);
-  }});
-  for (let i=0; i<10; i++) {{
-    document.getElementById('sus_' + i).onchange = computeSUS;
-  }}
-  computeSUS();
-}}
-
-function computeSUS() {{
-  let total = 0;
-  for (let i=0; i<10; i++) {{
-    const v = parseInt(document.getElementById('sus_' + i).value, 10);
-    total += (i%2===0) ? (v-1) : (5-v);
-  }}
-  const score = (total * 2.5).toFixed(1);
-  document.getElementById('susScore').textContent = score;
-  return parseFloat(score);
-}}
-
-document.getElementById('susEnable').onchange = (e) => {{
-  const show = e.target.checked;
-  document.getElementById('susBlock').style.display = show ? 'block' : 'none';
-  if (show && document.getElementById('susBody').children.length === 0) {{
-    renderSUS();
-  }}
-}};
-
-// Render Nodes
-if (!NODES || NODES.length === 0) {{
-  document.getElementById('nodesContainer').innerHTML = '<p style="color:#666;font-style:italic">No nodes provided. Use this form to test general usability.</p>';
-}} else {{
-  NODES.forEach((n, idx) => {{
-    const card = document.createElement('div');
-    card.className = 'node-card';
-    card.innerHTML = `
-    <div class="flex" style="justify-content:space-between">
-    <strong>${{n.name || n.label || n.title || 'Node'}} <span class="node-badge">#${{idx+1}}</span></strong>
-    <label class="flex" style="font-weight:normal;margin:0">
-    <input type="checkbox" id="unclear_${{idx}}" style="width:auto;margin-right:6px"> Unclear/Problematic
-    </label>
-    </div>
-    <p style="color:#666;font-size:0.9em;margin:5px 0">${{n.description||''}}</p>
-    <div class="row3">
-    <div><label>Correctness</label>
-    <select id="correct_${{idx}}"><option>Incorrect</option><option>Partial</option><option selected>Correct</option></select></div>
-    <div><label>Errors (count)</label><input type="number" id="errors_${{idx}}" min="0" value="0"></div>
-    <div><label>Time (seconds)</label><input type="number" id="time_${{idx}}" min="0" value="0"></div>
-    </div>
-    <div class="row" style="margin-top:10px">
-    <div><label>Issue (if any)</label><textarea id="issue_${{idx}}" placeholder="Describe issue"></textarea></div>
-    <div><label>Suggestion</label><textarea id="suggest_${{idx}}" placeholder="Improvement"></textarea></div>
-    </div>`;
-    document.getElementById('nodesContainer').appendChild(card);
+// Initialize heuristics form
+function initializeHeuristics() {{
+  const container = document.getElementById('heuristicsContainer');
+  HEURISTICS.forEach(h => {{
+    const div = document.createElement('div');
+    div.className = 'heuristic-row';
+    div.innerHTML = `
+      <div class="heuristic-title">${{h.name}}</div>
+      <div class="heuristic-desc">${{h.desc}}</div>
+      <div style="margin-bottom:10px">
+        <strong>Rating:</strong>
+        <div class="rating-scale" style="margin-top:8px">
+          <label><input type="radio" name="${{h.id}}_rating" value="1" required> 1</label>
+          <label><input type="radio" name="${{h.id}}_rating" value="2"> 2</label>
+          <label><input type="radio" name="${{h.id}}_rating" value="3" checked> 3</label>
+          <label><input type="radio" name="${{h.id}}_rating" value="4"> 4</label>
+          <label><input type="radio" name="${{h.id}}_rating" value="5"> 5</label>
+        </div>
+      </div>
+      <div>
+        <label for="${{h.id}}_comments"><strong>Comments:</strong></label>
+        <textarea id="${{h.id}}_comments" placeholder="Explain your rating, specific examples..." style="min-height:60px"></textarea>
+      </div>
+    `;
+    container.appendChild(div);
   }});
 }}
 
-function collectData() {{
-
-  const heuristics = HEURISTICS.map((h, i) => ({{
-    name: h,
-    rating: parseInt(document.getElementById('h_rate_' + i).value, 10),
-    comments: document.getElementById('h_comment_' + i).value.trim()
-  }}));
-
-  const susEnabled = document.getElementById('susEnable').checked;
-  const susScores = susEnabled ? [...Array(10)].map((_, i) => parseInt(document.getElementById('sus_' + i).value, 10)) : [];
-  const susScore = susEnabled ? computeSUS() : null;
-
-  const nodes = (NODES||[]).map((n, idx) => ({{
-    index: idx+1,
-    id: n.id ?? null,
-    name: n.name ?? n.label ?? n.title ?? 'Node ' + (idx+1),
-    description: n.description ?? "",
-    correctness: document.getElementById('correct_' + idx).value,
-    errors: parseInt(document.getElementById('errors_' + idx).value, 10) || 0,
-    timeSeconds: parseInt(document.getElementById('time_' + idx).value, 10) || 0,
-    unclear: document.getElementById('unclear_' + idx).checked,
-    issue: document.getElementById('issue_' + idx).value.trim(),
-    suggestion: document.getElementById('suggest_' + idx).value.trim()
-  }}));
-
-    const summary = {{
-    appTitle: "{condition}",
-    testerName: document.getElementById('tester_name').value,
-    testerEmail: document.getElementById('tester_email').value,
-    testerRole: document.getElementById('tester_role').value,
-        scenarioTimes: {{ typical: scenarioTimes.typical, comorbidity: scenarioTimes.comorbidity, urgent: scenarioTimes.urgent }},
-    ease: parseInt(document.getElementById('ease').value, 10),
-    fit: parseInt(document.getElementById('fit').value, 10),
-    positives: document.getElementById('positives').value.trim(),
-    improvements: document.getElementById('improvements').value.trim(),
-    heuristics,
-    susEnabled,
-    susScores,
-    susScore
-  }};
-  return {{summary, nodes}};
-}}
-
-function toCSV(rows) {{
-  const headers = Object.keys(rows[0] || {{}});
-  const esc = v => '"' + String(v??'').replace(/"/g,'""') + '"';
-  const out = [headers.join(",")].concat(rows.map(r => headers.map(h => esc(r[h])).join(",")));
-  return out.join("\n");
-}}
-
-function download(filename, content, mime) {{
-  const blob = new Blob([content], {{type: mime}});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href=url;
-  a.download=filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 500);
-}}
-
-function downloadSummaryCSV() {{
-  const {{summary}} = collectData();
-  const rows = [];
-
+// Download CSV
+function downloadCSV() {{
+  const name = document.getElementById('tester_name').value;
+  const email = document.getElementById('tester_email').value;
+  const role = document.getElementById('tester_role').value;
+  
+  if (!name || !email || !role) {{
+    alert('Please fill in your name, email, and role before downloading.');
+    return;
+  }}
+  
+  let csv = 'Category,Item,Value\\n';
+  csv += `Tester Name,${{name}},"${{name}}"\\n`;
+  csv += `Tester Email,${{email}},"${{email}}"\\n`;
+  csv += `Tester Role,${{role}},"${{role}}"\\n`;
+  csv += `Condition,"{condition}","{condition}"\\n`;
+  csv += `Test Date,"${{new Date().toLocaleDateString()}}","${{new Date().toISOString()}}"\\n`;
+  csv += '\\n';
+  
+  // Scenarios
+  csv += 'Scenario Testing,Item,Notes\\n';
+  const s1Check = document.querySelector('input[data-scenario="typical"]').checked ? 'Completed' : 'Not Completed';
+  const s1Notes = document.getElementById('scenario1_notes').value.replace(/"/g, '""');
+  csv += `Scenario 1 - Typical,${{s1Check}},"${{s1Notes}}"\\n`;
+  
+  const s2Check = document.querySelector('input[data-scenario="complex"]').checked ? 'Completed' : 'Not Completed';
+  const s2Notes = document.getElementById('scenario2_notes').value.replace(/"/g, '""');
+  csv += `Scenario 2 - Complex,${{s2Check}},"${{s2Notes}}"\\n`;
+  
+  const s3Check = document.querySelector('input[data-scenario="urgent"]').checked ? 'Completed' : 'Not Completed';
+  const s3Notes = document.getElementById('scenario3_notes').value.replace(/"/g, '""');
+  csv += `Scenario 3 - Urgent,${{s3Check}},"${{s3Notes}}"\\n`;
+  csv += '\\n';
+  
   // Heuristics
-    HEURISTICS.forEach((name, i) => {{
-    const h = summary.heuristics[i];
-    rows.push({{
-      section: "Heuristic",
-      name: name,
-      rating: h.rating,
-      comments: h.comments,
-            scenarioTypicalSeconds: summary.scenarioTimes.typical,
-            scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
-            scenarioUrgentSeconds: summary.scenarioTimes.urgent,
-      tester: summary.testerName
-    }});
+  csv += 'Nielsen Heuristic,Rating,Comments\\n';
+  HEURISTICS.forEach(h => {{
+    const rating = document.querySelector(`input[name="${{h.id}}_rating"]:checked`).value;
+    const comments = document.getElementById(`${{h.id}}_comments`).value.replace(/"/g, '""');
+    csv += `"${{h.name}}",${{rating}},"${{comments}}"\\n`;
   }});
-
+  csv += '\\n';
+  
   // Overall
-  rows.push({{
-    section: "Overall",
-    name: "Experience",
-    rating: "",
-    comments: 'Ease=' + summary.ease + '; Fit=' + summary.fit + '; Positives=' + summary.positives + '; Improvements=' + summary.improvements,
-        scenarioTypicalSeconds: summary.scenarioTimes.typical,
-        scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
-        scenarioUrgentSeconds: summary.scenarioTimes.urgent,
-    tester: summary.testerName
-  }});
-
-  // SUS
-  if (summary.susEnabled) {{
-    rows.push({{
-      section: "SUS",
-      name: "SUS Score",
-      rating: summary.susScore,
-      comments: 'Responses=' + summary.susScores.join('|'),
-            scenarioTypicalSeconds: summary.scenarioTimes.typical,
-            scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
-            scenarioUrgentSeconds: summary.scenarioTimes.urgent,
-      tester: summary.testerName
-    }});
-  }}
-
-  const safeCondition = condition.replace(/\\s+/g, '_');
-  download(`Beta_Summary_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), "text/csv");
+  csv += 'Overall Feedback,Rating,Comments\\n';
+  const overall = document.getElementById('overall_rating').value;
+  const workflow = document.getElementById('workflow_fit').value;
+  const strengths = document.getElementById('strengths').value.replace(/"/g, '""');
+  const improvements = document.getElementById('improvements').value.replace(/"/g, '""');
+  csv += `Overall Quality,${{overall}},"N/A"\\n`;
+  csv += `Workflow Fit,${{workflow}},"N/A"\\n`;
+  csv += `Strengths,"N/A","${{strengths}}"\\n`;
+  csv += `Improvements Needed,"N/A","${{improvements}}"\\n`;
+  
+  const blob = new Blob([csv], {{ type: 'text/csv' }});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `BetaTesting_${{condition.replace(/\s+/g, '_')}}_${{name.replace(/\s+/g, '_')}}_${{new Date().toISOString().slice(0,10)}}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  
+  alert('Beta testing feedback downloaded successfully!');
 }}
 
-function downloadNodeCSV() {{
-  const {{nodes, summary}} = collectData();
-  const rows = nodes.map(n => ({{
-        scenarioTypicalSeconds: summary.scenarioTimes.typical,
-        scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
-        scenarioUrgentSeconds: summary.scenarioTimes.urgent,
-    tester: summary.testerName,
-    nodeIndex: n.index,
-    nodeId: n.id ?? "",
-    nodeName: n.name,
-    correctness: n.correctness,
-    errors: n.errors,
-    timeSeconds: n.timeSeconds,
-    unclear: n.unclear,
-    issue: n.issue,
-    suggestion: n.suggestion
-  }}));
-  const safeCondition = condition.replace(/\\s+/g, '_');
-  download(`Beta_NodeDetails_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), "text/csv");
-}}
-
-function downloadJSON() {{
-  const {{summary, nodes}} = collectData();
-  const payload = {{ summary, nodes, runs, timestamp: "{timestamp}" }};
-  const safeCondition = condition.replace(/\\s+/g, '_');
-  download(`Beta_${{safeCondition}}_{timestamp}.json`, JSON.stringify(payload, null, 2), "application/json");
-}}
-
-// Restore autosaved state on load
-restoreState();
+// Initialize on load
+initializeHeuristics();
 </script>
 </body>
 </html>
