@@ -1615,58 +1615,48 @@ PHASE_NAMES = [
     "Operationalize"
 ]
 
-# Create circular flow navigation with arrows
+# Create circular flow navigation with Streamlit columns
 current_phase = st.session_state.get("top_nav_radio", PHASES[0])
 current_phase_num = next((i + 1 for i, p in enumerate(PHASES) if p == current_phase), 1)
 
-phase_nav_html = """
-<div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin: 20px 0; flex-wrap: wrap;">
-"""
+# Create navigation using Streamlit native styling
+nav_cols = st.columns([1, 0.3, 1, 0.3, 1, 0.3, 1, 0.3, 1])
 
-for idx, phase_name in enumerate(PHASE_NAMES):
-    phase_num = idx + 1
-    is_current = phase_num == current_phase_num
-    
-    if is_current:
-        bg_color = "#5D4037"
-        text_color = "#FFFFFF"
-        border = "3px solid #3E2723"
-    else:
-        bg_color = "#FFFFFF"
-        text_color = "#5D4037"
-        border = "2px solid #5D4037"
-    
-    phase_nav_html += f"""
-    <div style="
-        width: 100px; 
-        height: 100px; 
-        border-radius: 50%; 
-        background-color: {bg_color}; 
-        color: {text_color}; 
-        border: {border}; 
-        font-weight: bold; 
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.85rem;
-        text-align: center;
-        padding: 8px;
-        transition: all 0.3s ease;
-    ">
-        {phase_name}
-    </div>
-    """
-    
-    if idx < len(PHASE_NAMES) - 1:
-        phase_nav_html += """
-        <div style="font-size: 24px; color: #5D4037; margin: 0 4px;">→</div>
-        """
+phase_col_indices = [0, 2, 4, 6, 8]
+arrow_col_indices = [1, 3, 5, 7]
 
-phase_nav_html += "</div>"
+for arrow_idx in arrow_col_indices:
+    with nav_cols[arrow_idx]:
+        st.markdown("<div style='text-align: center; font-size: 24px; color: #5D4037; padding: 10px 0;'>→</div>", unsafe_allow_html=True)
 
-st.markdown(phase_nav_html, unsafe_allow_html=True)
+for col_idx, phase_col_idx in enumerate(phase_col_indices):
+    with nav_cols[phase_col_idx]:
+        phase_num = col_idx + 1
+        phase_name = PHASE_NAMES[col_idx]
+        is_current = phase_num == current_phase_num
+        
+        if is_current:
+            bg_color = "#5D4037"
+            text_color = "#FFFFFF"
+            border = "3px solid #3E2723"
+        else:
+            bg_color = "#FFFFFF"
+            text_color = "#5D4037"
+            border = "2px solid #5D4037"
+        
+        if st.button(
+            phase_name,
+            key=f"phase_circle_{col_idx}",
+            use_container_width=True,
+            type="primary" if is_current else "secondary"
+        ):
+            st.session_state.top_nav_radio = PHASES[col_idx]
+            st.session_state.current_phase_label = PHASES[col_idx]
+            st.rerun()
 
-# Create custom horizontal phase selector using columns (hidden but functional)
+st.divider()
+
+# Create custom horizontal phase selector using columns (hidden but functional for actual phase switching)
 cols = st.columns(len(PHASES))
 phase = st.session_state.get("top_nav_radio", PHASES[0])
 
