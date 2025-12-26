@@ -1079,13 +1079,11 @@ def generate_mermaid_code(nodes, orientation="TD"):
                 if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
                     dst = node_id_map.get(int(t))
                     if dst:
-                        if 'lines' not in locals(): lines = []
-lines.append(f"  {nid} -> {dst} [label=\"{lbl}\"];")
+                        code += f"    {nid} -->|{lbl}| {dst}\n"
         elif i + 1 < len(valid_nodes):
             dst = node_id_map.get(i + 1)
             if dst:
-                if 'lines' not in locals(): lines = []
-lines.append(f"  {nid} -> {dst};")
+                code += f"    {nid} --> {dst}\n"
     return code
 
 # --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
