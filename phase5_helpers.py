@@ -810,35 +810,35 @@ let runs = [];
 let activeTimer = null; // which scenario key is running
 let startEpoch = null;
 
-function renderAllTimers() {
-    ['typical','comorbidity','urgent'].forEach(key => {
+function renderAllTimers() {{
+    ['typical','comorbidity','urgent'].forEach(key => {{
         const v = scenarioTimes[key] || 0;
         const m = Math.floor(v/60), s = v%60;
         const el = document.getElementById('timer_' + key);
         if (el) el.textContent = pad(m)+':'+pad(s);
-    });
-}
+    }});
+}}
 
-function tick() {
+function tick() {{
     if (!activeTimer || startEpoch === null) return;
     const now = Date.now();
     scenarioTimes[activeTimer] = Math.max(0, Math.floor((now - startEpoch)/1000));
     renderAllTimers();
-}
+}}
 setInterval(tick, 250);
 
-function startTimerFor(key) {
+function startTimerFor(key) {{
     activeTimer = key;
     startEpoch = Date.now() - (scenarioTimes[key]*1000);
-}
-function stopTimerFor(key) {
-    if (activeTimer === key) { activeTimer = null; }
-}
-function resetTimerFor(key) {
+}}
+function stopTimerFor(key) {{
+    if (activeTimer === key) {{ activeTimer = null; }}
+}}
+function resetTimerFor(key) {{
     scenarioTimes[key] = 0;
-    if (activeTimer === key) { startEpoch = Date.now(); }
+    if (activeTimer === key) {{ startEpoch = Date.now(); }}
     renderAllTimers();
-}
+}}
 
 // Scenario descriptions
 document.getElementById('desc_typical').innerHTML = SCENARIOS.typical.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.typical.tasks.join(' • ') + '</span>';
@@ -846,54 +846,54 @@ document.getElementById('desc_comorbidity').innerHTML = SCENARIOS.comorbidity.de
 document.getElementById('desc_urgent').innerHTML = SCENARIOS.urgent.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.urgent.tasks.join(' • ') + '</span>';
 renderAllTimers();
 
-function recordRun(key) {
+function recordRun(key) {{
     const secs = scenarioTimes[key] || 0;
-    runs.push({ scenario: key, seconds: secs, timestamp: new Date().toISOString() });
+    runs.push({{ scenario: key, seconds: secs, timestamp: new Date().toISOString() }});
     renderRuns();
     scheduleSave();
-}
+}}
 
-function renderRuns() {
+function renderRuns() {{
     const body = document.getElementById('runsBody');
     if (!body) return;
     body.innerHTML = '';
-    runs.forEach(r => {
+    runs.forEach(r => {{
         const tr = document.createElement('tr');
         const name = SCENARIOS[r.scenario]?.name || r.scenario;
-        tr.innerHTML = `<td>${name}</td><td>${r.seconds}</td><td>${r.timestamp}</td>`;
+        tr.innerHTML = `<td>${{name}}</td><td>${{r.seconds}}</td><td>${{r.timestamp}}</td>`;
         body.appendChild(tr);
-    });
-}
+    }});
+}}
 
 // Autosave helpers and run exports
 let _saveDebounce = null;
-function scheduleSave() {
+function scheduleSave() {{
   clearTimeout(_saveDebounce);
   _saveDebounce = setTimeout(saveState, 300);
-}
-function saveState() {
-  try {
-    const { summary, nodes } = collectData();
-    const state = { summary, nodes, runs, scenarioTimes };
+}}
+function saveState() {{
+  try {{
+    const {{ summary, nodes }} = collectData();
+    const state = {{ summary, nodes, runs, scenarioTimes }};
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {}
-}
-function restoreState() {
-  try {
+  }} catch (e) {{}}
+}}
+function restoreState() {{
+  try {{
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const state = JSON.parse(raw);
-    const setVal = (id, val) => { const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') { el.checked = !!val; } else if (typeof val !== 'undefined' && val !== null) { el.value = val; } };
+    const setVal = (id, val) => {{ const el = document.getElementById(id); if (!el) return; if (el.type === 'checkbox') {{ el.checked = !!val; }} else if (typeof val !== 'undefined' && val !== null) {{ el.value = val; }} }};
 
     // Scenario timers
-    if (state.scenarioTimes) {
+    if (state.scenarioTimes) {{
       scenarioTimes = state.scenarioTimes;
       activeTimer = null;
       startEpoch = null;
       renderAllTimers();
-    }
+    }}
 
-    const s = state.summary || {};
+    const s = state.summary || {{}};
     setVal('tester_name', s.testerName || '');
     setVal('tester_email', s.testerEmail || '');
     setVal('tester_role', s.testerRole || '');
@@ -903,71 +903,71 @@ function restoreState() {
     setVal('improvements', s.improvements || '');
 
     // Heuristics
-    if (Array.isArray(s.heuristics)) {
-      s.heuristics.forEach((h, i) => {
+    if (Array.isArray(s.heuristics)) {{
+      s.heuristics.forEach((h, i) => {{
         setVal('h_rate_'+i, h.rating);
         setVal('h_comment_'+i, h.comments || '');
-      });
-    }
+      }});
+    }}
 
     // SUS
-    if (s.susEnabled) {
+    if (s.susEnabled) {{
       const chk = document.getElementById('susEnable');
-      if (chk) {
+      if (chk) {{
         chk.checked = true;
         document.getElementById('susBlock').style.display = 'block';
-        if (document.getElementById('susBody').children.length === 0) { renderSUS(); }
-      }
-      if (Array.isArray(s.susScores)) {
+        if (document.getElementById('susBody').children.length === 0) {{ renderSUS(); }}
+      }}
+      if (Array.isArray(s.susScores)) {{
         s.susScores.forEach((v,i) => setVal('sus_'+i, v));
         computeSUS();
-      }
-    }
+      }}
+    }}
 
     // Nodes
-    if (Array.isArray(state.nodes)) {
-      state.nodes.forEach((n, idx) => {
+    if (Array.isArray(state.nodes)) {{
+      state.nodes.forEach((n, idx) => {{
         setVal('correct_'+idx, n.correctness);
         setVal('errors_'+idx, n.errors);
         setVal('time_'+idx, n.timeSeconds);
         const uc = document.getElementById('unclear_'+idx); if (uc) uc.checked = !!n.unclear;
         setVal('issue_'+idx, n.issue || '');
         setVal('suggest_'+idx, n.suggestion || '');
-      });
-    }
+      }});
+    }}
 
     // Runs
-    if (Array.isArray(state.runs)) {
+    if (Array.isArray(state.runs)) {{
       runs = state.runs;
       renderRuns();
-    }
-  } catch (e) {}
-}
+    }}
+  }} catch (e) {{}}
+}}
 
 // Wire autosave on form changes
 const _formEl = document.getElementById('betaForm');
-if (_formEl) {
+if (_formEl) {{
   _formEl.addEventListener('input', scheduleSave);
   _formEl.addEventListener('change', scheduleSave);
-}
+}}
 
-function downloadRunsCSV() {
-  const rows = runs.map(r => ({
+function downloadRunsCSV() {{
+  const rows = runs.map(r => ({{
     scenario: SCENARIOS[r.scenario]?.name || r.scenario,
     seconds: r.seconds,
     timestamp: r.timestamp
-  }));
-  if (!rows.length) { alert('No runs recorded yet.'); return; }
+  }}));
+  if (!rows.length) {{ alert('No runs recorded yet.'); return; }}
   const safeCondition = condition.replace(/\s+/g, '_');
   download(`Beta_Runs_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), 'text/csv');
-}
+}}
 
-function clearSaved() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+function clearSaved() {{
+  try {{ localStorage.removeItem(STORAGE_KEY); }} catch (e) {{}}
   runs = [];
   renderRuns();
   alert('Saved state cleared for this form.');
-}
+}}
 
 // Render Nielsen Heuristics
 HEURISTICS.forEach((h, i) => {{
@@ -1041,7 +1041,7 @@ if (!NODES || NODES.length === 0) {{
   }});
 }}
 
-function collectData() {
+function collectData() {{
 
   const heuristics = HEURISTICS.map((h, i) => ({{
     name: h,
@@ -1066,12 +1066,12 @@ function collectData() {
     suggestion: document.getElementById('suggest_' + idx).value.trim()
   }}));
 
-    const summary = {
+    const summary = {{
     appTitle: "{condition}",
     testerName: document.getElementById('tester_name').value,
     testerEmail: document.getElementById('tester_email').value,
     testerRole: document.getElementById('tester_role').value,
-        scenarioTimes: { typical: scenarioTimes.typical, comorbidity: scenarioTimes.comorbidity, urgent: scenarioTimes.urgent },
+        scenarioTimes: {{ typical: scenarioTimes.typical, comorbidity: scenarioTimes.comorbidity, urgent: scenarioTimes.urgent }},
     ease: parseInt(document.getElementById('ease').value, 10),
     fit: parseInt(document.getElementById('fit').value, 10),
     positives: document.getElementById('positives').value.trim(),
@@ -1106,7 +1106,7 @@ function downloadSummaryCSV() {{
   const rows = [];
 
   // Heuristics
-    HEURISTICS.forEach((name, i) => {
+    HEURISTICS.forEach((name, i) => {{
     const h = summary.heuristics[i];
     rows.push({{
       section: "Heuristic",
@@ -1150,7 +1150,7 @@ function downloadSummaryCSV() {{
   download(`Beta_Summary_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), "text/csv");
 }}
 
-function downloadNodeCSV() {
+function downloadNodeCSV() {{
   const {{nodes, summary}} = collectData();
   const rows = nodes.map(n => ({{
         scenarioTypicalSeconds: summary.scenarioTimes.typical,
