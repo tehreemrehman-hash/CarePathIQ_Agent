@@ -1128,10 +1128,10 @@ def create_education_module_template(
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
   <defs>
     <style>
-      ${Array.from(document.styleSheets).map(sheet => {
-        try { return Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\n'); }
-        catch { return ''; }
-      }).join('\n')}
+            ${{Array.from(document.styleSheets).map(sheet => {{
+                try {{ return Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\n'); }}
+                catch {{ return ''; }}
+            }}).join('\n')}}
     </style>
   </defs>
   <foreignObject width="800" height="600" x="0" y="0">
