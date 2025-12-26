@@ -854,9 +854,9 @@ def create_education_module_template(
                         </div>
 
                         <div class="certificate-actions">
-                            <button class="btn" onclick="printCertificate()">🖨️ Print Certificate</button>
-                            <button class="btn secondary" onclick="downloadCertificatePNG()">📥 Save as Image</button>
-                            <button class="btn secondary" onclick="emailCertificate()">📧 Email Certificate</button>
+                            <button class="btn" onclick="printCertificate()">Print Certificate</button>
+                            <button class="btn secondary" onclick="downloadCertificateSVG()">Download Certificate</button>
+                            <button class="btn secondary" onclick="emailCertificate()">Email Certificate</button>
                         </div>
                     </div>
                 </div>
@@ -1117,8 +1117,37 @@ def create_education_module_template(
             window.print();
         }}
 
-        function downloadCertificatePNG() {{
-            alert('Screenshot or use Print → Save as PDF for certificate format.');
+        function downloadCertificateSVG() {{
+            const certContent = document.querySelector('.certificate-content');
+            const certId = document.getElementById('certId').textContent;
+            const recipientName = document.getElementById('recipientName').value || 'Recipient';
+            const svgString = new XMLSerializer().serializeToString(certContent);
+            
+            // Wrap in SVG for proper export
+            const svgWrapper = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <style>
+      ${Array.from(document.styleSheets).map(sheet => {
+        try { return Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\n'); }
+        catch { return ''; }
+      }).join('\n')}
+    </style>
+  </defs>
+  <foreignObject width="800" height="600" x="0" y="0">
+    <div xmlns="http://www.w3.org/1999/xhtml">${certContent.innerHTML}</div>
+  </foreignObject>
+</svg>`;
+            
+            const blob = new Blob([svgWrapper], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Certificate_${recipientName.replace(/\s+/g, '_')}_${certId}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
         }}
 
         function emailCertificate() {{

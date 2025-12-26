@@ -2366,11 +2366,15 @@ elif "Phase 4" in phase:
     with col_left:
         st.subheader("Pathway Visualization")
         
-        # Visualization height control and fullscreen button
+        # Visualization height control, refresh, and PNG toggle
         viz_col1, viz_col2, viz_col3 = st.columns([1, 1, 1])
         with viz_col1:
             viz_height = st.slider("Height (px)", 300, 800, p4_state['viz_height'], step=50, key="p4_viz_height")
             p4_state['viz_height'] = viz_height
+        with viz_col2:
+            if st.button("🔄 Refresh", use_container_width=True, key="p4_refresh_btn"):
+                p4_state['viz_cache'] = {}  # Clear cache to force re-render
+                st.rerun()
         with viz_col3:
             generate_png = st.checkbox("PNG export", value=False, key="p4_png_toggle")
 
@@ -2390,39 +2394,42 @@ elif "Phase 4" in phase:
         # Keep cache bounded to the latest signature only
         p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
-        # Now render Fullscreen button with svg_bytes available
-        with viz_col2:
-            if svg_bytes:
-                import base64
-                svg_encoded = base64.b64encode(svg_bytes).decode('utf-8')
-                svg_data_for_popup = f"data:image/svg+xml;base64,{svg_encoded}"
-
-                popup_js = f"""
-                <script>
-                function openFullscreen() {{
-                    var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
-                    if (w) {{
-                        w.document.write('<html><head><title>Pathway Visualization - Fullscreen</title>');
-                        w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:0 auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
-                        w.document.write('</head><body>');
-                        w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
-                        w.document.write('<img src="{svg_data_for_popup}" alt="Pathway Visualization" />');
-                        w.document.write('</body></html>');
-                        w.document.close();
-                    }} else {{
-                        alert('Popup blocked! Please allow popups for this site to use Fullscreen mode.');
-                    }}
-                }}
-                </script>
-                """
-                components.html(popup_js, height=0)
-                if st.button("Fullscreen ↗", use_container_width=True, key="p4_fullscreen_btn"):
-                    components.html(popup_js + '<script>openFullscreen();</script>', height=0)
-            else:
-                st.button("Fullscreen ↗", use_container_width=True, disabled=True, key="p4_fullscreen_btn_disabled")
-
+        # Fullscreen button - opens SVG in new window
         if svg_bytes:
-            st.image(svg_bytes, use_column_width=True)
+            import base64
+            svg_encoded = base64.b64encode(svg_bytes).decode('utf-8')
+            svg_data_for_popup = f"data:image/svg+xml;base64,{svg_encoded}"
+
+            popup_js = f"""
+            <script>
+            function openFullscreen() {{
+                var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
+                if (w) {{
+                    w.document.write('<html><head><title>Pathway Visualization - Fullscreen</title>');
+                    w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:0 auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
+                    w.document.write('</head><body>');
+                    w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
+                    w.document.write('<img src="{svg_data_for_popup}" alt="Pathway Visualization" />');
+                    w.document.write('</body></html>');
+                    w.document.close();
+                }} else {{
+                    alert('Popup blocked! Please allow popups for this site to use Fullscreen mode.');
+                }}
+            }}
+            </script>
+            """
+            components.html(popup_js, height=0)
+            if st.button("Fullscreen ↗", use_container_width=True, key="p4_fullscreen_btn"):
+                components.html(popup_js + '<script>openFullscreen();</script>', height=0)
+        else:
+            st.button("Fullscreen ↗", use_container_width=True, disabled=True, key="p4_fullscreen_btn_disabled")
+
+        # Validate and render SVG with proper width parameter
+        if svg_bytes and isinstance(svg_bytes, bytes) and len(svg_bytes) > 0:
+            try:
+                st.image(svg_bytes, width=None)
+            except Exception as e:
+                st.warning(f"Unable to render SVG image. {str(e)[:100]}")
         else:
             st.warning("Unable to render pathway visualization. Check node data or try Fullscreen.")
         
@@ -2434,19 +2441,24 @@ elif "Phase 4" in phase:
             st.download_button("DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", width="stretch")
 
         with col_dl_svg:
-            if svg_bytes:
+            if svg_bytes and isinstance(svg_bytes, bytes) and len(svg_bytes) > 0:
                 st.download_button("SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", width="stretch")
             else:
                 st.caption("SVG unavailable")
         with col_dl_png:
-            if generate_png and png_bytes:
-                st.download_button("PNG", png_bytes, file_name="pathway.png", mime="image/png", width="stretch")
+            if generate_png and png_bytes and isinstance(png_bytes, bytes) and len(png_bytes) > 0:
+                # PNG button with help tooltip
+                col_png_btn, col_png_help = st.columns([4, 1])
+                with col_png_btn:
+                    st.download_button("Download", png_bytes, file_name="pathway.png", mime="image/png", width="stretch")
+                with col_png_help:
+                    st.markdown("<div style='display: flex; align-items: center; height: 38px; justify-content: center;'><span title='PNG is a high-quality image format suitable for presentations and reports. Great for sharing or printing.' style='cursor: help; font-size: 18px; color: #5D4037;'>?</span></div>", unsafe_allow_html=True)
             elif generate_png:
                 st.caption("PNG unavailable")
             else:
                 st.caption("PNG off (enable above)")
         
-        # Edit pathway data with Node ID column
+        # Edit pathway data with Node ID column - changes auto-invalidate visualization cache
         with st.expander("Edit Pathway Data", expanded=False):
             df_p4 = pd.DataFrame(nodes)
             # Add node ID column if not present
@@ -2461,6 +2473,8 @@ elif "Phase 4" in phase:
                 if 'node_id' in edited_p4.columns:
                     edited_p4 = edited_p4.drop('node_id', axis=1)
                 st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                p4_state['viz_cache'] = {}  # Clear visualization cache to force re-render with new node data
+                st.success("Nodes updated. Flowchart will refresh automatically.")
                 st.rerun()
     
     with col_right:
