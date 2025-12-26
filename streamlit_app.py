@@ -1877,7 +1877,6 @@ elif "Phase 3" in phase:
     evidence_list = st.session_state.data['phase2']['evidence']
     
     if not st.session_state.data['phase3']['nodes'] and cond:
-        st.info("⏳ Auto-generating decision tree from Phase 1 & 2 data...")
         ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
         prompt = f"""
         Act as a Clinical Decision Scientist. Build a comprehensive decision-science pathway for managing patients with {cond} in {setting}.
@@ -1908,13 +1907,13 @@ elif "Phase 3" in phase:
         - Prefer evidence-backed steps; cite PMIDs where available
         - Highlight benefit/harm trade-offs at decision points
         """
-        with ai_activity("Auto-generating decision science table based on Phase 1 & 2..."):
+        with ai_activity("Auto-generating decision tree from Phase 1 & 2 data..."):
             nodes = get_gemini_response(prompt, json_mode=True)
-            if isinstance(nodes, list) and len(nodes) > 0:
-                st.session_state.data['phase3']['nodes'] = nodes
-                st.rerun()
-            else:
-                st.warning("Could not auto-generate decision tree. Please manually add nodes in the table below or try refreshing the page.")
+        if isinstance(nodes, list) and len(nodes) > 0:
+            st.session_state.data['phase3']['nodes'] = nodes
+            st.rerun()
+        elif not isinstance(nodes, list):
+            st.warning(f"❌ Could not parse decision tree. The AI returned: {type(nodes).__name__}. Please manually add nodes in the table below, or try again.")
     
     st.divider()
     st.markdown("### Decision Tree")
