@@ -1245,7 +1245,8 @@ def validate_ai_connection() -> bool:
         mdl = model_choice if model_choice != "Auto" else "gemini-1.5-flash"
         resp = client.models.generate_content(model=mdl, contents="ping")
         return bool(getattr(resp, "text", None))
-    except Exception:
+    except Exception as e:
+        st.session_state["ai_error"] = str(e)
         return False
 
 @st.cache_data(ttl=3600)
@@ -1468,8 +1469,11 @@ with st.sidebar:
                 if ok:
                     st.success("AI Connected")
                     st.session_state["ai_valid"] = True
+                    st.session_state.pop("ai_error", None)
                 else:
-                    st.error("API key invalid or model unavailable. Try a different model or check the key.")
+                    err = st.session_state.get("ai_error")
+                    detail = f" Details: {err}" if err else ""
+                    st.error("API key invalid or model unavailable. Try a different model or check the key." + detail)
                     st.session_state["ai_valid"] = False
             else:
                 # Preserve prior validation result
