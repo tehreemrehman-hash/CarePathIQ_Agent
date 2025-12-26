@@ -1045,46 +1045,8 @@ def harden_nodes(nodes_list):
     return validated
 
 def generate_mermaid_code(nodes, orientation="TD"):
-    if not nodes: return "flowchart TD\n%% No nodes"
-    valid_nodes = harden_nodes(nodes)
-    from collections import defaultdict
-    swimlanes = defaultdict(list)
-    for i, n in enumerate(valid_nodes): swimlanes[n.get('role', 'Unassigned')].append((i, n))
-    code = f"flowchart {orientation}\n"
-    node_id_map = {}
-    for role, n_list in swimlanes.items():
-        safe_role = re.sub(r'[^A-Za-z0-9_]', '_', str(role or 'Unassigned'))
-        escaped_role = str(role or '').replace('"', "'").replace('\n', ' ')
-        code += f"    subgraph {safe_role}[\"{escaped_role}\"]\n"
-        for i, n in n_list:
-            nid = f"N{i}"; node_id_map[i] = nid
-            label = n.get('label', 'Step').replace('"', "'")
-            detail = n.get('detail', '').replace('"', "'")
-            meds = n.get('medications', '')
-            if meds: detail += f"\\nMeds: {meds}"
-            full_label = f"{label}\\n{detail}" if detail else label
-            ntype = n.get('type', 'Process')
-            if ntype == 'Start': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            elif ntype == 'Decision': shape = '{', '}'; style = 'fill:#F8CECC,stroke:#B85450,stroke-width:2px,color:black'
-            elif ntype == 'End': shape = '([', '])'; style = 'fill:#D5E8D4,stroke:#82B366,stroke-width:2px,color:black'
-            else: shape = '[', ']'; style = 'fill:#FFF2CC,stroke:#D6B656,stroke-width:1px,color:black'
-            code += f'        {nid}{shape[0]}"{full_label}"{shape[1]}\n        style {nid} {style}\n'
-        code += "    end\n"
-    for i, n in enumerate(valid_nodes):
-        nid = node_id_map[i]
-        if n.get('type') == 'Decision' and 'branches' in n:
-            for b in n.get('branches', []):
-                t = b.get('target')
-                lbl = _escape_label(b.get('label', 'Yes'))
-                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
-                    dst = node_id_map.get(int(t))
-                    if dst:
-                        code += f"    {nid} -->|{lbl}| {dst}\n"
-        elif i + 1 < len(valid_nodes):
-            dst = node_id_map.get(i + 1)
-            if dst:
-                code += f"    {nid} --> {dst}\n"
-    return code
+    """Legacy function - now redirects to DOT format for compatibility."""
+    return dot_from_nodes(nodes, orientation)
 
 # --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
 def _escape_label(text: str) -> str:
