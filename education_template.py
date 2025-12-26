@@ -1134,9 +1134,9 @@ def create_education_module_template(
             }}).join('\n')}}
     </style>
   </defs>
-  <foreignObject width="800" height="600" x="0" y="0">
-    <div xmlns="http://www.w3.org/1999/xhtml">${certContent.innerHTML}</div>
-  </foreignObject>
+    <foreignObject width="800" height="600" x="0" y="0">
+        <div xmlns="http://www.w3.org/1999/xhtml">${{certContent.innerHTML}}</div>
+    </foreignObject>
 </svg>`;
             
             const blob = new Blob([svgWrapper], {{ type: 'image/svg+xml' }});
