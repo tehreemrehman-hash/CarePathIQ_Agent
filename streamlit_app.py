@@ -389,30 +389,47 @@ def render_bottom_navigation():
                 st.button(f"{next_phase.split(':')[0]}", key="bottom_next", use_container_width=True, type="secondary", on_click=change_phase, args=(next_phase,))
 
 def calculate_granular_progress():
-    if 'data' not in st.session_state: return 0.0
+    """
+    Calculate progress across all 5 phases with balanced weighting.
+    Each phase = 20% of total progress (fair distribution).
+    Within each phase, fields are weighted equally.
+    Returns: float between 0.0 and 1.0
+    """
+    if 'data' not in st.session_state:
+        return 0.0
+    
     data = st.session_state.data
-    total_points = 0
-    earned_points = 0
+    phase_progress = {}
+    
+    # --- PHASE 1: 20% (6 fields, each 1/6 of phase 1) ---
     p1 = data.get('phase1', {})
-    for k in ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']:
-        total_points += 1
-        if p1.get(k): earned_points += 1
+    p1_fields = ['condition', 'setting', 'inclusion', 'exclusion', 'problem', 'objectives']
+    p1_completed = sum(1 for k in p1_fields if p1.get(k))
+    phase_progress['p1'] = p1_completed / len(p1_fields)
+    
+    # --- PHASE 2: 20% (2 fields, each 1/2 of phase 2) ---
     p2 = data.get('phase2', {})
-    total_points += 2
-    if p2.get('mesh_query'): earned_points += 1
-    if p2.get('evidence'): earned_points += 1
+    p2_fields = ['mesh_query', 'evidence']
+    p2_completed = sum(1 for k in p2_fields if p2.get(k))
+    phase_progress['p2'] = p2_completed / len(p2_fields)
+    
+    # --- PHASE 3: 20% (1 field, worth full phase 3) ---
     p3 = data.get('phase3', {})
-    total_points += 3
-    if p3.get('nodes'): earned_points += 3
+    phase_progress['p3'] = 1.0 if p3.get('nodes') else 0.0
+    
+    # --- PHASE 4: 20% (1 field, worth full phase 4) ---
     p4 = data.get('phase4', {})
-    total_points += 2
-    if p4.get('heuristics_data'): earned_points += 2
+    phase_progress['p4'] = 1.0 if p4.get('heuristics_data') else 0.0
+    
+    # --- PHASE 5: 20% (3 fields, each 1/3 of phase 5) ---
     p5 = data.get('phase5', {})
-    for k in ['beta_html', 'expert_html', 'edu_html']:
-        total_points += 1
-        if p5.get(k): earned_points += 1
-    if total_points == 0: return 0.0
-    return min(1.0, earned_points / total_points)
+    p5_fields = ['beta_html', 'expert_html', 'edu_html']
+    p5_completed = sum(1 for k in p5_fields if p5.get(k))
+    phase_progress['p5'] = p5_completed / len(p5_fields)
+    
+    # Each phase worth 20% of total
+    overall_progress = sum(phase_progress.values()) / 5
+    return min(1.0, overall_progress)
 
 def styled_info(text):
     formatted_text = text.replace("Tip:", "<b>Tip:</b>")
@@ -1869,7 +1886,7 @@ elif "Phase 2" in phase:
             df_ev.insert(0, "new", df_ev["is_new"].astype(bool))
 
             # Neutral tip without Phase 3 reference
-            styled_info("<b>Tip:</b> Review the auto-graded GRADE and rationale. Use the table menu to download CSV.")
+            styled_info("<b>Tip:</b> Review the auto-graded GRADE and rationale. Hover over the top right of the table for more options including CSV download.")
 
             edited_ev = st.data_editor(
                 df_ev[["new", "id", "title", "grade", "rationale", "url"]], 
@@ -2187,9 +2204,8 @@ elif "Phase 3" in phase:
     # Show tip if new PMIDs were enriched
     if enriched_count > 0:
         styled_info(
-            f"<b>Evidence updated:</b> Found {enriched_count} new PMID(s) in your pathway. "
-            f"Auto-added to the Phase 2 evidence table with auto-graded status. "
-            f"Rows are highlighted in pink. <b>Visit Phase 2</b> to review and finalize GRADE assessments."
+            f"<b>Evidence updated:</b> {enriched_count} new PMID(s) auto-graded and added to Phase 2 (pink-highlighted). "
+            f"<b>Visit Phase 2</b> to review and finalize."
         )
 
     def apply_large_pathway_recommendations():
