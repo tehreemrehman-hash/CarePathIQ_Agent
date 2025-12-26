@@ -1185,9 +1185,9 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         return None
 
     candidates = [
-        "models/gemini-1.5-flash-latest",
-        "models/gemini-1.5-pro-latest",
-    ] if model_choice == "Auto" else [f"models/{model_choice}-latest", "models/gemini-1.5-flash-latest"]
+        "gemini-2.5-flash-latest",
+        "gemini-2.5-flash-lite-latest",
+    ] if model_choice == "Auto" else [f"{model_choice}-latest", "gemini-2.5-flash-latest"]
 
     response = None
     last_error = None
@@ -1236,7 +1236,7 @@ def validate_ai_connection() -> bool:
     if not client:
         return False
     try:
-        mdl = f"models/{model_choice}-latest" if model_choice != "Auto" else "models/gemini-1.5-flash-latest"
+        mdl = f"{model_choice}-latest" if model_choice != "Auto" else "gemini-2.5-flash-latest"
         resp = client.models.generate_content(model=mdl, contents="ping")
         return bool(getattr(resp, "text", None))
     except Exception as e:
@@ -1444,7 +1444,7 @@ with st.sidebar:
     # Do not prefill from secrets so landing shows on first load
     gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
     # Limit to stable, broadly available models; Auto will cascade over these
-    model_options = ["Auto", "gemini-1.5-flash", "gemini-1.5-pro"]
+    model_options = ["Auto", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
     # Preview before activation
