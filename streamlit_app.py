@@ -1193,11 +1193,10 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     last_error = None
     for model_name in candidates:
         try:
-            is_stream = stream_container is not None
+            # v1 API doesn't support stream parameter; remove it
             response = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
-                stream=is_stream,
             )
             if response:
                 break
@@ -1213,15 +1212,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         return None
 
     try:
-        if stream_container:
-            text = ""
-            for chunk in response:
-                if getattr(chunk, "text", None):
-                    text += chunk.text
-                    stream_container.markdown(text + "▌")
-            stream_container.markdown(text)
-        else:
-            text = getattr(response, "text", "")
+        # Stream container no longer used with v1 API
+        text = getattr(response, "text", "")
 
         if json_mode:
             text = text.replace('```json', '').replace('```', '').strip()
