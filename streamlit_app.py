@@ -2768,44 +2768,16 @@ elif "Phase 5" in phase:
     
     st.divider()
     
-    # Configuration
-    st.subheader("Configuration")
-    col_aud, col_org = st.columns([1, 1])
-    with col_aud:
-        audience = st.text_input(
-            "Target Audience",
-            value=st.session_state.get("p5_audience", "Clinical Team"),
-            placeholder="e.g., Physicians, Nurses, Pharmacists",
-            key="p5_audience"
-        )
-    with col_org:
-        organization = st.text_input(
-            "Organization Name",
-            value=st.session_state.get("p5_organization", "CarePathIQ"),
-            placeholder="Your Hospital/Institution",
-            key="p5_organization"
-        )
+    # Organization (used by all deliverables)
+    st.subheader("Organization")
+    organization = st.text_input(
+        "Organization Name",
+        value=st.session_state.get("p5_organization", "CarePathIQ"),
+        placeholder="Your Hospital/Institution",
+        key="p5_organization"
+    )
 
-    # Quick audience examples per deliverable to speed setup
-    with st.expander("Target Audience Examples", expanded=False):
-        st.caption("Click to auto-fill the audience field above.")
-        e1, e2, e3, e4 = st.columns(4)
-        with e1:
-            if st.button("Expert Panel", key="aud_expert", use_container_width=True):
-                st.session_state.p5_audience = "Clinical Experts (EM, Cardiology, Pharmacy)"
-                st.rerun()
-        with e2:
-            if st.button("Beta Testing", key="aud_beta", use_container_width=True):
-                st.session_state.p5_audience = "ED Clinicians (Physicians, RNs), APPs, Pharmacists"
-                st.rerun()
-        with e3:
-            if st.button("Education Module", key="aud_edu", use_container_width=True):
-                st.session_state.p5_audience = "Clinical Team (Residents, RNs, APPs)"
-                st.rerun()
-        with e4:
-            if st.button("Exec Summary", key="aud_exec", use_container_width=True):
-                st.session_state.p5_audience = "Hospital & Service-Line Leadership"
-                st.rerun()
+    # (Simplified) Target audiences are selected per deliverable below
     
     st.divider()
 
@@ -2818,58 +2790,31 @@ elif "Phase 5" in phase:
     st.subheader("1. Expert Panel Feedback Form")
     st.caption("Share with clinical experts for pathway review")
     
-    col_exp1, col_exp2 = st.columns([2, 1])
-    with col_exp1:
-        st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
-        # Quick audience presets for this deliverable
-        exp_c1, exp_c2, exp_c3 = st.columns(3)
-        with exp_c1:
-            if st.button("Clinician Experts", key="exp_aud1", use_container_width=True):
-                st.session_state.p5_audience = "Clinical Experts (EM, Cardiology, Pharmacy)"; st.rerun()
-        with exp_c2:
-            if st.button("Governance Committee", key="exp_aud2", use_container_width=True):
-                st.session_state.p5_audience = "Pathway Governance Committee"; st.rerun()
-        with exp_c3:
-            if st.button("Quality & Safety", key="exp_aud3", use_container_width=True):
-                st.session_state.p5_audience = "Quality & Patient Safety Leaders"; st.rerun()
-    with col_exp2:
-        if st.button("Generate (5-10 sec)", key="gen_expert", use_container_width=True):
-            with ai_activity("Generating expert feedback form..."):
-                expert_html = generate_expert_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    audience=audience,
-                    organization=organization
-                )
-                st.session_state.data['phase5']['expert_html'] = expert_html
-                st.success("Form generated!")
+    st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
+    aud_expert = st.selectbox("Target Audience", [
+        "Clinical Experts (EM, Cardiology, Pharmacy)",
+        "Pathway Governance Committee",
+        "Quality & Patient Safety Leaders"
+    ], index=0, key="p5_aud_expert")
+    if st.button("Generate Form", key="gen_expert", use_container_width=True):
+        with ai_activity("Generating expert feedback form..."):
+            expert_html = generate_expert_form_html(
+                condition=cond,
+                nodes=nodes,
+                audience=aud_expert,
+                organization=organization
+            )
+            st.session_state.data['phase5']['expert_html'] = expert_html
+            st.success("Form generated!")
     
     if st.session_state.data['phase5'].get('expert_html'):
-        col_view, col_dl = st.columns([1, 1])
-        with col_view:
-            expert_preview_active = st.session_state.get('show_expert_preview', False)
-            preview_btn_label = "Hide Preview" if expert_preview_active else "Preview"
-            preview_btn_type = "primary" if expert_preview_active else "secondary"
-            if st.button(preview_btn_label, key="view_expert_form", type=preview_btn_type, use_container_width=True):
-                st.session_state['show_expert_preview'] = not expert_preview_active
-                st.rerun()
-        
-        with col_dl:
-            st.download_button(
-                "Download HTML",
-                st.session_state.data['phase5']['expert_html'],
-                f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
-                "text/html",
-                use_container_width=True
-            )
-        
-        if st.session_state.get('show_expert_preview'):
-            with st.expander("Form Preview", expanded=True):
-                components.html(
-                    st.session_state.data['phase5']['expert_html'],
-                    height=600,
-                    scrolling=True
-                )
+        st.download_button(
+            "Download HTML",
+            st.session_state.data['phase5']['expert_html'],
+            f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
+            "text/html",
+            use_container_width=True
+        )
     
     st.divider()
     
@@ -2879,57 +2824,31 @@ elif "Phase 5" in phase:
     st.subheader("2. Beta Testing Feedback Form")
     st.caption("Share with users testing the pathway in real-world settings")
     
-    col_beta1, col_beta2 = st.columns([2, 1])
-    with col_beta1:
-        st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
-        beta_c1, beta_c2, beta_c3 = st.columns(3)
-        with beta_c1:
-            if st.button("ED Team", key="beta_aud1", use_container_width=True):
-                st.session_state.p5_audience = "ED Clinicians (Physicians, RNs), APPs, Pharmacists"; st.rerun()
-        with beta_c2:
-            if st.button("Inpatient Nursing", key="beta_aud2", use_container_width=True):
-                st.session_state.p5_audience = "Inpatient Nursing Staff"; st.rerun()
-        with beta_c3:
-            if st.button("Primary Care", key="beta_aud3", use_container_width=True):
-                st.session_state.p5_audience = "Primary Care Team"; st.rerun()
-    with col_beta2:
-        if st.button("Generate (5-10 sec)", key="gen_beta", use_container_width=True):
-            with ai_activity("Generating beta testing form..."):
-                beta_html = generate_beta_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    audience=audience,
-                    organization=organization
-                )
-                st.session_state.data['phase5']['beta_html'] = beta_html
-                st.success("Form generated!")
+    st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
+    aud_beta = st.selectbox("Target Audience", [
+        "ED Clinicians (Physicians, RNs), APPs, Pharmacists",
+        "Inpatient Nursing Staff",
+        "Primary Care Team"
+    ], index=0, key="p5_aud_beta")
+    if st.button("Generate Form", key="gen_beta", use_container_width=True):
+        with ai_activity("Generating beta testing form..."):
+            beta_html = generate_beta_form_html(
+                condition=cond,
+                nodes=nodes,
+                audience=aud_beta,
+                organization=organization
+            )
+            st.session_state.data['phase5']['beta_html'] = beta_html
+            st.success("Form generated!")
     
     if st.session_state.data['phase5'].get('beta_html'):
-        col_view, col_dl = st.columns([1, 1])
-        with col_view:
-            beta_preview_active = st.session_state.get('show_beta_preview', False)
-            preview_btn_label = "Hide Preview" if beta_preview_active else "Preview"
-            preview_btn_type = "primary" if beta_preview_active else "secondary"
-            if st.button(preview_btn_label, key="view_beta_form", type=preview_btn_type, use_container_width=True):
-                st.session_state['show_beta_preview'] = not beta_preview_active
-                st.rerun()
-        
-        with col_dl:
-            st.download_button(
-                "Download HTML",
-                st.session_state.data['phase5']['beta_html'],
-                f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
-                "text/html",
-                use_container_width=True
-            )
-        
-        if st.session_state.get('show_beta_preview'):
-            with st.expander("Form Preview", expanded=True):
-                components.html(
-                    st.session_state.data['phase5']['beta_html'],
-                    height=600,
-                    scrolling=True
-                )
+        st.download_button(
+            "Download HTML",
+            st.session_state.data['phase5']['beta_html'],
+            f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
+            "text/html",
+            use_container_width=True
+        )
     
     st.divider()
     
@@ -2939,24 +2858,16 @@ elif "Phase 5" in phase:
     st.subheader("3. Interactive Education Module")
     st.caption("Share with clinical team for training. Users complete quizzes and download certificate.")
     
-    col_edu1, col_edu2 = st.columns([2, 1])
-    with col_edu1:
-        st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
-        edu_c1, edu_c2, edu_c3 = st.columns(3)
-        with edu_c1:
-            if st.button("Residents & Fellows", key="edu_aud1", use_container_width=True):
-                st.session_state.p5_audience = "Residents and Fellows"; st.rerun()
-        with edu_c2:
-            if st.button("Nursing Staff", key="edu_aud2", use_container_width=True):
-                st.session_state.p5_audience = "Nursing Staff"; st.rerun()
-        with edu_c3:
-            if st.button("APPs", key="edu_aud3", use_container_width=True):
-                st.session_state.p5_audience = "Advanced Practice Providers (NP/PA)"; st.rerun()
-    with col_edu2:
-        if st.button("Generate (10-15 sec)", key="gen_edu", use_container_width=True):
-            with ai_activity("Generating education module..."):
-                # Create default modules if none exist
-                edu_modules = [
+    st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
+    aud_edu = st.selectbox("Target Audience", [
+        "Clinical Team (Residents, RNs, APPs)",
+        "ED Clinicians",
+        "Inpatient Nursing Staff"
+    ], index=0, key="p5_aud_edu")
+    if st.button("Generate Module", key="gen_edu", use_container_width=True):
+        with ai_activity("Generating education module..."):
+            # Create default modules if none exist
+            edu_modules = [
                     {
                         "title": f"Module 1: {cond} Overview",
                         "content": f"<p>This module introduces the clinical presentation and epidemiology of {cond}.</p><p><strong>Key Topics:</strong></p><ul><li>Definition and prevalence</li><li>Risk factors and pathophysiology</li><li>Clinical presentation</li><li>Initial assessment approach</li></ul>",
@@ -3007,46 +2918,28 @@ elif "Phase 5" in phase:
                     }
                 ]
                 
-                edu_html = create_education_module_template(
-                    condition=cond,
-                    topics=edu_modules,
-                    organization=organization,
-                    learning_objectives=[
-                        f"Understand the clinical presentation and epidemiology of {cond}",
-                        "Apply evidence-based diagnostic and treatment strategies",
-                        f"Recognize complications and implement safety measures for {cond}",
-                        "Communicate effectively with the interdisciplinary team"
-                    ]
-                )
-                st.session_state.data['phase5']['edu_html'] = edu_html
-                st.success("Module generated!")
+            edu_html = create_education_module_template(
+                condition=cond,
+                topics=edu_modules,
+                organization=organization,
+                learning_objectives=[
+                    f"Understand the clinical presentation and epidemiology of {cond}",
+                    "Apply evidence-based diagnostic and treatment strategies",
+                    f"Recognize complications and implement safety measures for {cond}",
+                    "Communicate effectively with the interdisciplinary team"
+                ]
+            )
+            st.session_state.data['phase5']['edu_html'] = edu_html
+            st.success("Module generated!")
     
     if st.session_state.data['phase5'].get('edu_html'):
-        col_view, col_dl = st.columns([1, 1])
-        with col_view:
-            edu_preview_active = st.session_state.get('show_edu_preview', False)
-            preview_btn_label = "Hide Preview" if edu_preview_active else "Preview"
-            preview_btn_type = "primary" if edu_preview_active else "secondary"
-            if st.button(preview_btn_label, key="view_edu_form", type=preview_btn_type, use_container_width=True):
-                st.session_state['show_edu_preview'] = not edu_preview_active
-                st.rerun()
-        
-        with col_dl:
-            st.download_button(
-                "Download HTML",
-                st.session_state.data['phase5']['edu_html'],
-                f"EducationModule_{cond.replace(' ', '_')}.html",
-                "text/html",
-                use_container_width=True
-            )
-        
-        if st.session_state.get('show_edu_preview'):
-            with st.expander("Module Preview", expanded=True):
-                components.html(
-                    st.session_state.data['phase5']['edu_html'],
-                    height=700,
-                    scrolling=True
-                )
+        st.download_button(
+            "Download HTML",
+            st.session_state.data['phase5']['edu_html'],
+            f"EducationModule_{cond.replace(' ', '_')}.html",
+            "text/html",
+            use_container_width=True
+        )
     
     st.divider()
     
@@ -3055,22 +2948,23 @@ elif "Phase 5" in phase:
     # ============================================================
     st.subheader("4. Executive Summary Document")
     st.caption("Share with hospital leadership")
-    
-    col_exec1, col_exec2 = st.columns([2, 1])
-    with col_exec1:
-        st.markdown("Word document with project overview, evidence summary, pathway design, and implementation roadmap.")
-    with col_exec2:
-        if st.button("Generate (8-12 sec)", key="gen_exec", use_container_width=True):
-            with ai_activity("Generating executive summary..."):
-                doc = create_phase5_executive_summary_docx(
-                    st.session_state.data,
-                    cond
-                )
-                if doc:
-                    st.session_state.data['phase5']['exec_doc'] = doc
-                    st.success("Summary generated!")
-                else:
-                    st.error("python-docx not installed. Please install with: pip install python-docx")
+    st.markdown("Word document with project overview, evidence summary, pathway design, and implementation roadmap.")
+    aud_exec = st.selectbox("Target Audience", [
+        "Hospital Leadership",
+        "Service Line Leaders",
+        "Quality & Safety Committee"
+    ], index=0, key="p5_aud_exec")
+    if st.button("Generate Summary", key="gen_exec", use_container_width=True):
+        with ai_activity("Generating executive summary..."):
+            doc = create_phase5_executive_summary_docx(
+                st.session_state.data,
+                cond
+            )
+            if doc:
+                st.session_state.data['phase5']['exec_doc'] = doc
+                st.success("Summary generated!")
+            else:
+                st.error("python-docx not installed. Please install with: pip install python-docx")
     
     if st.session_state.data['phase5'].get('exec_doc'):
         st.download_button(
@@ -3083,100 +2977,7 @@ elif "Phase 5" in phase:
     
     st.divider()
     
-    # ============================================================
-    # SHARING TIP & BULK DOWNLOAD
-    # ============================================================
-    styled_info("<b>Sharing Tip:</b> All HTML files can be shared as email attachments. End users can download their form responses as CSV files or certificates as PDF files directly from their browser — no server required.")
-    
-    # Bulk download option
-    if (st.session_state.data['phase5'].get('expert_html') and 
-        st.session_state.data['phase5'].get('beta_html') and 
-        st.session_state.data['phase5'].get('edu_html') and 
-        st.session_state.data['phase5'].get('exec_doc')):
-        
-        st.divider()
-        st.subheader("Bulk Download")
-        
-        if st.button("Download All Deliverables as ZIP", use_container_width=True, type="primary"):
-            import zipfile
-            from io import BytesIO
-            
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Add HTML files
-                zip_file.writestr(
-                    f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
-                    st.session_state.data['phase5']['expert_html']
-                )
-                zip_file.writestr(
-                    f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
-                    st.session_state.data['phase5']['beta_html']
-                )
-                zip_file.writestr(
-                    f"EducationModule_{cond.replace(' ', '_')}.html",
-                    st.session_state.data['phase5']['edu_html']
-                )
-                # Add Word doc
-                zip_file.writestr(
-                    f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
-                    st.session_state.data['phase5']['exec_doc']
-                )
-            
-            zip_buffer.seek(0)
-            st.download_button(
-                "Click to Download ZIP",
-                zip_buffer,
-                f"CarePathIQ_Deliverables_{cond.replace(' ', '_')}.zip",
-                "application/zip",
-                use_container_width=True
-            )
-    
-    st.divider()
-    
-    # ============================================================
-    # SHARING INSTRUCTIONS
-    # ============================================================
-    st.subheader("How to Share & Collect Feedback")
-    
-    with st.expander("Expert Panel Workflow", expanded=False):
-        st.markdown("""
-        1. **Download** ExpertPanelFeedback.html file
-        2. **Share** the file (email, shared folder, LMS, etc.)
-        3. **Expert** opens in any browser and provides feedback
-        4. **Expert clicks** "Download Responses (CSV)"
-        5. **Expert emails** CSV file back to you
-        6. **You import** CSV into your analysis tool
-        """)
-    
-    with st.expander("Beta Testing Workflow", expanded=False):
-        st.markdown("""
-        1. **Download** BetaTestingFeedback.html file
-        2. **Share** with real users testing the pathway
-        3. **Users** open in browser and complete form
-        4. **Users click** "Download Responses (CSV)"
-        5. **Users email** CSV back to you
-        6. **Aggregate** feedback to identify usability issues
-        """)
-    
-    with st.expander("Education Module Workflow", expanded=False):
-        st.markdown("""
-        1. **Download** EducationModule.html file
-        2. **Host** on your institution's server or LMS
-        3. **Share** link with clinical staff
-        4. **Staff** complete interactive modules
-        5. **Staff** take quizzes (must score 100%)
-        6. **Staff** download/print certificate of completion
-        7. **No email submission needed** — certificates are self-contained
-        """)
-    
-    with st.expander("Executive Summary Workflow", expanded=False):
-        st.markdown("""
-        1. **Download** ExecutiveSummary.docx
-        2. **Edit** in Microsoft Word to customize
-        3. **Share** directly with hospital leadership
-        4. **Use for** funding approval, policy alignment, go-live planning
-        """)
-    
+
     render_bottom_navigation()
     st.stop()
 
