@@ -802,10 +802,10 @@ const condition = "{condition}";
 const STORAGE_KEY = "betaFormState_" + condition.replace(/\s+/g, '_');
 const NODES = {nodes_json};
 
-function pad(n) { return String(n).padStart(2,'0'); }
+function pad(n) {{ return String(n).padStart(2,'0'); }}
 
 // Independent timers for three scenarios
-let scenarioTimes = { typical: 0, comorbidity: 0, urgent: 0 };
+let scenarioTimes = {{ typical: 0, comorbidity: 0, urgent: 0 }};
 let runs = [];
 let activeTimer = null; // which scenario key is running
 let startEpoch = null;
