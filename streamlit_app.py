@@ -314,6 +314,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Integrating phase 5 helper functions into the Streamlit app
+
+# Importing necessary functions from phase5_helpers
+from phase5_helpers import CAREPATHIQ_COLORS, CAREPATHIQ_FOOTER, SHARED_CSS
+
+# Use the shared constants and styles in the Streamlit app
+st.markdown(f'<style>{SHARED_CSS}</style>', unsafe_allow_html=True)
+
+# Example usage of CAREPATHIQ_COLORS
+st.markdown(f'<div style="color: {CAREPATHIQ_COLORS["brown"]};">Welcome to CarePathIQ!</div>', unsafe_allow_html=True)
+
+# Footer integration
+st.markdown(CAREPATHIQ_FOOTER, unsafe_allow_html=True)
+
 # CONSTANTS
 COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
 COPYRIGHT_HTML_FOOTER = """
@@ -1061,8 +1075,17 @@ def generate_mermaid_code(nodes, orientation="TD"):
         if n.get('type') == 'Decision' and 'branches' in n:
             for b in n.get('branches', []):
                 t = b.get('target')
-                if isinstance(t, (int, float)) and 0 <= t < len(valid_nodes): code += f"    {nid} --|{b.get('label', 'Yes')}| {node_id_map[int(t)]}\n"
-        elif i + 1 < len(valid_nodes): code += f"    {nid} --> {node_id_map[i+1]}\n"
+                lbl = _escape_label(b.get('label', 'Yes'))
+                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
+                    dst = node_id_map.get(int(t))
+                    if dst:
+                        if 'lines' not in locals(): lines = []
+lines.append(f"  {nid} -> {dst} [label=\"{lbl}\"];")
+        elif i + 1 < len(valid_nodes):
+            dst = node_id_map.get(i + 1)
+            if dst:
+                if 'lines' not in locals(): lines = []
+lines.append(f"  {nid} -> {dst};")
     return code
 
 # --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
@@ -2003,9 +2026,6 @@ elif "Phase 2" in phase:
                                     grade_data = grades[pmid_str]
                                     e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
                                     e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
-                        for e in st.session_state.data['phase2']['evidence']:
-                            e.setdefault('grade', 'Un-graded')
-                            e.setdefault('rationale', 'Not yet evaluated.')
                 st.session_state['p2_last_autorun_query'] = q
                 st.rerun()
         with col_b2:
@@ -2040,9 +2060,6 @@ elif "Phase 2" in phase:
                                     grade_data = grades[pmid_str]
                                     e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
                                     e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
-                        for e in st.session_state.data['phase2']['evidence']:
-                            e.setdefault('grade', 'Un-graded')
-                            e.setdefault('rationale', 'Not yet evaluated.')
                 st.session_state['p2_last_autorun_query'] = q_current
                 st.rerun()
         if st.session_state.data['phase2'].get('mesh_query'):
@@ -2226,6 +2243,9 @@ elif "Phase 3" in phase:
             - Group logically into segments (e.g., Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition) and streamline redundant steps.
             - Maintain actionable, concise clinical labels with standard abbreviations.
             - Ensure a complete flow with Start and End nodes; no node count limit but prioritize clarity.
+            - If >20 nodes, organize into sections or sub-pathways
+            - Prefer evidence-backed steps; cite PMIDs where available
+            - Highlight benefit/harm trade-offs at decision points
             """
             new_nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(new_nodes, list) and new_nodes:
