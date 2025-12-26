@@ -1509,7 +1509,7 @@ if not gemini_api_key:
             border-radius: 6px;
             color: #3E2723;
             margin-bottom: 20px;">
-            <strong>Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get a <strong>free one</strong> <a href="https://aistudio.google.com/app/apikey" target="_blank">here</a>.
+            <strong>Welcome!</strong> Enter your <strong>Gemini API token</strong> on the left to activate the AI Agent. If you don't have one, you can get one for free <a href="https://aistudio.google.com/app/apikey" target="_blank"><strong>here</strong></a>.
         </div>
         """,
         unsafe_allow_html=True,
