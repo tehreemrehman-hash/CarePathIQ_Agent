@@ -537,12 +537,7 @@ def generate_beta_form_html(
     organization: str = "CarePathIQ"
 ) -> str:
     """
-    Generate enhanced standalone beta testing form with:
-    - Scenario-driven testing (typical, comorbidity, urgent)
-    - Nielsen's 10 heuristics evaluation
-    - Per-node correctness, errors, time tracking
-    - Optional System Usability Scale (SUS)
-    - CSV exports (summary + node details) and JSON payload
+    Generate standalone beta testing feedback form with CSV download capability.
     
     Args:
         condition: Clinical condition being tested
@@ -554,444 +549,312 @@ def generate_beta_form_html(
         Complete standalone HTML string
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nodes_json = json.dumps(nodes or [])
+    nodes_json = json.dumps(nodes)
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{condition} — Beta Testing</title>
-<style>
-{SHARED_CSS}
-.row {{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}}
-.row3 {{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}}
-.flex {{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
-table {{width:100%;border-collapse:collapse;margin:15px 0}}
-th,td {{border:1px solid var(--border-gray);padding:10px;text-align:left}}
-th {{background:#f8f9fa;font-weight:600;color:var(--brown-dark)}}
-select,input[type="number"],textarea {{width:100%;padding:8px;border:1px solid var(--border-gray);border-radius:4px}}
-textarea {{min-height:60px;resize:vertical}}
-.badge {{display:inline-block;background:var(--teal);color:var(--brown-dark);padding:4px 10px;border-radius:12px;font-size:0.9em;font-weight:600}}
-.timer {{font-family:monospace;font-size:1.1em;font-weight:bold;color:var(--brown)}}
-button[type="button"] {{margin:5px;padding:10px 18px;font-size:0.95em}}
-label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beta Testing Feedback: {condition}</title>
+    <style>
+        {SHARED_CSS}
+    </style>
 </head>
 <body>
-<div class="container">
-<div class="header">
-<h1>🩺 {condition} — Beta Testing</h1>
-<p style="margin-top:8px">Scenario-based usability evaluation • Nielsen heuristics • Optional SUS</p>
-<p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
-</div>
+    <div class="container">
+        <div class="header">
+            <h1>Beta Testing Feedback</h1>
+            <p><strong>{condition}</strong> Clinical Pathway</p>
+            <p style="font-size: 0.95em; margin-top: 10px;">Target Audience: {audience}</p>
+        </div>
 
-<form id="betaForm">
-<!-- Tester Info -->
-<div class="form-group">
-<label for="tester_name">Your Name *</label>
-<input type="text" id="tester_name" required placeholder="Full name">
-</div>
-<div class="row">
-<div class="form-group">
-<label for="tester_email">Email *</label>
-<input type="email" id="tester_email" required placeholder="email@example.com">
-</div>
-<div class="form-group">
-<label for="tester_role">Role *</label>
-<input type="text" id="tester_role" required placeholder="e.g., RN, Physician">
-</div>
-</div>
+        <form id="betaForm">
+            <div class="form-group">
+                <label for="tester_name">Your Name *</label>
+                <input type="text" id="tester_name" name="tester_name" required placeholder="Full name">
+            </div>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+            <div class="form-group">
+                <label for="tester_email">Your Email *</label>
+                <input type="email" id="tester_email" name="tester_email" required placeholder="email@institution.org">
+            </div>
 
-<!-- Scenario Selector & Timer -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">📋 Test Scenario</h2>
-<div class="row">
-<div class="form-group">
-<label for="scenario">Select Scenario</label>
-<select id="scenario">
-<option value="typical">Typical: Stable Outpatient</option>
-<option value="comorbidity">Complex: Multiple Comorbidities</option>
-<option value="urgent">Urgent: Acute Presentation</option>
-</select>
-</div>
-<div class="form-group">
-<label>Timer</label>
-<div class="flex">
-<span id="timer" class="timer badge">00:00</span>
-<button type="button" id="startTimer" class="secondary">▶ Start</button>
-<button type="button" id="stopTimer" class="secondary">⏸ Stop</button>
-<button type="button" id="resetTimer" class="secondary">↺ Reset</button>
-</div>
-</div>
-</div>
-<p id="scenarioDesc" style="margin-top:10px;padding:12px;background:#f8f9fa;border-left:3px solid var(--teal);font-size:0.95em"></p>
+            <div class="form-group">
+                <label for="tester_role">Your Role/Title *</label>
+                <input type="text" id="tester_role" name="tester_role" required placeholder="e.g., RN, Physician, Pharmacist">
+            </div>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+            <div class="form-group">
+                <label for="test_date">Date You Used This Pathway</label>
+                <input type="date" id="test_date" name="test_date">
+            </div>
 
-<!-- Nielsen Heuristics -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">🔍 Nielsen Heuristics (1–5)</h2>
-<table>
-<thead><tr><th>Heuristic</th><th>Rating</th><th>Comments</th></tr></thead>
-<tbody id="heuristicsBody"></tbody>
-</table>
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--border-gray);">
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+            <h2 style="color: var(--brown-dark); margin-bottom: 20px;">Usability & Clarity Assessment</h2>
 
-<!-- System Usability Scale (SUS) -->
-<div class="flex" style="justify-content:space-between">
-<h2 style="color:var(--brown-dark);margin:0">📊 System Usability Scale (SUS)</h2>
-<label class="flex" style="font-weight:normal;margin:0">
-<input type="checkbox" id="susEnable" style="width:auto;margin-right:6px"> Include SUS
-</label>
-</div>
-<div id="susBlock" style="display:none;margin-top:15px">
-<table>
-<thead><tr><th style="width:60px">#</th><th>Statement</th><th style="width:120px">Score (1–5)</th></tr></thead>
-<tbody id="susBody"></tbody>
-</table>
-<div class="flex" style="margin-top:12px">
-<span style="font-weight:600">SUS Score:</span>
-<span id="susScore" class="badge">—</span>
-<span style="font-size:0.85em;color:#666;margin-left:10px">(0–100 scale; ≥68 = above average)</span>
-</div>
-</div>
+            <div class="form-group">
+                <label>How easy was it to follow this pathway? *</label>
+                <div style="margin: 10px 0;">
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="ease_of_use" value="Very Easy" required> Very Easy
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="ease_of_use" value="Easy"> Easy
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="ease_of_use" value="Neutral"> Neutral
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="ease_of_use" value="Difficult"> Difficult
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="ease_of_use" value="Very Difficult"> Very Difficult
+                    </label>
+                </div>
+            </div>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+            <div class="form-group">
+                <label for="clarity_feedback">What was unclear or confusing? (if applicable)</label>
+                <textarea id="clarity_feedback" name="clarity_feedback" placeholder="Describe any confusing steps or unclear language..."></textarea>
+            </div>
 
-<!-- Workflow Nodes -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">🔗 Workflow Nodes</h2>
-<div id="nodesContainer"></div>
+            <div class="form-group">
+                <label>How well did this pathway fit your workflow? *</label>
+                <div style="margin: 10px 0;">
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="workflow_fit" value="Perfect Fit" required> Perfect Fit
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="workflow_fit" value="Good Fit"> Good Fit
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="workflow_fit" value="Needs Minor Changes"> Needs Minor Changes
+                    </label>
+                    <label style="display: flex; align-items: center; margin: 8px 0; font-weight: 500;">
+                        <input type="radio" name="workflow_fit" value="Needs Major Changes"> Needs Major Changes
+                    </label>
+                </div>
+            </div>
 
-<hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
+            <div class="form-group">
+                <label for="workflow_issues">What workflow issues did you encounter?</label>
+                <textarea id="workflow_issues" name="workflow_issues" placeholder="E.g., Steps out of order, missing steps, timing issues..."></textarea>
+            </div>
 
-<!-- Overall Experience -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">💬 Overall Experience</h2>
-<div class="row">
-<div class="form-group">
-<label for="ease">Ease of use (1–5)</label>
-<select id="ease">
-<option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
-</select>
-</div>
-<div class="form-group">
-<label for="fit">Workflow fit (1–5)</label>
-<select id="fit">
-<option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option>
-</select>
-</div>
-</div>
-<div class="row">
-<div class="form-group">
-<label for="positives">What worked well?</label>
-<textarea id="positives" placeholder="Strengths and positive aspects..."></textarea>
-</div>
-<div class="form-group">
-<label for="improvements">What needs improvement?</label>
-<textarea id="improvements" placeholder="Issues or suggestions..."></textarea>
-</div>
-</div>
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--border-gray);">
 
-<div class="button-group">
-<button type="button" onclick="downloadSummaryCSV()">📥 Download Summary CSV</button>
-<button type="button" onclick="downloadNodeCSV()">📥 Download Node Details CSV</button>
-<button type="button" onclick="downloadJSON()">📥 Download JSON</button>
-<button type="reset">🔄 Reset Form</button>
-</div>
-</form>
+            <h2 style="color: var(--brown-dark); margin-bottom: 20px;">Pathway Content Review</h2>
 
-{CAREPATHIQ_FOOTER}
-</div>
+            <div id="nodesContainer"></div>
 
-<script>
-const SCENARIOS = {{
-  typical: {{
-    name: "Typical: Stable Outpatient",
-    desc: "A stable patient with a straightforward condition. Focus: clarity, speed, and guidance.",
-    tasks: ["Identify initial assessment path","Document routine follow-up","Recommend standard education"]
-  }},
-  comorbidity: {{
-    name: "Complex: Multiple Comorbidities",
-    desc: "A patient with multiple chronic conditions. Focus: flexibility, error prevention, and help.",
-    tasks: ["Navigate branching decisions","Resolve conflicting recommendations","Tailor education to comorbidities"]
-  }},
-  urgent: {{
-    name: "Urgent: Acute Presentation",
-    desc: "An urgent scenario requiring rapid triage. Focus: visibility, control, and feedback.",
-    tasks: ["Select urgent triage path","Prioritize critical actions","Confirm clear system status"]
-  }}
-}};
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--border-gray);">
 
-const HEURISTICS = [
-  "Visibility of system status",
-  "Match between system and real world",
-  "User control and freedom",
-  "Consistency and standards",
-  "Error prevention",
-  "Recognition rather than recall",
-  "Flexibility and efficiency of use",
-  "Aesthetic and minimalist design",
-  "Help users recognize, diagnose, recover",
-  "Help and documentation"
-];
+            <div class="form-group">
+                <label for="overall_experience">Overall Experience</label>
+                <textarea id="overall_experience" name="overall_experience" placeholder="What worked well? What should we change?"></textarea>
+            </div>
 
-const SUS_ITEMS = [
-  "I think that I would like to use this system frequently.",
-  "I found the system unnecessarily complex.",
-  "I thought the system was easy to use.",
-  "I think that I would need the support of a technical person to use this system.",
-  "I found the various functions in this system were well integrated.",
-  "I thought there was too much inconsistency in this system.",
-  "I would imagine that most people would learn to use this system very quickly.",
-  "I found the system very cumbersome to use.",
-  "I felt very confident using the system.",
-  "I needed to learn a lot of things before I could get going with this system."
-];
+            <div class="form-group">
+                <label for="would_use_again">Would you use this pathway again? Any final comments?</label>
+                <textarea id="would_use_again" name="would_use_again" placeholder="Your feedback helps us improve..."></textarea>
+            </div>
 
-const NODES = {nodes_json};
+            <div class="button-group">
+                <button type="button" onclick="downloadAsCSV()">📥 Download Responses (CSV)</button>
+                <button type="button" onclick="downloadAsJSON()">📥 Download Responses (JSON)</button>
+                <button type="reset">🔄 Reset Form</button>
+            </div>
+        </form>
 
-function pad(n) {{ return String(n).padStart(2,'0'); }}
-
-let timerInt = null, startEpoch = null, elapsedSec = 0;
-
-function renderTimer() {{
-  const m = Math.floor(elapsedSec/60), s = elapsedSec%60;
-  document.getElementById('timer').textContent = pad(m) + ':' + pad(s);
-}}
-
-document.getElementById('startTimer').onclick = () => {{
-  if (timerInt) return;
-  startEpoch = Date.now() - (elapsedSec*1000);
-  timerInt = setInterval(() => {{
-    elapsedSec = Math.floor((Date.now()-startEpoch)/1000);
-    renderTimer();
-  }}, 250);
-}};
-document.getElementById('stopTimer').onclick = () => {{ clearInterval(timerInt); timerInt = null; }};
-document.getElementById('resetTimer').onclick = () => {{ elapsedSec = 0; renderTimer(); }};
-
-function setScenarioDesc() {{
-  const sel = document.getElementById('scenario').value;
-  const s = SCENARIOS[sel];
-  document.getElementById('scenarioDesc').innerHTML =
-    '<strong>' + s.name + ':</strong> ' + s.desc + '<br><span style="color:#666">Tasks: ' + s.tasks.join(' • ') + '</span>';
-}}
-document.getElementById('scenario').onchange = setScenarioDesc;
-setScenarioDesc();
-renderTimer();
-
-// Render Nielsen Heuristics
-HEURISTICS.forEach((h, i) => {{
-  const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${{h}}</td>
-  <td><select id="h_rate_${{i}}"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></td>
-  <td><textarea id="h_comment_${{i}}" placeholder="Notes (optional)"></textarea></td>`;
-  document.getElementById('heuristicsBody').appendChild(tr);
-}});
-
-// Render SUS
-function renderSUS() {{
-  const tbody = document.getElementById('susBody');
-  SUS_ITEMS.forEach((txt, i) => {{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${{i+1}}</td><td>${{txt}}</td>
-    <td><select id="sus_${{i}}"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></td>`;
-    tbody.appendChild(tr);
-  }});
-  for (let i=0; i<10; i++) {{
-    document.getElementById('sus_' + i).onchange = computeSUS;
-  }}
-  computeSUS();
-}}
-
-function computeSUS() {{
-  let total = 0;
-  for (let i=0; i<10; i++) {{
-    const v = parseInt(document.getElementById('sus_' + i).value, 10);
-    total += (i%2===0) ? (v-1) : (5-v);
-  }}
-  const score = (total * 2.5).toFixed(1);
-  document.getElementById('susScore').textContent = score;
-  return parseFloat(score);
-}}
-
-document.getElementById('susEnable').onchange = (e) => {{
-  const show = e.target.checked;
-  document.getElementById('susBlock').style.display = show ? 'block' : 'none';
-  if (show && document.getElementById('susBody').children.length === 0) {{
-    renderSUS();
-  }}
-}};
-
-// Render Nodes
-if (!NODES || NODES.length === 0) {{
-  document.getElementById('nodesContainer').innerHTML = '<p style="color:#666;font-style:italic">No nodes provided. Use this form to test general usability.</p>';
-}} else {{
-  NODES.forEach((n, idx) => {{
-    const card = document.createElement('div');
-    card.className = 'node-card';
-    card.innerHTML = `
-    <div class="flex" style="justify-content:space-between">
-    <strong>${{n.name || n.label || n.title || 'Node'}} <span class="node-badge">#${{idx+1}}</span></strong>
-    <label class="flex" style="font-weight:normal;margin:0">
-    <input type="checkbox" id="unclear_${{idx}}" style="width:auto;margin-right:6px"> Unclear/Problematic
-    </label>
+        {CAREPATHIQ_FOOTER}
     </div>
-    <p style="color:#666;font-size:0.9em;margin:5px 0">${{n.description||''}}</p>
-    <div class="row3">
-    <div><label>Correctness</label>
-    <select id="correct_${{idx}}"><option>Incorrect</option><option>Partial</option><option selected>Correct</option></select></div>
-    <div><label>Errors (count)</label><input type="number" id="errors_${{idx}}" min="0" value="0"></div>
-    <div><label>Time (seconds)</label><input type="number" id="time_${{idx}}" min="0" value="0"></div>
-    </div>
-    <div class="row" style="margin-top:10px">
-    <div><label>Issue (if any)</label><textarea id="issue_${{idx}}" placeholder="Describe issue"></textarea></div>
-    <div><label>Suggestion</label><textarea id="suggest_${{idx}}" placeholder="Improvement"></textarea></div>
-    </div>`;
-    document.getElementById('nodesContainer').appendChild(card);
-  }});
-}}
 
-function collectData() {{
-  const scenKey = document.getElementById('scenario').value;
-  const scen = SCENARIOS[scenKey];
+    <script>
+        const pathwayNodes = {nodes_json};
+        const condition = "{condition}";
+        const timestamp = "{timestamp}";
 
-  const heuristics = HEURISTICS.map((h, i) => ({{
-    name: h,
-    rating: parseInt(document.getElementById('h_rate_' + i).value, 10),
-    comments: document.getElementById('h_comment_' + i).value.trim()
-  }}));
+        document.addEventListener('DOMContentLoaded', function() {{
+            renderNodes();
+        }});
 
-  const susEnabled = document.getElementById('susEnable').checked;
-  const susScores = susEnabled ? [...Array(10)].map((_, i) => parseInt(document.getElementById('sus_' + i).value, 10)) : [];
-  const susScore = susEnabled ? computeSUS() : null;
+        function renderNodes() {{
+            const container = document.getElementById('nodesContainer');
+            pathwayNodes.forEach((node, idx) => {{
+                const nodeHTML = `
+                    <div class="node-card">
+                        <h3>
+                            <span class="node-badge">Node ${{idx + 1}}</span>
+                            ${{node.label || 'Step'}}
+                        </h3>
+                        <div class="node-type">
+                            <strong>Type:</strong> ${{node.type || 'Process'}}
+                        </div>
+                        
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="node_check_${{idx}}" onchange="toggleNodeExpansion(${{idx}})">
+                            <label for="node_check_${{idx}}">This step was unclear or problematic</label>
+                        </div>
 
-  const nodes = (NODES||[]).map((n, idx) => ({{
-    index: idx+1,
-    id: n.id ?? null,
-    name: n.name ?? n.label ?? n.title ?? 'Node ' + (idx+1),
-    description: n.description ?? "",
-    correctness: document.getElementById('correct_' + idx).value,
-    errors: parseInt(document.getElementById('errors_' + idx).value, 10) || 0,
-    timeSeconds: parseInt(document.getElementById('time_' + idx).value, 10) || 0,
-    unclear: document.getElementById('unclear_' + idx).checked,
-    issue: document.getElementById('issue_' + idx).value.trim(),
-    suggestion: document.getElementById('suggest_' + idx).value.trim()
-  }}));
+                        <div id="node_expansion_${{idx}}" class="expandable-section">
+                            <div class="form-group">
+                                <label for="node_issue_${{idx}}">What was the issue? *</label>
+                                <textarea name="node_issue_${{idx}}" id="node_issue_${{idx}}" placeholder="Describe the problem..." required></textarea>
+                            </div>
 
-  const summary = {{
-    appTitle: "{condition}",
-    testerName: document.getElementById('tester_name').value,
-    testerEmail: document.getElementById('tester_email').value,
-    testerRole: document.getElementById('tester_role').value,
-    scenario: scenKey,
-    scenarioName: scen.name,
-    scenarioTasks: scen.tasks,
-    timerSeconds: elapsedSec,
-    ease: parseInt(document.getElementById('ease').value, 10),
-    fit: parseInt(document.getElementById('fit').value, 10),
-    positives: document.getElementById('positives').value.trim(),
-    improvements: document.getElementById('improvements').value.trim(),
-    heuristics,
-    susEnabled,
-    susScores,
-    susScore
-  }};
-  return {{summary, nodes}};
-}}
+                            <div class="form-group">
+                                <label for="node_suggest_${{idx}}">Suggested Improvement</label>
+                                <textarea name="node_suggest_${{idx}}" id="node_suggest_${{idx}}" placeholder="How would you change this step?"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', nodeHTML);
+            }});
+        }}
 
-function toCSV(rows) {{
-  const headers = Object.keys(rows[0] || {{}});
-  const esc = v => '"' + String(v??'').replace(/"/g,'""') + '"';
-  const out = [headers.join(",")].concat(rows.map(r => headers.map(h => esc(r[h])).join(",")));
-  return out.join("\n");
-}}
+        function toggleNodeExpansion(nodeIdx) {{
+            const expansion = document.getElementById('node_expansion_' + nodeIdx);
+            const checkbox = document.getElementById('node_check_' + nodeIdx);
+            if (checkbox.checked) {{
+                expansion.classList.add('show');
+            }} else {{
+                expansion.classList.remove('show');
+            }}
+        }}
 
-function download(filename, content, mime) {{
-  const blob = new Blob([content], {{type: mime}});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href=url;
-  a.download=filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 500);
-}}
+        function downloadAsCSV() {{
+            const rows = [
+                ['Tester Name', 'Email', 'Role', 'Test Date', 'Ease of Use', 'Clarity Issues', 'Workflow Fit', 'Workflow Issues', 'Node ID', 'Node Label', 'Node Issue', 'Suggestion', 'Overall Experience', 'Final Comments']
+            ];
 
-function downloadSummaryCSV() {{
-  const {{summary}} = collectData();
-  const rows = [];
+            const testerName = document.getElementById('tester_name').value || 'Anonymous';
+            const testerEmail = document.getElementById('tester_email').value || '';
+            const testerRole = document.getElementById('tester_role').value || '';
+            const testDate = document.getElementById('test_date').value || '';
+            const easeOfUse = document.querySelector('input[name="ease_of_use"]:checked')?.value || '';
+            const clarityFeedback = document.getElementById('clarity_feedback').value || '';
+            const workflowFit = document.querySelector('input[name="workflow_fit"]:checked')?.value || '';
+            const workflowIssues = document.getElementById('workflow_issues').value || '';
 
-  // Heuristics
-  HEURISTICS.forEach((name, i) => {{
-    const h = summary.heuristics[i];
-    rows.push({{
-      section: "Heuristic",
-      name: name,
-      rating: h.rating,
-      comments: h.comments,
-      scenario: summary.scenarioName,
-      timerSeconds: summary.timerSeconds,
-      tester: summary.testerName
-    }});
-  }});
+            // Add row with general feedback
+            rows.push([
+                testerName,
+                testerEmail,
+                testerRole,
+                testDate,
+                easeOfUse,
+                clarityFeedback,
+                workflowFit,
+                workflowIssues,
+                '',
+                '',
+                '',
+                '',
+                document.getElementById('overall_experience').value,
+                document.getElementById('would_use_again').value
+            ]);
 
-  // Overall
-  rows.push({{
-    section: "Overall",
-    name: "Experience",
-    rating: "",
-    comments: 'Ease=' + summary.ease + '; Fit=' + summary.fit + '; Positives=' + summary.positives + '; Improvements=' + summary.improvements,
-    scenario: summary.scenarioName,
-    timerSeconds: summary.timerSeconds,
-    tester: summary.testerName
-  }});
+            // Add node-specific feedback
+            pathwayNodes.forEach((node, idx) => {{
+                const checkbox = document.getElementById('node_check_' + idx);
+                if (checkbox && checkbox.checked) {{
+                    const issue = document.getElementById('node_issue_' + idx)?.value || '';
+                    const suggest = document.getElementById('node_suggest_' + idx)?.value || '';
+                    
+                    if (issue) {{
+                        rows.push([
+                            '',
+                            testerEmail,
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            '',
+                            'N' + (idx + 1),
+                            node.label,
+                            issue,
+                            suggest,
+                            '',
+                            ''
+                        ]);
+                    }}
+                }}
+            }});
 
-  // SUS
-  if (summary.susEnabled) {{
-    rows.push({{
-      section: "SUS",
-      name: "SUS Score",
-      rating: summary.susScore,
-      comments: 'Responses=' + summary.susScores.join('|'),
-      scenario: summary.scenarioName,
-      timerSeconds: summary.timerSeconds,
-      tester: summary.testerName
-    }});
-  }}
+            const csv = rows.map(row => 
+                row.map(cell => '"' + (cell || '').replace(/"/g, '""') + '"').join(',')
+            ).join('\\n');
 
-  download("Beta_Summary_{condition.replace(/\s+/g, '_')}_{timestamp}.csv", toCSV(rows), "text/csv");
-}}
+            const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `beta_feedback_${{condition.replace(/\\s+/g, '_')}}_${{timestamp}}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }}
 
-function downloadNodeCSV() {{
-  const {{nodes, summary}} = collectData();
-  const rows = nodes.map(n => ({{
-    scenario: summary.scenarioName,
-    tester: summary.testerName,
-    nodeIndex: n.index,
-    nodeId: n.id ?? "",
-    nodeName: n.name,
-    correctness: n.correctness,
-    errors: n.errors,
-    timeSeconds: n.timeSeconds,
-    unclear: n.unclear,
-    issue: n.issue,
-    suggestion: n.suggestion
-  }}));
-  download("Beta_NodeDetails_{condition.replace(/\s+/g, '_')}_{timestamp}.csv", toCSV(rows), "text/csv");
-}}
+        function downloadAsJSON() {{
+            const formData = {{
+                timestamp: new Date().toISOString(),
+                condition: condition,
+                tester: {{
+                    name: document.getElementById('tester_name').value,
+                    email: document.getElementById('tester_email').value,
+                    role: document.getElementById('tester_role').value,
+                    testDate: document.getElementById('test_date').value
+                }},
+                usabilityAssessment: {{
+                    easeOfUse: document.querySelector('input[name="ease_of_use"]:checked')?.value || '',
+                    clarityIssues: document.getElementById('clarity_feedback').value,
+                    workflowFit: document.querySelector('input[name="workflow_fit"]:checked')?.value || '',
+                    workflowIssues: document.getElementById('workflow_issues').value
+                }},
+                nodeIssues: [],
+                overallExperience: document.getElementById('overall_experience').value,
+                finalComments: document.getElementById('would_use_again').value
+            }};
 
-function downloadJSON() {{
-  const {{summary, nodes}} = collectData();
-  const payload = {{ summary, nodes, timestamp: "{timestamp}" }};
-  download("Beta_{condition.replace(/\s+/g, '_')}_{timestamp}.json", JSON.stringify(payload, null, 2), "application/json");
-}}
-</script>
+            pathwayNodes.forEach((node, idx) => {{
+                const checkbox = document.getElementById('node_check_' + idx);
+                if (checkbox && checkbox.checked) {{
+                    formData.nodeIssues.push({{
+                        nodeId: 'N' + (idx + 1),
+                        nodeLabel: node.label,
+                        nodeType: node.type,
+                        issue: document.getElementById('node_issue_' + idx)?.value || '',
+                        suggestion: document.getElementById('node_suggest_' + idx)?.value || ''
+                    }});
+                }}
+            }});
+
+            const json = JSON.stringify(formData, null, 2);
+            const blob = new Blob([json], {{ type: 'application/json' }});
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `beta_feedback_${{condition.replace(/\\s+/g, '_')}}_${{timestamp}}.json`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }}
+    </script>
 </body>
-</html>
-"""
+</html>"""
+    
     return html
 
+
+# ==========================================
+# EDUCATION MODULE HELPER
+# ==========================================
 
 def generate_education_module_html(
     condition: str,

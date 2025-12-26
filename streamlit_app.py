@@ -2085,36 +2085,11 @@ elif "Phase 4" in phase:
         st.session_state.data['phase4']['auto_heuristics_done'] = False
     if 'viz_height' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['viz_height'] = 400
-    if 'fullscreen_modal' not in st.session_state.data['phase4']:
-        st.session_state.data['phase4']['fullscreen_modal'] = False
 
     # If heuristics never populated but auto-run flagged as done, allow rerun
     if (not st.session_state.data['phase4']['heuristics_data']
             and st.session_state.data['phase4'].get('auto_heuristics_done')):
         st.session_state.data['phase4']['auto_heuristics_done'] = False
-
-    # FULLSCREEN MODE - Render only this and stop
-    if st.session_state.data['phase4'].get('fullscreen_modal'):
-        st.markdown("---")
-        st.markdown("### Fullscreen Pathway Visualization")
-        close_col, spacer = st.columns([1, 10])
-        with close_col:
-            if st.button("Close", use_container_width=True, key="p4_close_fullscreen"):
-                st.session_state.data['phase4']['fullscreen_modal'] = False
-                st.rerun()
-        
-        # Prepare nodes
-        nodes_for_viz = nodes if nodes else [
-            {"label": "Start", "type": "Start"},
-            {"label": "Add nodes in Phase 3", "type": "Process"},
-            {"label": "End", "type": "End"},
-        ]
-        g = build_graphviz_from_nodes(nodes_for_viz, "TD")
-        if g:
-            svg_bytes = render_graphviz_bytes(g, "svg")
-            if svg_bytes:
-                components.html(svg_bytes.decode('utf-8'), height=900, scrolling=True)
-        st.stop()  # Stop rendering after fullscreen modal
 
     # Auto-run heuristics once if data exists but heuristics not yet generated
     if nodes and not st.session_state.data['phase4']['heuristics_data'] and not st.session_state.data['phase4']['auto_heuristics_done']:
@@ -2150,10 +2125,6 @@ elif "Phase 4" in phase:
         with viz_col1:
             viz_height = st.slider("Height (px)", 300, 800, st.session_state.data['phase4']['viz_height'], step=50, key="p4_viz_height")
             st.session_state.data['phase4']['viz_height'] = viz_height
-        with viz_col2:
-            if st.button("Fullscreen", use_container_width=True, key="p4_fullscreen_btn"):
-                st.session_state.data['phase4']['fullscreen_modal'] = True
-                st.rerun()
         with viz_col3:
             generate_png = st.checkbox("PNG export", value=False, key="p4_png_toggle")
         
@@ -2172,6 +2143,40 @@ elif "Phase 4" in phase:
                 png_bytes = new_png
         # Keep cache bounded to the latest signature only
         st.session_state.data['phase4']['viz_cache'] = {sig: cache.get(sig, {})}
+
+        # Now render Fullscreen button with svg_bytes available
+        with viz_col2:
+            if svg_bytes:
+                import base64
+                svg_encoded = base64.b64encode(svg_bytes).decode('utf-8')
+                svg_data_for_popup = f"data:image/svg+xml;base64,{svg_encoded}"
+                
+                # JavaScript to open SVG in new window
+                popup_js = f"""
+                <script>
+                function openFullscreen() {{
+                    var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
+                    if (w) {{
+                        w.document.write('<html><head><title>Pathway Visualization - Fullscreen</title>');
+                        w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:0 auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
+                        w.document.write('</head><body>');
+                        w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
+                        w.document.write('<img src="{svg_data_for_popup}" alt="Pathway Visualization" />');
+                        w.document.write('</body></html>');
+                        w.document.close();
+                    }} else {{
+                        alert('Popup blocked! Please allow popups for this site to use Fullscreen mode.');
+                    }}
+                }}
+                </script>
+                """
+                components.html(popup_js, height=0)
+                if st.button("Fullscreen ↗", use_container_width=True, key="p4_fullscreen_btn"):
+                    # Trigger JavaScript to open new window
+                    components.html(popup_js + '<script>openFullscreen();</script>', height=0)
+                    st.rerun()
+            else:
+                st.button("Fullscreen ↗", use_container_width=True, disabled=True, key="p4_fullscreen_btn_disabled")
 
         if svg_bytes:
             components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
@@ -2247,6 +2252,38 @@ elif "Phase 4" in phase:
 
         if not h_data:
             st.info("No heuristics yet. Click 'Run heuristics' to analyze this pathway.")
+        else:
+            # Batch Apply All Heuristics
+            if st.button("Apply All Heuristics", use_container_width=True, key="p4_apply_all_heuristics_btn"):
+                # Snapshot current state for undo
+                st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                
+                with ai_activity("Applying all 10 heuristics…"):
+                    # Aggregate all H1-H10 recommendations into a single prompt
+                    all_recommendations = "\n".join([
+                        f"{hkey}: {h_data[hkey]}" 
+                        for hkey in sorted(h_data.keys())
+                    ])
+                    
+                    prompt_apply_all = f"""
+                    Update the clinical pathway by applying ALL of these usability recommendations together.
+                    Consider how they interact and create a cohesive, improved pathway.
+                    
+                    All heuristic recommendations:
+                    {all_recommendations}
+                    
+                    Current pathway: {json.dumps(nodes)}
+                    
+                    Return ONLY the updated JSON array of nodes incorporating all recommendations.
+                    """
+                    
+                    new_nodes = get_gemini_response(prompt_apply_all, json_mode=True)
+                    if new_nodes and isinstance(new_nodes, list):
+                        st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                        # Reset flag to allow heuristics refresh after batch apply
+                        st.session_state.data['phase4']['auto_heuristics_done'] = False
+                        st.success("Applied all heuristics")
+                        st.rerun()
 
         st.divider()
 
@@ -2374,521 +2411,354 @@ elif "Phase 4" in phase:
 
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
+    # Import Phase 5 helpers
+    try:
+        from phase5_helpers import (
+            generate_expert_form_html,
+            generate_beta_form_html,
+            create_phase5_executive_summary_docx,
+            ensure_carepathiq_branding
+        )
+        from education_template import create_education_module_template
+    except ImportError:
+        st.error("Phase 5 helpers not found. Please ensure phase5_helpers.py and education_template.py are in the workspace.")
+        st.stop()
+    
     st.title("Phase 5: Operationalize")
-    # Flash success banner for Phase 5 updates
-    if 'p5_flash' in st.session_state and st.session_state['p5_flash']:
-        st.success(st.session_state.pop('p5_flash'))
+    st.markdown("""
+    ### Download Shareable Files
+    
+    Generate standalone HTML files and Word documents that users can download and share directly.
+    **No hosting required** — files work offline in any browser.
+    """)
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
+    nodes = st.session_state.data['phase3']['nodes'] or []
     
     st.divider()
     
-    # TARGET AUDIENCE CONFIGURATION (Optional, defaults to "Multidisciplinary Team")
+    # Configuration
     st.subheader("Configuration")
-    audience_col, info_col = st.columns([1, 1])
-    with audience_col:
+    col_aud, col_org = st.columns([1, 1])
+    with col_aud:
         audience = st.text_input(
             "Target Audience",
-            placeholder="e.g., Physicians, Nurses, Social Workers",
-            key="p5_audience_input",
-            help="Leave blank to default to 'Multidisciplinary Team'"
+            value="Clinical Team",
+            placeholder="e.g., Physicians, Nurses, Pharmacists",
+            key="p5_audience"
         )
-        if not audience.strip():
-            audience = "Multidisciplinary Team"
+    with col_org:
+        organization = st.text_input(
+            "Organization Name",
+            value="CarePathIQ",
+            placeholder="Your Hospital/Institution",
+            key="p5_organization"
+        )
     
-    with info_col:
-        st.info("Select a delivery method per form: Google Forms or HTML Preview. Google creates the form in your account; HTML is preview-only (no submissions).")
-
-    # Handle OAuth callback if present
-    try:
-        params = st.experimental_get_query_params()
-    except Exception:
-        params = {}
-    if params.get("code") and params.get("state"):
-        if complete_google_oauth(params):
-            st.success("Google connected for this session. The forms will be created in your Google account.")
-        else:
-            st.warning("OAuth callback did not match expected state. Please try connecting again.")
-
-    st.markdown("#### Form Ownership & Delivery")
-    st.caption("Connect your own Google account so the form is created in your account—you own edits and sharing. Use the HTML preview if you prefer not to connect; it is view-only.")
-    render_provider_card(
-        "Google Forms",
-        "google",
-        "Creates the form in your Google Forms/Drive; you control sharing and edits.",
-        is_google_forms_configured(),
-        [
-            "Owned by your Google account",
-            "Edit/share from Google Forms UI",
-            "Org policy controls external/anonymous access",
-        ],
-        button_key="connect_google"
-    )
-    if st.session_state.get("oauth", {}).get("google") is not True:
-        render_connect_link("google")
-
-    with st.expander("OAuth Setup (Google)"):
-        st.markdown("This section provides exact values to paste into Google Cloud console and Streamlit Secrets so any end user can connect.")
-        owner = "tehreemrehman-hash"
-        repo = "CarePathIQ_Agent"
-        branch = "main"
-        host = f"https://{owner}-{repo}-{branch}.streamlit.app"
-        google_cb = f"{host}/oauth/google/callback"
-        st.markdown("**Probable Hostname (Streamlit Cloud):**")
-        st.code(host)
-        st.markdown("**Redirect URIs to register:**")
-        st.code(f"Google: {google_cb}")
-        st.markdown("**Streamlit Secrets (paste real client values):**")
-        secrets_toml = f"""
-GOOGLE_FORMS_CLIENT_ID = "your-google-client-id"
-GOOGLE_FORMS_CLIENT_SECRET = "your-google-client-secret"
-GOOGLE_REDIRECT_URI = "{google_cb}"
-"""
-        st.code(secrets_toml, language="toml")
-        st.markdown("**Scopes to configure:**")
-        st.markdown("- Google: `forms.body`, `forms.body.readonly` (optional: `forms.responses.readonly`, `drive.file`)")
-        st.markdown("**Authorized domains (Google consent screen):**")
-        st.code("streamlit.app\n(your custom domain if used)")
-        st.info("If your org restricts external responses, adjust Google Forms sharing accordingly.")
+    st.divider()
 
     
     st.divider()
     
-    # 2-COLUMN HORIZONTAL LAYOUT FOR DELIVERABLES
-    c1, c2 = st.columns(2)
+    # ============================================================
+    # 1. EXPERT PANEL FEEDBACK FORM
+    # ============================================================
+    st.subheader("1. Expert Panel Feedback Form")
+    st.caption("Share with clinical experts for pathway review")
     
-    # Expert Panel Feedback Form
-    with c1:
-        st.markdown("#### Expert Panel Feedback Form")
-        st.caption(f"Target Audience: {audience}")
-        expert_provider = st.selectbox(
-            "Delivery method",
-            list(PROVIDER_OPTIONS.keys()),
-            format_func=lambda k: PROVIDER_OPTIONS[k],
-            key="expert_provider",
-        )
-        expert_allow_external = st.checkbox(
-            "Allow external/anonymous responses (Google controls this)",
-            value=False,
-            key="expert_allow_external",
-            help="Google Forms respects your org policy. HTML is preview-only.",
-        )
-        expert_label = f"Generate in {PROVIDER_OPTIONS.get(expert_provider, 'selected provider')}"
-        if st.button(expert_label, type="primary", width="stretch", key="btn_expert_gen"):
-            with ai_activity("Generating form..."):
-                nodes = st.session_state.data['phase3']['nodes']
-                s_e_nodes = [n for n in nodes if n.get('type') in ['Start', 'End']]
-                p_nodes = [n for n in nodes if n.get('type') == 'Process']
-                d_nodes = [n for n in nodes if n.get('type') == 'Decision']
-                s_e_str = "\n".join([f"- {n.get('label')}" for n in s_e_nodes])
-                p_str = "\n".join([f"- {n.get('label')}" for n in p_nodes])
-                d_str = "\n".join([f"- {n.get('label')}" for n in d_nodes])
-
-                # Build a numbered node reference table
-                se_table = "\n".join([f"SE{idx+1}: {n.get('label')}" for idx, n in enumerate(s_e_nodes)])
-                p_table = "\n".join([f"P{idx+1}: {n.get('label')}" for idx, n in enumerate(p_nodes)])
-                d_table = "\n".join([f"D{idx+1}: {n.get('label')}" for idx, n in enumerate(d_nodes)])
-                node_table = f"""
-                Start/End Nodes\n{se_table}\n\nProcess Nodes\n{p_table}\n\nDecision Nodes\n{d_table}
-                """
-
-                prompt = f"""
-                Create a standalone HTML5 form for Expert Panel Feedback.
-                Title: Expert Panel Feedback for {cond}
-                Target Audience: {audience}
-                
-                IMPORTANT REQUIREMENTS:
-                1. Use a simple <form> tag with NO action or method attributes (JavaScript will handle submission)
-                2. Include professional styling with CarePathIQ brand colors: Brown #5D4037 and Teal #A9EED1
-                3. Make it mobile-responsive
-                4. DO NOT include a recipient email field (this will be added automatically)
-                
-                Form structure:
-                - Title and introduction explaining this is for {audience} reviewing {cond} pathway
-                - Node Reference Table (display at top):
-                {node_table}
-                
-                Form fields:
-                1. Your Name (text input, required)
-                2. Your Email (email input, required)  
-                3. For EACH pathway node category (Start/End, Process, Decision):
-                   - Section header with node IDs
-                   - For each node:
-                     * Checkbox: "I have feedback on this node"
-                     * If checked (use JavaScript show/hide):
-                       - Textarea: "Proposed Change (cite node ID)" 
-                       - Select: "Justification Source" (options: Peer-Reviewed Literature, National Guideline, Institutional Policy, Increased Clarity, Resource Limitations, Other)
-                       - Textarea: "Justification Details"
-                4. Submit button (styled)
-                
-                Include inline CSS for professional appearance.
-                Return complete standalone HTML file.
-                """
-                expert_html = get_gemini_response(prompt)
-                if expert_html:
-                    use_html_fallback = False
-                    if expert_provider == "google":
-                        if not is_google_forms_configured():
-                            st.warning("Google Forms not configured; showing HTML preview instead.")
-                            use_html_fallback = True
-                        else:
-                            st.info("Creating Google Form under your account (scaffold). Showing HTML preview until API hookup.")
-                            use_html_fallback = True
-                    else:
-                        use_html_fallback = True
-
-                    if use_html_fallback:
-                        expert_html = ensure_carepathiq_footer(expert_html)
-                        expert_html = make_preview_only(expert_html)
-                        st.session_state.data['phase5']['expert_html'] = expert_html + COPYRIGHT_HTML_FOOTER
-                        st.rerun()
-        
-        if st.session_state.data['phase5'].get('expert_html'):
-            # View Form Link button
-            if st.button("View Form", width="stretch", key="view_expert", type="primary"):
-                st.session_state['show_expert_form'] = True
-                st.rerun()
-            
-            # Download button
-            st.download_button(
-                "Download HTML", 
-                st.session_state.data['phase5']['expert_html'], 
-                "ExpertPanelForm.html",
-                mime="text/html",
-                width="stretch"
-            )
-            
-            # Show form in modal if requested
-            if st.session_state.get('show_expert_form'):
-                st.markdown("---")
-                st.markdown("### Expert Panel Feedback Form Preview")
-                st.caption("Preview only — use Google Forms to collect responses.")
-                
-                close_col, _ = st.columns([1, 5])
-                with close_col:
-                    if st.button("Close Preview", key="close_expert_form"):
-                        st.session_state['show_expert_form'] = False
-                        st.rerun()
-                
-                # Display form in iframe
-                components.html(st.session_state.data['phase5']['expert_html'], height=800, scrolling=True)
-                
-                st.info("Download and host this HTML if you need a visual preview. Responses are not collected from this preview.")
-            
-            # Refine section
-            with st.expander("Refine Form"):
-                render_refine_suggestions("ref_expert", [
-                    "Make more detailed",
-                    "Simplify language for clinicians",
-                    "Streamline node checklist",
-                    "Add examples for rationale",
-                    "Align with national guidelines",
-                    "Improve section headings"
-                ])
-                refine_expert = st.text_area("Edit request", height=70, key="ref_expert", label_visibility="collapsed", placeholder="e.g., Make more detailed; Add examples...")
-                if st.button("Update Form", width="stretch", key="update_expert"):
-                    with ai_activity("Updating expert feedback form…"):
-                        new_html = get_gemini_response(f"Update this HTML: {st.session_state.data['phase5']['expert_html']} Request: {refine_expert}")
-                        if new_html:
-                            new_html = ensure_carepathiq_footer(new_html)
-                            new_html = make_preview_only(new_html)
-                            st.session_state.data['phase5']['expert_html'] = new_html + COPYRIGHT_HTML_FOOTER
-                            st.rerun()
-    
-    # Beta Testing Form
-    with c2:
-        st.markdown("#### Beta Testing Form")
-        st.caption(f"Target Audience: {audience}")
-        beta_provider = st.selectbox(
-            "Delivery method",
-            list(PROVIDER_OPTIONS.keys()),
-            format_func=lambda k: PROVIDER_OPTIONS[k],
-            key="beta_provider",
-        )
-        beta_allow_external = st.checkbox(
-            "Allow external/anonymous responses (Google controls this)",
-            value=False,
-            key="beta_allow_external",
-            help="Google Forms respects your org policy. HTML is preview-only.",
-        )
-        beta_label = f"Generate in {PROVIDER_OPTIONS.get(beta_provider, 'selected provider')}"
-        if st.button(beta_label, type="primary", width="stretch", key="btn_beta_gen"):
-            with ai_activity("Generating form..."):
-                prompt = f"""
-                Create a standalone HTML5 form for Beta Testing Feedback.
-                Title: Beta Testing Feedback for {cond}
-                Target Audience: {audience}
-                
-                IMPORTANT REQUIREMENTS:
-                1. Use a simple <form> tag with NO action or method attributes
-                2. Include professional styling with CarePathIQ colors
-                3. Make it mobile-responsive
-                4. DO NOT include a recipient email field (added automatically)
-                
-                Form fields based on Nielsen's heuristics and clinical informatics best practices:
-                1. Your Name (required)
-                2. Your Email (required)
-                3. Usability Rating (1-5 scale with descriptions tailored to {audience})
-                4. Bugs/Issues Encountered (textarea with prompts for severity and reproducibility)
-                5. Workflow Integration (select: Excellent, Good, Fair, Poor)
-                6. Safety or Data Quality Concerns (textarea)
-                7. Additional Feedback (textarea)
-                8. Submit button
-                
-                Return complete standalone HTML with inline CSS.
-                """
-                beta_html = get_gemini_response(prompt)
-                if beta_html:
-                    use_html_fallback = False
-                    if beta_provider == "google":
-                        if not is_google_forms_configured():
-                            st.warning("Google Forms not configured; showing HTML preview instead.")
-                            use_html_fallback = True
-                        else:
-                            st.info("Creating Google Form under your account (scaffold). Showing HTML preview until API hookup.")
-                            use_html_fallback = True
-                    else:
-                        use_html_fallback = True
-
-                    if use_html_fallback:
-                        beta_html = ensure_carepathiq_footer(beta_html)
-                        beta_html = make_preview_only(beta_html)
-                        st.session_state.data['phase5']['beta_html'] = beta_html + COPYRIGHT_HTML_FOOTER
-                        st.rerun()
-        
-        if st.session_state.data['phase5'].get('beta_html'):
-            if st.button("View Form", width="stretch", key="view_beta", type="primary"):
-                st.session_state['show_beta_form'] = True
-                st.rerun()
-            
-            st.download_button(
-                "Download HTML",
-                st.session_state.data['phase5']['beta_html'],
-                "BetaTestingForm.html",
-                mime="text/html",
-                width="stretch"
-            )
-            
-            if st.session_state.get('show_beta_form'):
-                st.markdown("---")
-                st.markdown("### Beta Testing Form Preview")
-                close_col, _ = st.columns([1, 5])
-                with close_col:
-                    if st.button("Close Preview", key="close_beta_form"):
-                        st.session_state['show_beta_form'] = False
-                        st.rerun()
-                
-                components.html(st.session_state.data['phase5']['beta_html'], height=800, scrolling=True)
-                st.info("Preview only — download and host for viewing. Use Google Forms to collect responses.")
-            
-            with st.expander("Refine Form"):
-                render_refine_suggestions("ref_beta", [
-                    "Make more detailed",
-                    "Expand usability questions",
-                    "Add severity field for bugs",
-                    "Clarify workflow integration scale",
-                    "Include example responses"
-                ])
-                refine_beta = st.text_area("Edit request", height=70, key="ref_beta", label_visibility="collapsed", placeholder="e.g., Add severity field...")
-                if st.button("Update Form", width="stretch", key="update_beta"):
-                    with ai_activity("Updating beta testing form…"):
-                        new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['beta_html']} Request: {refine_beta}")
-                        if new_html:
-                            new_html = ensure_carepathiq_footer(new_html)
-                            new_html = make_preview_only(new_html)
-                            st.session_state.data['phase5']['beta_html'] = new_html + COPYRIGHT_HTML_FOOTER
-                            st.rerun()
-    
-    st.divider()
-    
-    # 2-COLUMN HORIZONTAL LAYOUT FOR LAST TWO DELIVERABLES
-    c3, c4 = st.columns(2)
-    
-    # Staff Education Module
-    with c3:
-        st.markdown("#### Staff Education Module")
-        st.caption(f"Target Audience: {audience}")
-        if st.button("Generate Module", type="primary", width="stretch", key="btn_edu_gen"):
-            with ai_activity("Generating module..."):
-                prompt = f"""
-                Create a standalone HTML5 interactive education module for {cond}.
-                Title: Staff Education Module for {cond}
-                Target Audience: {audience}
-                
-                CRITICAL REQUIREMENTS FOR INTERACTIVE QUIZ:
-                1. Use a simple <form> tag with NO action or method attributes
-                2. Include professional styling with CarePathIQ brand colors: Brown #5D4037 (dark: #3E2723) and Teal #A9EED1
-                3. Certificate MUST be landscape orientation: @page {{ size: landscape; margin: 1in; }}
-                4. Certificate should have class ".cpq-certificate"
-                5. Replace any "Verified Education Credit" text with "Approved by CarePathIQ"
-                6. Include inline SVG logo with CarePathIQ colors at bottom of certificate
-                7. Make it mobile-responsive
-                8. DO NOT include a recipient email field (added automatically)
-                
-                Module structure:
-                1. Introduction section: Overview of {cond} pathway tailored for {audience}
-                   - Use terminology and depth appropriate for {audience} (e.g., clinical jargon for clinicians, operational language for administrators)
-                
-                2. Key Clinical Points section:
-                   - Main takeaways about {cond} pathway
-                   - Decision points explained for {audience}
-                   - Rationale and best practices
-                   - Use clear, concise language
-                
-                3. Interactive Quiz (5 questions) - MUST USE JAVASCRIPT FOR REAL-TIME FEEDBACK:
-                   - Multiple choice questions (4 options each)
-                   - Questions MUST be tailored to {audience} knowledge level and terminology
-                   - REAL-TIME FEEDBACK REQUIREMENTS:
-                     * When user selects an answer: immediately show "Correct!" or "Not quite."
-                     * CORRECT answers: Show 2-3 sentence explanation of why it's correct with clinical/operational context
-                     * INCORRECT answers: Show "The correct answer is [X] because..." with 2-3 sentence explanation; show "Try Again" button
-                     * User CANNOT proceed to next question until they select the correct answer
-                     * Use JavaScript show/hide (not page reload) for instant feedback
-                   - SCORE TRACKING VISIBLE:
-                     * Display "Question 2 of 5 | Current Score: 40%" at top of each question
-                     * Update score after each correct answer
-                     * Final score displayed before certificate section
-                   - After all 5 questions: Show final score (must be X/5)
-                
-                4. Certificate of Completion:
-                   - CONDITIONAL DISPLAY: Certificate section and form ONLY appear if final quiz score = 5/5 (100%)
-                   - Form fields:
-                     * Participant Name (required)
-                     * Participant Email (required)
-                     * Date (auto-filled with current date)
-                   - Printable certificate appears after form submission
-                   - Certificate styled with .cpq-certificate class
-                   - Landscape orientation with CarePathIQ branding
-                   - Include: participant name, completion date, course title, "Successfully completed with 100% score"
-                   - Bottom: CarePathIQ logo (SVG) with "Approved by CarePathIQ" text
-                   - Print button for certificate
-                   - If score < 100%: Show message "Please answer all questions correctly to earn your certificate."
-                   
-                5. Submit button (submits completion record only if score = 100%)
-                
-                IMPLEMENTATION DETAILS:
-                - Include all CSS inline for standalone functionality
-                - JavaScript MUST:
-                  * Track quiz score as variable (quizScore = 0 to 5)
-                  * Show/hide feedback divs using display:none/block
-                  * Disable "Next Question" button until correct answer selected
-                  * Show/hide certificate section based on final score == 5
-                  * Display score percentage in real-time
-                - Return complete standalone HTML file.
-                """
-                edu_html = get_gemini_response(prompt)
-                if edu_html:
-                    edu_html = ensure_carepathiq_footer(edu_html)
-                    edu_html = fix_edu_certificate_html(edu_html)
-                    edu_html = create_formsubmit_html(edu_html)
-                    st.session_state.data['phase5']['edu_html'] = edu_html + COPYRIGHT_HTML_FOOTER
-                    st.rerun()
-        
-        if st.session_state.data['phase5'].get('edu_html'):
-            # View Module Link button
-            if st.button("View Module", width="stretch", key="view_edu", type="primary"):
-                st.session_state['show_edu_module'] = True
-                st.rerun()
-            
-            # Download button
-            st.download_button(
-                "Download HTML",
-                st.session_state.data['phase5']['edu_html'],
-                "EducationModule.html",
-                mime="text/html",
-                width="stretch"
-            )
-            
-            # Show module in modal if requested
-            if st.session_state.get('show_edu_module'):
-                st.markdown("---")
-                st.markdown("### Staff Education Module Preview")
-                st.caption("Share this link with staff. They complete the module and enter their email for the completion certificate.")
-                
-                close_col, _ = st.columns([1, 5])
-                with close_col:
-                    if st.button("Close Preview", key="close_edu_module"):
-                        st.session_state['show_edu_module'] = False
-                        st.rerun()
-                
-                # Display module in iframe
-                components.html(st.session_state.data['phase5']['edu_html'], height=800, scrolling=True)
-                
-                st.info("**To share this module:** Download the HTML file and upload it to any web hosting service (GitHub Pages, your hospital's learning management system, etc.). Staff members will complete the module and enter their email to receive completion records.")
-            
-            # Refine section
-            with st.expander("Refine Module"):
-                render_refine_suggestions("ref_edu", [
-                    "Make more detailed",
-                    "Add more quiz explanations",
-                    "Increase clarity and visuals",
-                    "Add clinical case examples",
-                    "Refine certificate typography",
-                    "Align with hospital policy"
-                ])
-                refine_edu = st.text_area("Edit request", height=70, key="ref_edu", label_visibility="collapsed", placeholder="e.g., Add clinical case examples; Improve visuals...")
-                if st.button("Update Module", width="stretch", key="update_edu"):
-                    with ai_activity("Updating education module…"):
-                        new_html = get_gemini_response(f"Update HTML: {st.session_state.data['phase5']['edu_html']} Request: {refine_edu}")
-                        if new_html:
-                            new_html = ensure_carepathiq_footer(new_html)
-                            new_html = fix_edu_certificate_html(new_html)
-                            new_html = create_formsubmit_html(new_html)
-                            st.session_state.data['phase5']['edu_html'] = new_html + COPYRIGHT_HTML_FOOTER
-                            st.rerun()
-    
-    # Executive Summary
-    with c4:
-        st.markdown("#### Executive Summary")
-        st.caption("Audience: Hospital Leadership")
-        if st.button("Generate Report", type="primary", width="stretch", key="btn_exec_gen"):
-            with ai_activity("Generating report..."):
-                prompt = f"""
-                Write executive summary for {cond} pathway. 
-                Audience: Hospital Leadership.
-                Include: clinical rationale, expected outcomes, implementation timeline, resource requirements, and expected ROI.
-                Return markdown formatted text.
-                """
-                st.session_state.data['phase5']['exec_summary'] = get_gemini_response(prompt)
-
-        if st.session_state.data['phase5'].get('exec_summary'):
-            # Show preview
-            preview_length = 500
-            summary_text = st.session_state.data['phase5']['exec_summary']
-            if len(summary_text) > preview_length:
-                st.markdown(summary_text[:preview_length] + "...")
-            else:
-                st.markdown(summary_text)
-            
-            # Download button
-            doc = create_exec_summary_docx(st.session_state.data['phase5']['exec_summary'], cond)
-            if doc:
-                st.download_button(
-                    "Download Report (.docx)",
-                    doc,
-                    "ExecSummary.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    width="stretch",
-                    type="primary"
+    col_exp1, col_exp2 = st.columns([2, 1])
+    with col_exp1:
+        st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
+    with col_exp2:
+        if st.button("📋 Generate", key="gen_expert", use_container_width=True):
+            with ai_activity("Generating expert feedback form..."):
+                expert_html = generate_expert_form_html(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=audience,
+                    organization=organization
                 )
-            
-            with st.expander("Refine Summary"):
-                render_refine_suggestions("ref_exec", [
-                    "Make more detailed",
-                    "Make more concise",
-                    "Add key metrics and timeline",
-                    "Highlight budget and resources",
-                    "Emphasize patient safety",
-                    "Strengthen executive call-to-action"
-                ])
-                refine_exec = st.text_area("Edit request", height=70, key="ref_exec", label_visibility="collapsed", placeholder="e.g., Make more concise; Add key metrics...")
-                if st.button("Update Summary", width="stretch", key="update_exec"):
-                    with ai_activity("Updating executive summary…"):
-                        new_sum = get_gemini_response(f"Update text: {st.session_state.data['phase5']['exec_summary']} Request: {refine_exec}")
-                        if new_sum:
-                            st.session_state.data['phase5']['exec_summary'] = new_sum
-                            st.rerun()
-
+                st.session_state.data['phase5']['expert_html'] = expert_html
+                st.success("Form generated!")
+    
+    if st.session_state.data['phase5'].get('expert_html'):
+        col_view, col_dl = st.columns([1, 1])
+        with col_view:
+            if st.button("👁️ Preview", key="view_expert_form", use_container_width=True):
+                st.session_state['show_expert_preview'] = not st.session_state.get('show_expert_preview', False)
+        
+        with col_dl:
+            st.download_button(
+                "📥 Download HTML",
+                st.session_state.data['phase5']['expert_html'],
+                f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
+                "text/html",
+                use_container_width=True
+            )
+        
+        if st.session_state.get('show_expert_preview'):
+            with st.expander("Form Preview", expanded=True):
+                components.html(
+                    st.session_state.data['phase5']['expert_html'],
+                    height=600,
+                    scrolling=True
+                )
+    
+    st.divider()
+    
+    # ============================================================
+    # 2. BETA TESTING FEEDBACK FORM
+    # ============================================================
+    st.subheader("2. Beta Testing Feedback Form")
+    st.caption("Share with users testing the pathway in real-world settings")
+    
+    col_beta1, col_beta2 = st.columns([2, 1])
+    with col_beta1:
+        st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
+    with col_beta2:
+        if st.button("📋 Generate", key="gen_beta", use_container_width=True):
+            with ai_activity("Generating beta testing form..."):
+                beta_html = generate_beta_form_html(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=audience,
+                    organization=organization
+                )
+                st.session_state.data['phase5']['beta_html'] = beta_html
+                st.success("Form generated!")
+    
+    if st.session_state.data['phase5'].get('beta_html'):
+        col_view, col_dl = st.columns([1, 1])
+        with col_view:
+            if st.button("👁️ Preview", key="view_beta_form", use_container_width=True):
+                st.session_state['show_beta_preview'] = not st.session_state.get('show_beta_preview', False)
+        
+        with col_dl:
+            st.download_button(
+                "📥 Download HTML",
+                st.session_state.data['phase5']['beta_html'],
+                f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
+                "text/html",
+                use_container_width=True
+            )
+        
+        if st.session_state.get('show_beta_preview'):
+            with st.expander("Form Preview", expanded=True):
+                components.html(
+                    st.session_state.data['phase5']['beta_html'],
+                    height=600,
+                    scrolling=True
+                )
+    
+    st.divider()
+    
+    # ============================================================
+    # 3. EDUCATION MODULE
+    # ============================================================
+    st.subheader("3. Interactive Education Module")
+    st.caption("Share with clinical team for training. Users complete quizzes and download certificate.")
+    
+    col_edu1, col_edu2 = st.columns([2, 1])
+    with col_edu1:
+        st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
+    with col_edu2:
+        if st.button("📚 Generate", key="gen_edu", use_container_width=True):
+            with ai_activity("Generating education module..."):
+                # Create default modules if none exist
+                edu_modules = [
+                    {
+                        "title": f"Module 1: {cond} Overview",
+                        "content": f"<p>This module introduces the clinical presentation and epidemiology of {cond}.</p><p><strong>Key Topics:</strong></p><ul><li>Definition and prevalence</li><li>Risk factors and pathophysiology</li><li>Clinical presentation</li><li>Initial assessment approach</li></ul>",
+                        "learning_objectives": [
+                            f"Define {cond} and describe its clinical relevance",
+                            "Identify key risk factors and pathophysiologic mechanisms",
+                            "Recognize presenting symptoms and clinical findings"
+                        ],
+                        "quiz": [
+                            {
+                                "question": f"Which of the following is a primary characteristic of {cond}?",
+                                "options": ["Clinical finding A", "Clinical finding B", "Clinical finding C", "Clinical finding D"],
+                                "correct": 0
+                            }
+                        ]
+                    },
+                    {
+                        "title": "Module 2: Diagnostic Approach",
+                        "content": "<p>Evidence-based diagnostic workup and interpretation.</p><p><strong>Diagnostic Strategy:</strong></p><ul><li>Initial testing</li><li>Advanced investigations</li><li>Diagnostic accuracy</li><li>When to treat vs. observe</li></ul>",
+                        "learning_objectives": [
+                            "Select appropriate diagnostic tests based on clinical presentation",
+                            "Interpret test results and understand their limitations",
+                            "Apply diagnostic criteria for confirmation"
+                        ],
+                        "quiz": [
+                            {
+                                "question": "Which diagnostic test has the highest sensitivity?",
+                                "options": ["Test A", "Test B", "Test C", "Test D"],
+                                "correct": 1
+                            }
+                        ]
+                    },
+                    {
+                        "title": "Module 3: Treatment & Management",
+                        "content": "<p>Evidence-based treatment strategies and clinical decision-making.</p><p><strong>Management Approach:</strong></p><ul><li>First-line treatments</li><li>Escalation protocols</li><li>Monitoring parameters</li><li>Adverse effect management</li></ul>",
+                        "learning_objectives": [
+                            "Apply evidence-based treatment recommendations",
+                            "Manage treatment-related complications",
+                            "Monitor therapeutic response"
+                        ],
+                        "quiz": [
+                            {
+                                "question": "What is the first-line intervention?",
+                                "options": ["Option A", "Option B", "Option C", "Option D"],
+                                "correct": 2
+                            }
+                        ]
+                    }
+                ]
+                
+                edu_html = create_education_module_template(
+                    condition=cond,
+                    topics=edu_modules,
+                    organization=organization,
+                    learning_objectives=[
+                        f"Understand the clinical presentation and epidemiology of {cond}",
+                        "Apply evidence-based diagnostic and treatment strategies",
+                        f"Recognize complications and implement safety measures for {cond}",
+                        "Communicate effectively with the interdisciplinary team"
+                    ]
+                )
+                st.session_state.data['phase5']['edu_html'] = edu_html
+                st.success("Module generated!")
+    
+    if st.session_state.data['phase5'].get('edu_html'):
+        col_view, col_dl = st.columns([1, 1])
+        with col_view:
+            if st.button("👁️ Preview", key="view_edu_form", use_container_width=True):
+                st.session_state['show_edu_preview'] = not st.session_state.get('show_edu_preview', False)
+        
+        with col_dl:
+            st.download_button(
+                "📥 Download HTML",
+                st.session_state.data['phase5']['edu_html'],
+                f"EducationModule_{cond.replace(' ', '_')}.html",
+                "text/html",
+                use_container_width=True
+            )
+        
+        if st.session_state.get('show_edu_preview'):
+            with st.expander("Module Preview", expanded=True):
+                components.html(
+                    st.session_state.data['phase5']['edu_html'],
+                    height=700,
+                    scrolling=True
+                )
+    
+    st.divider()
+    
+    # ============================================================
+    # 4. EXECUTIVE SUMMARY
+    # ============================================================
+    st.subheader("4. Executive Summary Document")
+    st.caption("Share with hospital leadership")
+    
+    col_exec1, col_exec2 = st.columns([2, 1])
+    with col_exec1:
+        st.markdown("Word document with project overview, evidence summary, pathway design, and implementation roadmap.")
+    with col_exec2:
+        if st.button("📄 Generate", key="gen_exec", use_container_width=True):
+            with ai_activity("Generating executive summary..."):
+                doc = create_phase5_executive_summary_docx(
+                    st.session_state.data,
+                    cond
+                )
+                if doc:
+                    st.session_state.data['phase5']['exec_doc'] = doc
+                    st.success("Summary generated!")
+                else:
+                    st.error("python-docx not installed. Please install with: pip install python-docx")
+    
+    if st.session_state.data['phase5'].get('exec_doc'):
+        st.download_button(
+            "📥 Download Word Document",
+            st.session_state.data['phase5']['exec_doc'],
+            f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True
+        )
+    
+    st.divider()
+    
+    # ============================================================
+    # SHARING INSTRUCTIONS
+    # ============================================================
+    st.subheader("How to Share & Collect Feedback")
+    
+    with st.expander("📧 Expert Panel Workflow", expanded=False):
+        st.markdown("""
+        1. **Download** ExpertPanelFeedback.html file
+        2. **Share** the file (email, shared folder, LMS, etc.)
+        3. **Expert** opens in any browser and provides feedback
+        4. **Expert clicks** "Download Responses (CSV)"
+        5. **Expert emails** CSV file back to you
+        6. **You import** CSV into your analysis tool
+        """)
+    
+    with st.expander("🧪 Beta Testing Workflow", expanded=False):
+        st.markdown("""
+        1. **Download** BetaTestingFeedback.html file
+        2. **Share** with real users testing the pathway
+        3. **Users** open in browser and complete form
+        4. **Users click** "Download Responses (CSV)"
+        5. **Users email** CSV back to you
+        6. **Aggregate** feedback to identify usability issues
+        """)
+    
+    with st.expander("📚 Education Module Workflow", expanded=False):
+        st.markdown("""
+        1. **Download** EducationModule.html file
+        2. **Host** on your institution's server or LMS
+        3. **Share** link with clinical staff
+        4. **Staff** complete interactive modules
+        5. **Staff** take quizzes (must score 100%)
+        6. **Staff** download/print certificate of completion
+        7. **No email submission needed** — certificates are self-contained
+        """)
+    
+    with st.expander("📋 Executive Summary Workflow", expanded=False):
+        st.markdown("""
+        1. **Download** ExecutiveSummary.docx
+        2. **Edit** in Microsoft Word to customize
+        3. **Share** directly with hospital leadership
+        4. **Use for** funding approval, policy alignment, go-live planning
+        """)
+    
+    st.divider()
+    
+    # ============================================================
+    # HOSTING & DISTRIBUTION OPTIONS
+    # ============================================================
+    st.subheader("Distribution Options")
+    
+    with st.expander("🌐 Where to Host HTML Files", expanded=False):
+        st.markdown("""
+        **Option 1: GitHub Pages (Free)**
+        - Create GitHub repo > Upload HTML files > Enable Pages > Share link
+        
+        **Option 2: Your Hospital Server**
+        - Upload to your web server or LMS
+        - Works on institution network
+        
+        **Option 3: Email (No Hosting)**
+        - Send HTML file directly to users
+        - They open file locally in browser (offline works fine)
+        - CSV downloads are all local — no data sent anywhere
+        
+        **Option 4: Cloud Storage**
+        - Google Drive (users can't execute HTML directly)
+        - OneDrive (same limitation)
+        - Better: upload to GitHub or web server
+        """)
+    
     render_bottom_navigation()
 
 st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
