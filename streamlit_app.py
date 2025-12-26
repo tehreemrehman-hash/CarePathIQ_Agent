@@ -2052,40 +2052,40 @@ elif "Phase 3" in phase:
         if not p3_refinement_applied:
             refinement_request = st.session_state.get('p3_refine_input', '').strip()
             if refinement_request and st.session_state.data['phase3']['nodes']:
-            with ai_activity("Applying refinements to decision tree..."):
-                current_nodes = st.session_state.data['phase3']['nodes']
-                ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
-                prompt = f"""
-                Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
+                with ai_activity("Applying refinements to decision tree..."):
+                    current_nodes = st.session_state.data['phase3']['nodes']
+                    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+                    prompt = f"""
+                    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
 
-                Current pathway for {cond} in {setting}:
-                {json.dumps(current_nodes, indent=2)}
+                    Current pathway for {cond} in {setting}:
+                    {json.dumps(current_nodes, indent=2)}
 
-                Available Evidence:
-                {ev_context}
+                    Available Evidence:
+                    {ev_context}
 
-                User's refinement request: "{refinement_request}"
+                    User's refinement request: "{refinement_request}"
 
-                Apply the requested changes while maintaining:
-                - CGT/Ad/it principles and Medical Decision Analysis best practices
-                - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
-                - Actionable steps with medical acronyms for brevity
-                - Specific discharge details (prescriptions with dose/route, referrals)
-                - Evidence citations (PMIDs where applicable)
+                    Apply the requested changes while maintaining:
+                    - CGT/Ad/it principles and Medical Decision Analysis best practices
+                    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+                    - Actionable steps with medical acronyms for brevity
+                    - Specific discharge details (prescriptions with dose/route, referrals)
+                    - Evidence citations (PMIDs where applicable)
 
-                Output: Complete revised JSON array of nodes with fields: type, label, evidence.
-                Rules:
-                - type in [Start, Decision, Process, End]
-                - First node: type "Start", label "patient present to {setting} with {cond}"
-                - NO node count limit - build complete clinical flow
-                - If >20 nodes, organize into sections or sub-pathways
-                """
-                nodes = get_gemini_response(prompt, json_mode=True)
-                if isinstance(nodes, list) and len(nodes) > 0:
-                    st.session_state.data['phase3']['nodes'] = nodes
-                    st.session_state['p3_refinement_applied'] = True
-                    st.success("Refinements applied")
-                    st.rerun()
+                    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
+                    Rules:
+                    - type in [Start, Decision, Process, End]
+                    - First node: type "Start", label "patient present to {setting} with {cond}"
+                    - NO node count limit - build complete clinical flow
+                    - If >20 nodes, organize into sections or sub-pathways
+                    """
+                    nodes = get_gemini_response(prompt, json_mode=True)
+                    if isinstance(nodes, list) and len(nodes) > 0:
+                        st.session_state.data['phase3']['nodes'] = nodes
+                        st.session_state['p3_refinement_applied'] = True
+                        st.success("Refinements applied")
+                        st.rerun()
     
     render_bottom_navigation()
 
