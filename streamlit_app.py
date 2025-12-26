@@ -2791,11 +2791,12 @@ elif "Phase 5" in phase:
     st.caption("Share with clinical experts for pathway review")
     
     st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
-    aud_expert = st.selectbox("Target Audience", [
-        "Clinical Experts (EM, Cardiology, Pharmacy)",
-        "Pathway Governance Committee",
-        "Quality & Patient Safety Leaders"
-    ], index=0, key="p5_aud_expert")
+    aud_expert = st.text_input(
+        "Target Audience",
+        value=st.session_state.get("p5_aud_expert", ""),
+        placeholder="e.g., Clinical Experts (EM, Cardiology, Pharmacy)",
+        key="p5_aud_expert"
+    )
     if st.button("Generate Form", key="gen_expert", use_container_width=True):
         with ai_activity("Generating expert feedback form..."):
             expert_html = generate_expert_form_html(
@@ -2825,11 +2826,12 @@ elif "Phase 5" in phase:
     st.caption("Share with users testing the pathway in real-world settings")
     
     st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
-    aud_beta = st.selectbox("Target Audience", [
-        "ED Clinicians (Physicians, RNs), APPs, Pharmacists",
-        "Inpatient Nursing Staff",
-        "Primary Care Team"
-    ], index=0, key="p5_aud_beta")
+    aud_beta = st.text_input(
+        "Target Audience",
+        value=st.session_state.get("p5_aud_beta", ""),
+        placeholder="e.g., ED Clinicians (Physicians, RNs), APPs, Pharmacists",
+        key="p5_aud_beta"
+    )
     if st.button("Generate Form", key="gen_beta", use_container_width=True):
         with ai_activity("Generating beta testing form..."):
             beta_html = generate_beta_form_html(
@@ -2859,11 +2861,12 @@ elif "Phase 5" in phase:
     st.caption("Share with clinical team for training. Users complete quizzes and download certificate.")
     
     st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
-    aud_edu = st.selectbox("Target Audience", [
-        "Clinical Team (Residents, RNs, APPs)",
-        "ED Clinicians",
-        "Inpatient Nursing Staff"
-    ], index=0, key="p5_aud_edu")
+    aud_edu = st.text_input(
+        "Target Audience",
+        value=st.session_state.get("p5_aud_edu", ""),
+        placeholder="e.g., Clinical Team (Residents, RNs, APPs)",
+        key="p5_aud_edu"
+    )
     if st.button("Generate Module", key="gen_edu", use_container_width=True):
         with ai_activity("Generating education module..."):
             # Create default modules if none exist
@@ -2949,11 +2952,12 @@ elif "Phase 5" in phase:
     st.subheader("4. Executive Summary Document")
     st.caption("Share with hospital leadership")
     st.markdown("Word document with project overview, evidence summary, pathway design, and implementation roadmap.")
-    aud_exec = st.selectbox("Target Audience", [
-        "Hospital Leadership",
-        "Service Line Leaders",
-        "Quality & Safety Committee"
-    ], index=0, key="p5_aud_exec")
+    aud_exec = st.text_input(
+        "Target Audience",
+        value=st.session_state.get("p5_aud_exec", ""),
+        placeholder="e.g., Hospital Leadership",
+        key="p5_aud_exec"
+    )
     if st.button("Generate Summary", key="gen_exec", use_container_width=True):
         with ai_activity("Generating executive summary..."):
             doc = create_phase5_executive_summary_docx(
