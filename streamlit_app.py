@@ -1185,13 +1185,12 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         return None
 
     candidates = [
-        "gemini-3-flash-preview",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
+        "gemini-1.5-flash",
         "gemini-1.5-pro",
     ] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
 
     response = None
+    last_error = None
     for model_name in candidates:
         try:
             is_stream = stream_container is not None
@@ -1202,12 +1201,15 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
             )
             if response:
                 break
-        except Exception:
+        except Exception as e:
+            last_error = str(e)
             time.sleep(0.5)
             continue
 
     if not response:
-        st.error("AI Error. Please check API Key.")
+        model_list = ", ".join(candidates)
+        detail = f" Last error: {last_error}" if last_error else ""
+        st.error(f"AI Error. Please check API Key or model access. Tried models: {model_list}.{detail}")
         return None
 
     try:
@@ -1246,7 +1248,7 @@ def validate_ai_connection() -> bool:
         resp = client.models.generate_content(model=mdl, contents="ping")
         return bool(getattr(resp, "text", None))
     except Exception as e:
-        st.session_state["ai_error"] = str(e)
+        st.session_state["ai_error"] = f"{e} (model: {mdl})"
         return False
 
 @st.cache_data(ttl=3600)
@@ -1449,7 +1451,8 @@ with st.sidebar:
     st.divider()
     # Do not prefill from secrets so landing shows on first load
     gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
-    model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
+    # Limit to stable, broadly available models; Auto will cascade over these
+    model_options = ["Auto", "gemini-1.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
     # Preview before activation
