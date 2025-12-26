@@ -2366,31 +2366,27 @@ elif "Phase 4" in phase:
     with col_left:
         st.subheader("Pathway Visualization")
         
-        # Visualization height control, refresh, and PNG toggle
+        # Visualization height control and refresh
         viz_col1, viz_col2, viz_col3 = st.columns([1, 1, 1])
         with viz_col1:
             viz_height = st.slider("Height (px)", 300, 800, p4_state['viz_height'], step=50, key="p4_viz_height")
             p4_state['viz_height'] = viz_height
         with viz_col2:
-            if st.button("🔄 Refresh", use_container_width=True, key="p4_refresh_btn"):
+            if st.button("Refresh", use_container_width=True, key="p4_refresh_btn"):
                 p4_state['viz_cache'] = {}  # Clear cache to force re-render
                 st.rerun()
         with viz_col3:
-            generate_png = st.checkbox("PNG export", value=False, key="p4_png_toggle")
+            st.empty()  # Placeholder for balanced layout
 
         # Render graphviz visualization
         svg_bytes = cache.get(sig, {}).get("svg")
-        png_bytes = cache.get(sig, {}).get("png")
-        needs_png = generate_png and png_bytes is None
 
-        if svg_bytes is None or needs_png:
+        if svg_bytes is None:
             g = build_graphviz_from_nodes(nodes_for_viz, "TD")
             if g:
                 new_svg = render_graphviz_bytes(g, "svg")
-                new_png = render_graphviz_bytes(g, "png") if generate_png else None
-                cache[sig] = {"svg": new_svg, "png": new_png}
+                cache[sig] = {"svg": new_svg}
                 svg_bytes = new_svg
-                png_bytes = new_png
         # Keep cache bounded to the latest signature only
         p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
@@ -2433,30 +2429,18 @@ elif "Phase 4" in phase:
         else:
             st.warning("Unable to render pathway visualization. Check node data or try Fullscreen.")
         
-        # Download buttons (DOT, SVG, PNG)
+        # Download buttons (DOT and SVG formats)
         st.markdown("**Export Formats:**")
-        col_dl_dot, col_dl_svg, col_dl_png = st.columns(3)
+        col_dl_dot, col_dl_svg = st.columns(2)
         dot_text = dot_from_nodes(nodes_for_viz, "TD")
         with col_dl_dot:
             st.download_button("DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", width="stretch")
 
         with col_dl_svg:
             if svg_bytes and isinstance(svg_bytes, bytes) and len(svg_bytes) > 0:
-                st.download_button("SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", width="stretch")
+                st.download_button("SVG (Editable)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", width="stretch")
             else:
                 st.caption("SVG unavailable")
-        with col_dl_png:
-            if generate_png and png_bytes and isinstance(png_bytes, bytes) and len(png_bytes) > 0:
-                # PNG button with help tooltip
-                col_png_btn, col_png_help = st.columns([4, 1])
-                with col_png_btn:
-                    st.download_button("Download", png_bytes, file_name="pathway.png", mime="image/png", width="stretch")
-                with col_png_help:
-                    st.markdown("<div style='display: flex; align-items: center; height: 38px; justify-content: center;'><span title='PNG is a high-quality image format suitable for presentations and reports. Great for sharing or printing.' style='cursor: help; font-size: 18px; color: #5D4037;'>?</span></div>", unsafe_allow_html=True)
-            elif generate_png:
-                st.caption("PNG unavailable")
-            else:
-                st.caption("PNG off (enable above)")
         
         # Edit pathway data with Node ID column - changes auto-invalidate visualization cache
         with st.expander("Edit Pathway Data", expanded=False):
