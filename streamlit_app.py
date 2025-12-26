@@ -300,6 +300,12 @@ st.markdown("""
         align-items: center !important;
         justify-content: center !important;
     }
+
+    /* PHASE 2 — highlight rows marked as new via the first checkbox column */
+    div[data-testid="stDataFrame"] tbody tr:has(input[type="checkbox"]:checked) td,
+    div[data-testid="stTable"] tbody tr:has(input[type="checkbox"]:checked) td {
+        background-color: #FFB0C9 !important;
+    }
     
     /* BOTTOM NAVIGATION */
     footer {
@@ -414,6 +420,44 @@ def styled_info(text):
     <div style="background-color: #FFB0C9; color: black; padding: 10px; border-radius: 5px; border: 1px solid black; margin-bottom: 10px;">
         {formatted_text}
     </div>""", unsafe_allow_html=True)
+
+def auto_grade_evidence_list(evidence_list):
+    """Assign GRADE and rationale for a list of evidence items in-place using the existing AI helper.
+    Falls back to safe defaults when the AI response is missing or malformed.
+    """
+    try:
+        payload = [
+            {k: v for k, v in e.items() if k in ["id", "title"]}
+            for e in evidence_list if e.get("id") and e.get("title")
+        ]
+        if not payload:
+            for e in evidence_list:
+                e.setdefault("grade", "Un-graded")
+                e.setdefault("rationale", "Not yet evaluated.")
+            return
+        prompt = (
+            "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', 'Very Low (D)') "
+            "and provide a brief Rationale (1-2 sentences) for each article. "
+            f"{json.dumps(payload)}. "
+            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+            "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
+        )
+        grades = get_gemini_response(prompt, json_mode=True)
+        if isinstance(grades, dict):
+            for e in evidence_list:
+                pmid_str = str(e.get("id", ""))
+                g = grades.get(pmid_str)
+                if isinstance(g, dict):
+                    e["grade"] = g.get("grade", e.get("grade", "Un-graded"))
+                    e["rationale"] = g.get("rationale", e.get("rationale", "Not provided."))
+        # ensure defaults
+        for e in evidence_list:
+            e.setdefault("grade", "Un-graded")
+            e.setdefault("rationale", "Not yet evaluated.")
+    except Exception:
+        for e in evidence_list:
+            e.setdefault("grade", "Un-graded")
+            e.setdefault("rationale", "Not yet evaluated.")
 
 def export_widget(content, filename, mime_type="text/plain", label="Download"):
     final_content = content
@@ -1268,7 +1312,7 @@ def fetch_single_pmid(pmid):
             "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid_elem.text}/",
             "abstract": abstract_text,
             "grade": "Un-graded",
-            "rationale": "Added from Phase 3 pathway - pending review",
+            "rationale": "Auto-added; pending review",
             "source": "enriched_from_phase3"
         }
     except Exception as e:
@@ -1738,7 +1782,8 @@ elif "Phase 2" in phase:
 
         col_run, col_open = st.columns([1, 1])
         with col_run:
-            if st.button("Regenerate Evidence Table", type="primary", key="p2_search_run"):
+            # Use secondary to render in app's brown style
+            if st.button("Regenerate Evidence Table", type="secondary", key="p2_search_run"):
                 search_term = q_clean or current_q_full or default_q or ""
                 if not search_term:
                     st.warning("Please enter a PubMed search query first.")
@@ -1813,16 +1858,23 @@ elif "Phase 2" in phase:
                 if col not in df_ev.columns:
                     df_ev[col] = ""
             
-            # Add visual indicator for enriched entries
+            # Add visual indicator for newly auto-added entries without emojis or Phase mentions
             df_ev["source"] = df_ev.get("source", "").fillna("")
-            df_ev.insert(0, "status", df_ev["source"].apply(lambda x: "🔄 From Phase 3" if x == "enriched_from_phase3" else ""))
+            # Prefer explicit boolean column for styling & export persistence
+            if "is_new" not in df_ev.columns:
+                df_ev["is_new"] = df_ev["source"].apply(lambda x: True if x == "enriched_from_phase3" else False)
+            else:
+                df_ev["is_new"] = df_ev["is_new"].fillna(False)
+            # Insert a visible, disabled checkbox for "New" highlighting
+            df_ev.insert(0, "new", df_ev["is_new"].astype(bool))
 
-            styled_info("<b>Tip:</b> Entries marked with 🔄 were auto-enriched from Phase 3 pathway citations. Review and finalize their GRADE assessments. Hover over the top right of the table to download the CSV.")
+            # Neutral tip without Phase 3 reference
+            styled_info("<b>Tip:</b> Review the auto-graded GRADE and rationale. Use the table menu to download CSV.")
 
             edited_ev = st.data_editor(
-                df_ev[["status", "id", "title", "grade", "rationale", "url"]], 
+                df_ev[["new", "id", "title", "grade", "rationale", "url"]], 
                 column_config={
-                    "status": st.column_config.TextColumn("", disabled=True, width="small"),
+                    "new": st.column_config.CheckboxColumn("New", disabled=True, help="Auto-added and auto-graded; highlighted in pink."),
                     "id": st.column_config.TextColumn("PMID", disabled=True, width="small"),
                     "title": st.column_config.TextColumn("Title", width="large"),
                     "grade": st.column_config.SelectboxColumn("GRADE", options=["High (A)", "Moderate (B)", "Low (C)", "Very Low (D)", "Un-graded"], width="small"),
@@ -1831,6 +1883,24 @@ elif "Phase 2" in phase:
                 }, 
                 hide_index=True, width="stretch", key="ev_editor"
             )
+
+            # Persist edits back to session so downloads reflect the latest table
+            try:
+                edited_records = edited_ev.to_dict("records")
+                by_id = {str(r.get("id", "")): r for r in edited_records}
+                for e in st.session_state.data['phase2']['evidence']:
+                    eid = str(e.get('id', ''))
+                    if eid in by_id:
+                        row = by_id[eid]
+                        e["title"] = row.get("title", e.get("title", ""))
+                        e["grade"] = row.get("grade", e.get("grade", "Un-graded"))
+                        e["rationale"] = row.get("rationale", e.get("rationale", "Not yet evaluated."))
+                        # carry forward markers for styling/exports
+                        e["is_new"] = bool(row.get("new", e.get("is_new", False)))
+                        if e.get("is_new"):
+                            e["source"] = e.get("source", "auto_enriched")
+            except Exception:
+                pass
             
             # EXPORT OPTIONS SECTION
             st.divider()
@@ -2086,11 +2156,17 @@ elif "Phase 3" in phase:
     # Auto-enrich Phase 2 with new PMIDs if not yet done this session
     enriched_count = 0
     if new_pmids_in_phase3 and not st.session_state['p3_enrichment_performed']:
-        with ai_activity("Enriching Phase 2 evidence with new PMIDs from pathway..."):
+        with ai_activity("Enriching evidence and auto‑grading new PMIDs…"):
             new_evidence_list = enrich_phase2_with_new_pmids(new_pmids_in_phase3, phase2_pmids)
-            
             if new_evidence_list:
-                # Add new evidence to Phase 2
+                # Auto‑grade the newly added items
+                auto_grade_evidence_list(new_evidence_list)
+                # Mark as new for visual highlight, set neutral source
+                for e in new_evidence_list:
+                    e["is_new"] = True
+                    if not e.get("source"):
+                        e["source"] = "enriched_from_phase3"
+                # Add to Phase 2 repository
                 st.session_state.data['phase2']['evidence'].extend(new_evidence_list)
                 enriched_count = len(new_evidence_list)
                 st.session_state['p3_enrichment_performed'] = True
@@ -2100,20 +2176,20 @@ elif "Phase 3" in phase:
     
     # Create metrics display similar to total nodes and evidence-based nodes pattern
     if evidence_backed_count == 0:
-        evidence_status = "⚪ No evidence citations"
+        evidence_status = "No evidence citations"
     else:
-        evidence_status = f"✅ {evidence_backed_count} evidence-based nodes"
+        evidence_status = f"{evidence_backed_count} evidence-based nodes"
         if enriched_count > 0:
-            evidence_status += f" | 🔄 {enriched_count} new PMID(s) enriched to Phase 2"
+            evidence_status += f" | new evidence auto-graded: {enriched_count}"
     
     st.markdown(f"**Pathway Metrics:** {node_count} total nodes | {evidence_status}")
     
     # Show tip if new PMIDs were enriched
     if enriched_count > 0:
         styled_info(
-            f"<b>🔄 Evidence Updated:</b> Found {enriched_count} new PMID(s) in your pathway. "
-            f"Auto-added to Phase 2 evidence table with 'Un-graded' status. "
-            f"<b>Visit Phase 2 to review and finalize GRADE assessments</b> for these new citations."
+            f"<b>Evidence updated:</b> Found {enriched_count} new PMID(s) in your pathway. "
+            f"Auto-added to the Phase 2 evidence table with auto-graded status. "
+            f"Rows are highlighted in pink. <b>Visit Phase 2</b> to review and finalize GRADE assessments."
         )
 
     def apply_large_pathway_recommendations():
@@ -2229,28 +2305,24 @@ elif "Phase 4" in phase:
     styled_info("<b>Tip:</b> Evaluate your pathway against Nielsen's 10 Usability Heuristics. The AI agent can provide suggestions for each criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
-    
+    p4_state = st.session_state.data.setdefault('phase4', {})
+
     # GUARD: If no nodes, continue rendering Phase 4 with guidance
     if not nodes:
         st.warning("No pathway nodes found. You can still review heuristics and apply custom refinements below.")
-    
-    # Initialize Phase 4 data structure
-    if 'nodes_history' not in st.session_state.data['phase4']:
-        st.session_state.data['phase4']['nodes_history'] = []
-    if 'heuristics_data' not in st.session_state.data['phase4']:
-        st.session_state.data['phase4']['heuristics_data'] = {}
-    if 'auto_heuristics_done' not in st.session_state.data['phase4']:
-        st.session_state.data['phase4']['auto_heuristics_done'] = False
-    if 'viz_height' not in st.session_state.data['phase4']:
-        st.session_state.data['phase4']['viz_height'] = 400
+
+    # Initialize Phase 4 state defaults
+    p4_state.setdefault('nodes_history', [])
+    p4_state.setdefault('heuristics_data', {})
+    p4_state.setdefault('auto_heuristics_done', False)
+    p4_state.setdefault('viz_height', 400)
 
     # If heuristics never populated but auto-run flagged as done, allow rerun
-    if (not st.session_state.data['phase4']['heuristics_data']
-            and st.session_state.data['phase4'].get('auto_heuristics_done')):
-        st.session_state.data['phase4']['auto_heuristics_done'] = False
+    if not p4_state['heuristics_data'] and p4_state.get('auto_heuristics_done'):
+        p4_state['auto_heuristics_done'] = False
 
-    # Auto-run heuristics once if data exists but heuristics not yet generated
-    if nodes and not st.session_state.data['phase4']['heuristics_data'] and not st.session_state.data['phase4']['auto_heuristics_done']:
+    # Auto-run heuristics once if pathway data exists
+    if nodes and not p4_state['heuristics_data'] and not p4_state['auto_heuristics_done']:
         with ai_activity("Analyzing usability heuristics…"):
             prompt = f"""
             Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
@@ -2260,16 +2332,16 @@ elif "Phase 4" in phase:
             """
             res = get_gemini_response(prompt, json_mode=True)
             if res:
-                st.session_state.data['phase4']['heuristics_data'] = res
-                st.session_state.data['phase4']['auto_heuristics_done'] = True
-    
+                p4_state['heuristics_data'] = res
+                p4_state['auto_heuristics_done'] = True
+
     # Prepare nodes for visualization with a lightweight cache
     nodes_for_viz = nodes if nodes else [
         {"label": "Start", "type": "Start"},
         {"label": "Add nodes in Phase 3", "type": "Process"},
         {"label": "End", "type": "End"},
     ]
-    cache = st.session_state.data['phase4'].setdefault('viz_cache', {})
+    cache = p4_state.setdefault('viz_cache', {})
     sig = hashlib.md5(json.dumps(nodes_for_viz, sort_keys=True).encode('utf-8')).hexdigest()
 
     # TWO-COLUMN LAYOUT: Visualization (Left) + Heuristics (Right)
@@ -2281,11 +2353,11 @@ elif "Phase 4" in phase:
         # Visualization height control and fullscreen button
         viz_col1, viz_col2, viz_col3 = st.columns([1, 1, 1])
         with viz_col1:
-            viz_height = st.slider("Height (px)", 300, 800, st.session_state.data['phase4']['viz_height'], step=50, key="p4_viz_height")
-            st.session_state.data['phase4']['viz_height'] = viz_height
+            viz_height = st.slider("Height (px)", 300, 800, p4_state['viz_height'], step=50, key="p4_viz_height")
+            p4_state['viz_height'] = viz_height
         with viz_col3:
             generate_png = st.checkbox("PNG export", value=False, key="p4_png_toggle")
-        
+
         # Render graphviz visualization
         svg_bytes = cache.get(sig, {}).get("svg")
         png_bytes = cache.get(sig, {}).get("png")
@@ -2300,7 +2372,7 @@ elif "Phase 4" in phase:
                 svg_bytes = new_svg
                 png_bytes = new_png
         # Keep cache bounded to the latest signature only
-        st.session_state.data['phase4']['viz_cache'] = {sig: cache.get(sig, {})}
+        p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
         # Now render Fullscreen button with svg_bytes available
         with viz_col2:
@@ -2308,8 +2380,7 @@ elif "Phase 4" in phase:
                 import base64
                 svg_encoded = base64.b64encode(svg_bytes).decode('utf-8')
                 svg_data_for_popup = f"data:image/svg+xml;base64,{svg_encoded}"
-                
-                # JavaScript to open SVG in new window
+
                 popup_js = f"""
                 <script>
                 function openFullscreen() {{
@@ -2330,14 +2401,12 @@ elif "Phase 4" in phase:
                 """
                 components.html(popup_js, height=0)
                 if st.button("Fullscreen ↗", use_container_width=True, key="p4_fullscreen_btn"):
-                    # Trigger JavaScript to open new window
                     components.html(popup_js + '<script>openFullscreen();</script>', height=0)
-                    st.rerun()
             else:
                 st.button("Fullscreen ↗", use_container_width=True, disabled=True, key="p4_fullscreen_btn_disabled")
 
         if svg_bytes:
-            components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
+            st.image(svg_bytes, use_column_width=True)
         else:
             st.warning("Unable to render pathway visualization. Check node data or try Fullscreen.")
         
@@ -2347,7 +2416,7 @@ elif "Phase 4" in phase:
         dot_text = dot_from_nodes(nodes_for_viz, "TD")
         with col_dl_dot:
             st.download_button("DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", width="stretch")
-        
+
         with col_dl_svg:
             if svg_bytes:
                 st.download_button("SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", width="stretch")
@@ -2390,8 +2459,8 @@ elif "Phase 4" in phase:
         st.divider()
 
         # Manual trigger to generate or retry heuristics
-        h_data = st.session_state.data['phase4'].get('heuristics_data', {})
-        auto_done = st.session_state.data['phase4'].get('auto_heuristics_done', False)
+        h_data = p4_state.get('heuristics_data', {})
+        auto_done = p4_state.get('auto_heuristics_done', False)
         btn_label = "Run heuristics" if not auto_done else "Retry heuristics"
 
         if st.button(btn_label, use_container_width=True, key="p4_run_heuristics_btn"):
@@ -2404,9 +2473,9 @@ elif "Phase 4" in phase:
                 """
                 res = get_gemini_response(prompt, json_mode=True)
                 if res:
-                    st.session_state.data['phase4']['heuristics_data'] = res
+                    p4_state['heuristics_data'] = res
                     h_data = res
-                st.session_state.data['phase4']['auto_heuristics_done'] = True
+                p4_state['auto_heuristics_done'] = True
 
         if not h_data:
             styled_info("No heuristics yet. Click 'Run heuristics' to analyze this pathway.")
@@ -2414,7 +2483,7 @@ elif "Phase 4" in phase:
             # Batch Apply All Heuristics
             if st.button("Apply All Heuristics", use_container_width=True, key="p4_apply_all_heuristics_btn"):
                 # Snapshot current state for undo
-                st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                 
                 with ai_activity("Applying all 10 heuristics…"):
                     # Aggregate all H1-H10 recommendations into a single prompt
@@ -2439,7 +2508,7 @@ elif "Phase 4" in phase:
                     if new_nodes and isinstance(new_nodes, list):
                         st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
                         # Reset flag to allow heuristics refresh after batch apply
-                        st.session_state.data['phase4']['auto_heuristics_done'] = False
+                        p4_state['auto_heuristics_done'] = False
                         st.success("Applied all heuristics")
                         st.rerun()
 
@@ -2466,11 +2535,12 @@ elif "Phase 4" in phase:
                     st.info(insight)
 
                     # Refine note (optional)
-                    refine_note = st.text_input(
+                    refine_note = st.text_area(
                         f"Custom note for {heuristic_key}",
                         value="",
                         key=f"p4_refine_note_{heuristic_key}",
-                        placeholder="Optional: Add specific context or changes"
+                        placeholder="Optional: Add specific context or changes",
+                        height=80
                     )
 
                     # Action buttons for this heuristic (side by side)
@@ -2479,7 +2549,7 @@ elif "Phase 4" in phase:
                     with act_left:
                         if st.button(f"Apply {heuristic_key}", key=f"p4_apply_{heuristic_key}", use_container_width=True):
                             # Snapshot current nodes for undo
-                            st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                            p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                             with ai_activity(f"Applying {heuristic_key}…"):
                                 prompt_apply = f"""
                                 Update the clinical pathway by applying this specific usability recommendation.
@@ -2496,7 +2566,7 @@ elif "Phase 4" in phase:
                     with act_right:
                         if st.button(f"Refine {heuristic_key}", key=f"p4_refine_{heuristic_key}", use_container_width=True):
                             # Snapshot for undo
-                            st.session_state.data['phase4'].setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                            p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                             user_note = refine_note.strip()
                             with ai_activity(f"Refining via {heuristic_key}…"):
                                 prompt_refine = f"""
@@ -2566,9 +2636,9 @@ elif "Phase 4" in phase:
                     st.warning("Please describe your refinement first.")
     
     with col_undo:
-        if st.session_state.data['phase4'].get('nodes_history'):
+        if p4_state.get('nodes_history'):
             if st.button("Undo Last Change", width="stretch", key="p4_undo_btn"):
-                old_nodes = st.session_state.data['phase4']['nodes_history'].pop()
+                old_nodes = p4_state['nodes_history'].pop()
                 st.session_state.data['phase3']['nodes'] = old_nodes
                 st.success("Change undone")
                 st.rerun()
@@ -2610,17 +2680,38 @@ elif "Phase 5" in phase:
     with col_aud:
         audience = st.text_input(
             "Target Audience",
-            value="Clinical Team",
+            value=st.session_state.get("p5_audience", "Clinical Team"),
             placeholder="e.g., Physicians, Nurses, Pharmacists",
             key="p5_audience"
         )
     with col_org:
         organization = st.text_input(
             "Organization Name",
-            value="CarePathIQ",
+            value=st.session_state.get("p5_organization", "CarePathIQ"),
             placeholder="Your Hospital/Institution",
             key="p5_organization"
         )
+
+    # Quick audience examples per deliverable to speed setup
+    with st.expander("Target Audience Examples", expanded=False):
+        st.caption("Click to auto-fill the audience field above.")
+        e1, e2, e3, e4 = st.columns(4)
+        with e1:
+            if st.button("Expert Panel", key="aud_expert", use_container_width=True):
+                st.session_state.p5_audience = "Clinical Experts (EM, Cardiology, Pharmacy)"
+                st.rerun()
+        with e2:
+            if st.button("Beta Testing", key="aud_beta", use_container_width=True):
+                st.session_state.p5_audience = "ED Clinicians (Physicians, RNs), APPs, Pharmacists"
+                st.rerun()
+        with e3:
+            if st.button("Education Module", key="aud_edu", use_container_width=True):
+                st.session_state.p5_audience = "Clinical Team (Residents, RNs, APPs)"
+                st.rerun()
+        with e4:
+            if st.button("Exec Summary", key="aud_exec", use_container_width=True):
+                st.session_state.p5_audience = "Hospital & Service-Line Leadership"
+                st.rerun()
     
     st.divider()
 
@@ -2636,6 +2727,17 @@ elif "Phase 5" in phase:
     col_exp1, col_exp2 = st.columns([2, 1])
     with col_exp1:
         st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
+        # Quick audience presets for this deliverable
+        exp_c1, exp_c2, exp_c3 = st.columns(3)
+        with exp_c1:
+            if st.button("Clinician Experts", key="exp_aud1", use_container_width=True):
+                st.session_state.p5_audience = "Clinical Experts (EM, Cardiology, Pharmacy)"; st.rerun()
+        with exp_c2:
+            if st.button("Governance Committee", key="exp_aud2", use_container_width=True):
+                st.session_state.p5_audience = "Pathway Governance Committee"; st.rerun()
+        with exp_c3:
+            if st.button("Quality & Safety", key="exp_aud3", use_container_width=True):
+                st.session_state.p5_audience = "Quality & Patient Safety Leaders"; st.rerun()
     with col_exp2:
         if st.button("Generate (5-10 sec)", key="gen_expert", use_container_width=True):
             with ai_activity("Generating expert feedback form..."):
@@ -2686,6 +2788,16 @@ elif "Phase 5" in phase:
     col_beta1, col_beta2 = st.columns([2, 1])
     with col_beta1:
         st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
+        beta_c1, beta_c2, beta_c3 = st.columns(3)
+        with beta_c1:
+            if st.button("ED Team", key="beta_aud1", use_container_width=True):
+                st.session_state.p5_audience = "ED Clinicians (Physicians, RNs), APPs, Pharmacists"; st.rerun()
+        with beta_c2:
+            if st.button("Inpatient Nursing", key="beta_aud2", use_container_width=True):
+                st.session_state.p5_audience = "Inpatient Nursing Staff"; st.rerun()
+        with beta_c3:
+            if st.button("Primary Care", key="beta_aud3", use_container_width=True):
+                st.session_state.p5_audience = "Primary Care Team"; st.rerun()
     with col_beta2:
         if st.button("Generate (5-10 sec)", key="gen_beta", use_container_width=True):
             with ai_activity("Generating beta testing form..."):
@@ -2736,6 +2848,16 @@ elif "Phase 5" in phase:
     col_edu1, col_edu2 = st.columns([2, 1])
     with col_edu1:
         st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
+        edu_c1, edu_c2, edu_c3 = st.columns(3)
+        with edu_c1:
+            if st.button("Residents & Fellows", key="edu_aud1", use_container_width=True):
+                st.session_state.p5_audience = "Residents and Fellows"; st.rerun()
+        with edu_c2:
+            if st.button("Nursing Staff", key="edu_aud2", use_container_width=True):
+                st.session_state.p5_audience = "Nursing Staff"; st.rerun()
+        with edu_c3:
+            if st.button("APPs", key="edu_aud3", use_container_width=True):
+                st.session_state.p5_audience = "Advanced Practice Providers (NP/PA)"; st.rerun()
     with col_edu2:
         if st.button("Generate (10-15 sec)", key="gen_edu", use_container_width=True):
             with ai_activity("Generating education module..."):

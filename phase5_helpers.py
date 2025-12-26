@@ -607,28 +607,74 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 
 <hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
 
-<!-- Scenario Selector & Timer -->
-<h2 style="color:var(--brown-dark);margin-bottom:15px">Test Scenario</h2>
-<div class="row">
-<div class="form-group">
-<label for="scenario">Select Scenario</label>
-<select id="scenario">
-<option value="typical">Typical: Stable Outpatient</option>
-<option value="comorbidity">Complex: Multiple Comorbidities</option>
-<option value="urgent">Urgent: Acute Presentation</option>
-</select>
+<!-- Scenario Timers -->
+<h2 style="color:var(--brown-dark);margin-bottom:10px">Clinical Scenarios</h2>
+<p style="margin:0 0 10px 0;color:#666">Work through each scenario using the pathway. Start/stop each timer as you complete the scenario.</p>
+<table>
+    <thead>
+        <tr>
+            <th style="width:220px">Scenario</th>
+            <th>Description</th>
+            <th style="width:240px">Timer</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>Typical: Stable Outpatient</strong></td>
+            <td id="desc_typical"></td>
+            <td>
+                <div class="flex">
+                    <span id="timer_typical" class="timer badge">00:00</span>
+                    <button type="button" onclick="startTimerFor('typical')">Start</button>
+                    <button type="button" onclick="stopTimerFor('typical')">Stop</button>
+                    <button type="button" onclick="resetTimerFor('typical')">Reset</button>
+                    <button type="button" onclick="recordRun('typical')">Record Run</button>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td><strong>Complex: Multiple Comorbidities</strong></td>
+            <td id="desc_comorbidity"></td>
+            <td>
+                <div class="flex">
+                    <span id="timer_comorbidity" class="timer badge">00:00</span>
+                    <button type="button" onclick="startTimerFor('comorbidity')">Start</button>
+                    <button type="button" onclick="stopTimerFor('comorbidity')">Stop</button>
+                    <button type="button" onclick="resetTimerFor('comorbidity')">Reset</button>
+                    <button type="button" onclick="recordRun('comorbidity')">Record Run</button>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td><strong>Urgent: Acute Presentation</strong></td>
+            <td id="desc_urgent"></td>
+            <td>
+                <div class="flex">
+                    <span id="timer_urgent" class="timer badge">00:00</span>
+                    <button type="button" onclick="startTimerFor('urgent')">Start</button>
+                    <button type="button" onclick="stopTimerFor('urgent')">Stop</button>
+                    <button type="button" onclick="resetTimerFor('urgent')">Reset</button>
+                    <button type="button" onclick="recordRun('urgent')">Record Run</button>
+                </div>
+            </td>
+        </tr>
+    </tbody>
+</table>
+
+<div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div style="font-weight:600;color:var(--brown-dark)">Recorded Runs</div>
+    <div class="flex">
+        <button type="button" onclick="downloadRunsCSV()">Download Runs CSV</button>
+        <button type="button" onclick="clearSaved()">Clear Saved</button>
+    </div>
+    <table style="width:100%">
+        <thead>
+            <tr><th style="width:220px">Scenario</th><th style="width:140px">Seconds</th><th>Timestamp</th></tr>
+        </thead>
+        <tbody id="runsBody"></tbody>
+    </table>
+  
 </div>
-<div class="form-group">
-<label>Timer</label>
-<div class="flex">
-<span id="timer" class="timer badge">00:00</span>
-<button type="button" id="startTimer" class="secondary">Start</button>
-<button type="button" id="stopTimer" class="secondary">Stop</button>
-<button type="button" id="resetTimer" class="secondary">Reset</button>
-</div>
-</div>
-</div>
-<p id="scenarioDesc" style="margin-top:10px;padding:12px;background:#f8f9fa;border-left:3px solid var(--teal);font-size:0.95em"></p>
 
 <hr style="margin:25px 0;border:none;border-top:1px solid var(--border-gray)">
 
@@ -698,6 +744,7 @@ label {{display:block;margin-bottom:5px;font-weight:500;color:var(--brown-dark)}
 <div class="button-group">
 <button type="button" onclick="downloadSummaryCSV()">Download Summary CSV</button>
 <button type="button" onclick="downloadNodeCSV()">Download Node Details CSV</button>
+<button type="button" onclick="downloadRunsCSV()">Download Runs CSV</button>
 <button type="button" onclick="downloadJSON()">Download JSON</button>
 <button type="reset">Reset Form</button>
 </div>
@@ -753,35 +800,68 @@ const SUS_ITEMS = [
 
 const NODES = {nodes_json};
 
-function pad(n) {{ return String(n).padStart(2,'0'); }}
+function pad(n) { return String(n).padStart(2,'0'); }
 
-let timerInt = null, startEpoch = null, elapsedSec = 0;
+// Independent timers for three scenarios
+let scenarioTimes = { typical: 0, comorbidity: 0, urgent: 0 };
+let runs = [];
+let activeTimer = null; // which scenario key is running
+let startEpoch = null;
 
-function renderTimer() {{
-  const m = Math.floor(elapsedSec/60), s = elapsedSec%60;
-  document.getElementById('timer').textContent = pad(m) + ':' + pad(s);
-}}
+function renderAllTimers() {
+    ['typical','comorbidity','urgent'].forEach(key => {
+        const v = scenarioTimes[key] || 0;
+        const m = Math.floor(v/60), s = v%60;
+        const el = document.getElementById('timer_' + key);
+        if (el) el.textContent = pad(m)+':'+pad(s);
+    });
+}
 
-document.getElementById('startTimer').onclick = () => {{
-  if (timerInt) return;
-  startEpoch = Date.now() - (elapsedSec*1000);
-  timerInt = setInterval(() => {{
-    elapsedSec = Math.floor((Date.now()-startEpoch)/1000);
-    renderTimer();
-  }}, 250);
-}};
-document.getElementById('stopTimer').onclick = () => {{ clearInterval(timerInt); timerInt = null; }};
-document.getElementById('resetTimer').onclick = () => {{ elapsedSec = 0; renderTimer(); }};
+function tick() {
+    if (!activeTimer || startEpoch === null) return;
+    const now = Date.now();
+    scenarioTimes[activeTimer] = Math.max(0, Math.floor((now - startEpoch)/1000));
+    renderAllTimers();
+}
+setInterval(tick, 250);
 
-function setScenarioDesc() {{
-  const sel = document.getElementById('scenario').value;
-  const s = SCENARIOS[sel];
-  document.getElementById('scenarioDesc').innerHTML =
-    '<strong>' + s.name + ':</strong> ' + s.desc + '<br><span style="color:#666">Tasks: ' + s.tasks.join(' • ') + '</span>';
-}}
-document.getElementById('scenario').onchange = setScenarioDesc;
-setScenarioDesc();
-renderTimer();
+function startTimerFor(key) {
+    activeTimer = key;
+    startEpoch = Date.now() - (scenarioTimes[key]*1000);
+}
+function stopTimerFor(key) {
+    if (activeTimer === key) { activeTimer = null; }
+}
+function resetTimerFor(key) {
+    scenarioTimes[key] = 0;
+    if (activeTimer === key) { startEpoch = Date.now(); }
+    renderAllTimers();
+}
+
+// Scenario descriptions
+document.getElementById('desc_typical').innerHTML = SCENARIOS.typical.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.typical.tasks.join(' • ') + '</span>';
+document.getElementById('desc_comorbidity').innerHTML = SCENARIOS.comorbidity.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.comorbidity.tasks.join(' • ') + '</span>';
+document.getElementById('desc_urgent').innerHTML = SCENARIOS.urgent.desc + '<br><span style="color:#666">Tasks: ' + SCENARIOS.urgent.tasks.join(' • ') + '</span>';
+renderAllTimers();
+
+function recordRun(key) {
+    const secs = scenarioTimes[key] || 0;
+    runs.push({ scenario: key, seconds: secs, timestamp: new Date().toISOString() });
+    renderRuns();
+    scheduleSave();
+}
+
+function renderRuns() {
+    const body = document.getElementById('runsBody');
+    if (!body) return;
+    body.innerHTML = '';
+    runs.forEach(r => {
+        const tr = document.createElement('tr');
+        const name = SCENARIOS[r.scenario]?.name || r.scenario;
+        tr.innerHTML = `<td>${name}</td><td>${r.seconds}</td><td>${r.timestamp}</td>`;
+        body.appendChild(tr);
+    });
+}
 
 // Render Nielsen Heuristics
 HEURISTICS.forEach((h, i) => {{
@@ -855,9 +935,7 @@ if (!NODES || NODES.length === 0) {{
   }});
 }}
 
-function collectData() {{
-  const scenKey = document.getElementById('scenario').value;
-  const scen = SCENARIOS[scenKey];
+function collectData() {
 
   const heuristics = HEURISTICS.map((h, i) => ({{
     name: h,
@@ -882,15 +960,12 @@ function collectData() {{
     suggestion: document.getElementById('suggest_' + idx).value.trim()
   }}));
 
-  const summary = {{
+    const summary = {
     appTitle: "{condition}",
     testerName: document.getElementById('tester_name').value,
     testerEmail: document.getElementById('tester_email').value,
     testerRole: document.getElementById('tester_role').value,
-    scenario: scenKey,
-    scenarioName: scen.name,
-    scenarioTasks: scen.tasks,
-    timerSeconds: elapsedSec,
+        scenarioTimes: { typical: scenarioTimes.typical, comorbidity: scenarioTimes.comorbidity, urgent: scenarioTimes.urgent },
     ease: parseInt(document.getElementById('ease').value, 10),
     fit: parseInt(document.getElementById('fit').value, 10),
     positives: document.getElementById('positives').value.trim(),
@@ -925,15 +1000,16 @@ function downloadSummaryCSV() {{
   const rows = [];
 
   // Heuristics
-  HEURISTICS.forEach((name, i) => {{
+    HEURISTICS.forEach((name, i) => {
     const h = summary.heuristics[i];
     rows.push({{
       section: "Heuristic",
       name: name,
       rating: h.rating,
       comments: h.comments,
-      scenario: summary.scenarioName,
-      timerSeconds: summary.timerSeconds,
+            scenarioTypicalSeconds: summary.scenarioTimes.typical,
+            scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
+            scenarioUrgentSeconds: summary.scenarioTimes.urgent,
       tester: summary.testerName
     }});
   }});
@@ -944,8 +1020,9 @@ function downloadSummaryCSV() {{
     name: "Experience",
     rating: "",
     comments: 'Ease=' + summary.ease + '; Fit=' + summary.fit + '; Positives=' + summary.positives + '; Improvements=' + summary.improvements,
-    scenario: summary.scenarioName,
-    timerSeconds: summary.timerSeconds,
+        scenarioTypicalSeconds: summary.scenarioTimes.typical,
+        scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
+        scenarioUrgentSeconds: summary.scenarioTimes.urgent,
     tester: summary.testerName
   }});
 
@@ -956,8 +1033,9 @@ function downloadSummaryCSV() {{
       name: "SUS Score",
       rating: summary.susScore,
       comments: 'Responses=' + summary.susScores.join('|'),
-      scenario: summary.scenarioName,
-      timerSeconds: summary.timerSeconds,
+            scenarioTypicalSeconds: summary.scenarioTimes.typical,
+            scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
+            scenarioUrgentSeconds: summary.scenarioTimes.urgent,
       tester: summary.testerName
     }});
   }}
@@ -966,10 +1044,12 @@ function downloadSummaryCSV() {{
   download(`Beta_Summary_${{safeCondition}}_{timestamp}.csv`, toCSV(rows), "text/csv");
 }}
 
-function downloadNodeCSV() {{
+function downloadNodeCSV() {
   const {{nodes, summary}} = collectData();
   const rows = nodes.map(n => ({{
-    scenario: summary.scenarioName,
+        scenarioTypicalSeconds: summary.scenarioTimes.typical,
+        scenarioComorbiditySeconds: summary.scenarioTimes.comorbidity,
+        scenarioUrgentSeconds: summary.scenarioTimes.urgent,
     tester: summary.testerName,
     nodeIndex: n.index,
     nodeId: n.id ?? "",
