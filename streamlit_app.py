@@ -1398,12 +1398,6 @@ if "Phase 1" in phase:
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                
-                # Force update keys used by widgets
-                st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
-                st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
-                st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
-                st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
             else:
                 st.error("Failed to generate content. Please check your API key and try again.")
 
@@ -1422,19 +1416,15 @@ if "Phase 1" in phase:
             
             Return a JSON object with the updated keys: "inclusion", "exclusion", "problem", "objectives".
             """
-            data = get_gemini_response(prompt, json_mode=True)
-            if data:
-                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
-                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
-                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                
-                st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
-                st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
-                st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
-                st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
-            else:
-                st.error("Failed to apply refinements. Please try again.")
+            with ai_activity("Applying refinements to Phase 1 content…"):
+                data = get_gemini_response(prompt, json_mode=True)
+                if data:
+                    st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+                    st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
+                    st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                    st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+                else:
+                    st.error("Failed to apply refinements. Please try again.")
 
     # 2. SYNC FUNCTION (General)
     def sync_p1_widgets():
@@ -1450,14 +1440,14 @@ if "Phase 1" in phase:
         sync_p1_widgets()
         trigger_p1_draft()
 
-    # Always sync widget keys with saved data when entering Phase 1
+    # Always sync widget keys from saved data to show AI-generated content
     st.session_state['p1_cond_input'] = st.session_state.data['phase1'].get('condition', '')
+    st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
     st.session_state['p1_inc'] = st.session_state.data['phase1'].get('inclusion', '')
     st.session_state['p1_exc'] = st.session_state.data['phase1'].get('exclusion', '')
-    st.session_state['p1_setting'] = st.session_state.data['phase1'].get('setting', '')
     st.session_state['p1_prob'] = st.session_state.data['phase1'].get('problem', '')
     st.session_state['p1_obj'] = st.session_state.data['phase1'].get('objectives', '')
-
+    
     st.title("Phase 1: Scoping & Charter")
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
@@ -1531,7 +1521,7 @@ if "Phase 1" in phase:
         if not p1_refinement_applied:
             apply_refinements()
             st.session_state['p1_refinement_applied'] = True
-            st.success("Refinements applied!")
+            st.success("Phase 1 refinements applied successfully!")
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -1701,24 +1691,8 @@ elif "Phase 2" in phase:
             "- Very Low (D): We are very uncertain about the estimate."
         )
 
-        # Inline label with adjacent help tooltip
-        label_col, help_col = st.columns([0.9, 0.1])
-        tooltip = (
-            grade_help
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&#39;")
-            .replace("\n", "&#10;")
-        )
-        with label_col:
-            st.markdown("**Filter by GRADE**")
-        with help_col:
-            st.markdown(
-                f"<span style='font-weight:700; cursor:help;' title=\"{tooltip}\">?</span>",
-                unsafe_allow_html=True,
-            )
+        # Use native Streamlit subheader with help parameter for consistent alignment
+        st.subheader("Filter by GRADE", help=grade_help)
 
         # Default filters set to show all grades initially
         selected_grades = st.multiselect(
@@ -2112,6 +2086,11 @@ elif "Phase 4" in phase:
     if 'fullscreen_modal' not in st.session_state.data['phase4']:
         st.session_state.data['phase4']['fullscreen_modal'] = False
 
+    # If heuristics never populated but auto-run flagged as done, allow rerun
+    if (not st.session_state.data['phase4']['heuristics_data']
+            and st.session_state.data['phase4'].get('auto_heuristics_done')):
+        st.session_state.data['phase4']['auto_heuristics_done'] = False
+
     # FULLSCREEN MODE - Render only this and stop
     if st.session_state.data['phase4'].get('fullscreen_modal'):
         st.markdown("---")
@@ -2147,7 +2126,7 @@ elif "Phase 4" in phase:
             res = get_gemini_response(prompt, json_mode=True)
             if res:
                 st.session_state.data['phase4']['heuristics_data'] = res
-        st.session_state.data['phase4']['auto_heuristics_done'] = True
+                st.session_state.data['phase4']['auto_heuristics_done'] = True
     
     # Prepare nodes for visualization with a lightweight cache
     nodes_for_viz = nodes if nodes else [
@@ -2194,6 +2173,8 @@ elif "Phase 4" in phase:
 
         if svg_bytes:
             components.html(svg_bytes.decode('utf-8'), height=viz_height, scrolling=True)
+        else:
+            st.warning("Unable to render pathway visualization. Check node data or try Fullscreen.")
         
         # Download buttons (DOT, SVG, PNG)
         st.markdown("**Export Formats:**")
@@ -2243,8 +2224,31 @@ elif "Phase 4" in phase:
         
         st.divider()
 
-        # Display heuristics with per-item actions
+        # Manual trigger to generate or retry heuristics
         h_data = st.session_state.data['phase4'].get('heuristics_data', {})
+        auto_done = st.session_state.data['phase4'].get('auto_heuristics_done', False)
+        btn_label = "Run heuristics" if not auto_done else "Retry heuristics"
+
+        if st.button(btn_label, use_container_width=True, key="p4_run_heuristics_btn"):
+            with ai_activity("Analyzing usability heuristics…"):
+                prompt = f"""
+                Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
+                For each heuristic (H1-H10), provide a specific, actionable critique and suggestion.
+                Pathway nodes: {json.dumps(nodes)}
+                Return ONLY a JSON object with keys H1-H10.
+                """
+                res = get_gemini_response(prompt, json_mode=True)
+                if res:
+                    st.session_state.data['phase4']['heuristics_data'] = res
+                    h_data = res
+                st.session_state.data['phase4']['auto_heuristics_done'] = True
+
+        if not h_data:
+            st.info("No heuristics yet. Click 'Run heuristics' to analyze this pathway.")
+
+        st.divider()
+
+        # Display heuristics with per-item actions
         if h_data:
             st.markdown("**AI Recommendations:**")
             for heuristic_key in sorted(h_data.keys()):
