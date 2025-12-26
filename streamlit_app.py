@@ -1185,9 +1185,9 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
         return None
 
     candidates = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-    ] if model_choice == "Auto" else [model_choice, "gemini-1.5-flash"]
+        "models/gemini-1.5-flash-latest",
+        "models/gemini-1.5-pro-latest",
+    ] if model_choice == "Auto" else [f"models/{model_choice}-latest", "models/gemini-1.5-flash-latest"]
 
     response = None
     last_error = None
@@ -1236,7 +1236,7 @@ def validate_ai_connection() -> bool:
     if not client:
         return False
     try:
-        mdl = model_choice if model_choice != "Auto" else "gemini-1.5-flash"
+        mdl = f"models/{model_choice}-latest" if model_choice != "Auto" else "models/gemini-1.5-flash-latest"
         resp = client.models.generate_content(model=mdl, contents="ping")
         return bool(getattr(resp, "text", None))
     except Exception as e:
