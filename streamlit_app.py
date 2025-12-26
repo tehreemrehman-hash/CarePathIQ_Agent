@@ -1985,7 +1985,15 @@ elif "Phase 3" in phase:
         evidence_status = f"❌ {invalid_evidence_count} unvalidated citations"
         status_color = "red"
     
-    st.markdown(f"**Pathway Metrics:** {node_count} nodes | **Evidence Status:** {evidence_status}\")\n    \n    if invalid_evidence_count > 0:\n        with st.expander(f\"⚠️ View {invalid_evidence_count} Unvalidated Citations\", expanded=False):\n            invalid_nodes = [e for e in evidence_backed_nodes if not e['valid']]\n            for item in invalid_nodes:\n                node = item['node']\n                st.markdown(f\"- **{node.get('label', 'Unknown')}**: PMID `{node.get('evidence')}` not found in Phase 2 evidence\")\n            st.caption(\"Tip: Add missing PMIDs in Phase 2 or correct the citation.\")
+    st.markdown(f"**Pathway Metrics:** {node_count} nodes | **Evidence Status:** {evidence_status}")
+    
+    if invalid_evidence_count > 0:
+        with st.expander(f"⚠️ View {invalid_evidence_count} Unvalidated Citations", expanded=False):
+            invalid_nodes = [e for e in evidence_backed_nodes if not e['valid']]
+            for item in invalid_nodes:
+                node = item['node']
+                st.markdown(f"- **{node.get('label', 'Unknown')}**: PMID `{node.get('evidence')}` not found in Phase 2 evidence")
+            st.caption("Tip: Add missing PMIDs in Phase 2 or correct the citation.")
 
     def apply_large_pathway_recommendations():
         current_nodes = st.session_state.data['phase3']['nodes']
