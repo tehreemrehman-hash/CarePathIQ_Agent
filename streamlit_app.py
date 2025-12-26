@@ -1470,35 +1470,6 @@ with st.sidebar:
             args=(current_phase,)
         )
 
-        st.markdown(
-            f"""
-            <div style="background-color: #5D4037; color: white; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; margin: 15px 0;">
-                Current Phase: <br><span style="font-size: 1.1em;">{st.session_state.get('current_phase_label', PHASES[0])}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.divider()
-        st.progress(calculate_granular_progress())
-        # Status box styling aligned to legacy sidebar (no email gating)
-        st.markdown(
-            f"""
-            <div style="
-                background-color: #EFEBE9;
-                color: #3E2723;
-                padding: 10px;
-                border-radius: 5px;
-                border-left: 5px solid #5D4037;
-                font-weight: bold;
-                font-size: 0.9em;
-                margin-top: 10px;">
-                Current Phase: <br>
-                <span style="font-size: 1.1em; color: #4E342E;">{st.session_state.get('current_phase_label', PHASES[0])}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
     st.title("CarePathIQ AI Agent")
