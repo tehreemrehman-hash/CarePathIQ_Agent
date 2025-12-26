@@ -1760,7 +1760,15 @@ if "Phase 1" in phase:
         chart_data['End'] = pd.to_datetime(chart_data['End'])
         if not chart_data.empty:
             chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Start', title='Date'), x2='End', y=alt.Y('Stage', sort=None), color='Owner', tooltip=['Stage', 'Start', 'End', 'Owner']
+                x=alt.X('Start', title='Date'),
+                x2='End',
+                y=alt.Y('Stage', sort=None),
+                color=alt.condition(
+                    alt.datum.Owner == 'Quality',
+                    alt.value('#5D4037'),
+                    alt.Color('Owner')
+                ),
+                tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
             st.altair_chart(chart, width="stretch")
     
