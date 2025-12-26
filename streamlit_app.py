@@ -1234,6 +1234,20 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None):
     except Exception:
         return None
 
+def validate_ai_connection() -> bool:
+    """Attempt a minimal generate_content call to verify the API key/model works.
+    Returns True if a response is obtained, else False.
+    """
+    client = get_genai_client()
+    if not client:
+        return False
+    try:
+        mdl = model_choice if model_choice != "Auto" else "gemini-1.5-flash"
+        resp = client.models.generate_content(model=mdl, contents="ping")
+        return bool(getattr(resp, "text", None))
+    except Exception:
+        return False
+
 @st.cache_data(ttl=3600)
 def search_pubmed(query):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
@@ -1453,7 +1467,22 @@ with st.sidebar:
     if gemini_api_key:
         try:
             st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
-            st.success("Key entered — AI will connect on first use")
+            should_validate = st.session_state.get("last_tested_key") != gemini_api_key
+            if should_validate:
+                st.session_state["last_tested_key"] = gemini_api_key
+                ok = validate_ai_connection()
+                if ok:
+                    st.success("AI Connected")
+                    st.session_state["ai_valid"] = True
+                else:
+                    st.error("API key invalid or model unavailable. Try a different model or check the key.")
+                    st.session_state["ai_valid"] = False
+            else:
+                # Preserve prior validation result
+                if st.session_state.get("ai_valid"):
+                    st.success("AI Connected")
+                else:
+                    st.info("Key entered — awaiting first AI call")
         except Exception as e:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
