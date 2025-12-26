@@ -1443,10 +1443,10 @@ with st.sidebar:
     model_options = ["Auto", "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"]
     model_choice = st.selectbox("Model", model_options, index=0)
     
-    # Preview all phases before activation
+    # Preview before activation
     if not gemini_api_key:
         st.divider()
-        st.caption("Preview of workflow phases")
+        st.caption("Preview of AI agent")
         for p in PHASES:
             st.markdown(f"- {p}")
 
