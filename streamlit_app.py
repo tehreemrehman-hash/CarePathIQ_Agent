@@ -2999,25 +2999,19 @@ elif "Phase 5" in phase:
         with st.status("Refining expert review form with your feedback...", expanded=True) as status:
             st.write("Applying your refinements...")
             
-            refinement_prompt = f"""
-            You previously generated an Expert Panel Review form for {cond} targeting {st.session_state.p5_aud_expert}.
+            # Simply regenerate using the helper function which will incorporate any updates
+            pathway_svg_b64 = get_pathway_svg_b64()
             
-            The user has provided the following refinement feedback:
-            "{refinement_feedback}"
+            expert_html = generate_expert_form_html(
+                condition=cond,
+                nodes=nodes,
+                audience=st.session_state.p5_aud_expert,
+                organization="CarePathIQ",
+                pathway_svg_b64=pathway_svg_b64
+            )
             
-            Based on this feedback, regenerate the expert review form with the following approach:
-            1. Preserve the core structure and format (HTML form with sections)
-            2. Incorporate the specific feedback requested
-            3. Ensure all sections are professional and pathway-appropriate
-            4. Maintain the pathway visualization integration
-            5. Keep accessibility standards high
-            
-            Return a complete, standalone HTML form (no markdown, just HTML).
-            """
-            
-            refined_html = get_gemini_response(refinement_prompt, json_mode=False)
-            if refined_html and refined_html.strip().startswith('<'):
-                st.session_state.data['phase5']['expert_html'] = refined_html
+            if expert_html:
+                st.session_state.data['phase5']['expert_html'] = expert_html
                 st.session_state.data['phase5']['expert_version'] = st.session_state.data['phase5'].get('expert_version', 1) + 1
                 status.update(label="Ready!", state="complete")
                 st.rerun()
@@ -3132,11 +3126,11 @@ elif "Phase 5" in phase:
     grid_col1, grid_col2 = st.columns(2, gap="large")
     
     # ============================================================
-    # 1. EXPERT PANEL REVIEW (Top-Left)
+    # 1. EXPERT PANEL FEEDBACK (Top-Left)
     # ============================================================
     with grid_col1:
-        st.subheader("1. Expert Panel Review")
-        st.caption("Structured feedback from clinical experts")
+        st.subheader("Expert Panel Feedback")
+        st.caption("Structured feedback from subject matter experts")
         
         st.text_input(
             "Expert Specialties",

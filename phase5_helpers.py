@@ -292,7 +292,7 @@ def generate_expert_form_html(
     pathway_button_html = ""
     pathway_script = ""
     if pathway_svg_b64:
-        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">📊 View Pathway Visualization</button>'
+        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">� View Pathway Visualization</button>'
         pathway_script = f'''
         <script>
         function openPathway() {{
@@ -338,9 +338,9 @@ def generate_expert_form_html(
 <body>
     <div class="container">
         <div class="header">
-            <h1>Expert Panel Review & Feedback</h1>
+            <h1>Expert Panel Feedback</h1>
             <p style="font-size: 1.1em; color: var(--brown-dark); margin-bottom: 12px;"><strong>{condition}</strong> Clinical Decision Pathway</p>
-            <p style="font-size: 0.95em; color: #666; margin-top: 8px; line-height: 1.6;">We appreciate your expert evaluation of this evidence-based clinical pathway. Your feedback on clinical accuracy, feasibility, and alignment with current best practices is essential to pathway refinement. Please review the pathway nodes below and provide specific recommendations where appropriate.</p>
+            <p style="font-size: 0.95em; color: #666; margin-top: 8px; line-height: 1.6;">Structured feedback from subject matter experts</p>
             {pathway_button_html}
         </div>
 
@@ -406,8 +406,8 @@ def generate_expert_form_html(
                     <div class="compact-node">
                         <div style="display:flex;justify-content:space-between;align-items:center">
                             <h4><span class="node-badge">N${{idx + 1}}</span> ${{node.label || 'Step'}}</h4>
-                            <label style="margin:0;cursor:pointer;font-weight:normal">
-                                <input type="checkbox" id="feedback_check_${{idx}}" onchange="toggleExpansion(${{idx}})" style="width:auto;margin-right:6px">
+                            <label style="margin:0;cursor:pointer;font-weight:normal;display:flex;align-items:center;white-space:nowrap">
+                                <input type="checkbox" id="feedback_check_${{idx}}" onchange="toggleExpansion(${{idx}})" style="width:auto;margin-right:6px;margin-top:0">
                                 Provide Feedback
                             </label>
                         </div>
@@ -552,7 +552,7 @@ def generate_beta_form_html(
     pathway_button_html = ""
     pathway_script = ""
     if pathway_svg_b64:
-        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">📊 View Pathway Visualization</button>'
+        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">� View Pathway Visualization</button>'
         pathway_script = f'''
 <script>
 function openPathway() {{
