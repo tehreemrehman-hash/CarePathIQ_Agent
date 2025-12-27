@@ -328,6 +328,15 @@ st.markdown("""
         justify-content: center !important;
     }
 
+    /* Global link-button styling to match Streamlit buttons */
+    .cpq-link-button {
+        display: flex; align-items: center; justify-content: center;
+        width: 100%; padding: 10px 14px; border-radius: 5px;
+        background-color: #5D4037; color: #fff; text-decoration: none;
+        border: 1px solid #5D4037; font-weight: 600; height: 42px;
+    }
+    .cpq-link-button:hover { background-color: #3E2723; border-color: #3E2723; color: #fff; }
+
     /* FILE UPLOADER & TEXTAREA — compact spacing */
     div[data-testid="stFileUploader"] section {
         padding-top: 0 !important;
