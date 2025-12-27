@@ -523,8 +523,7 @@ def calculate_granular_progress():
     
     # --- PHASE 4: 20% (1 field, worth full phase 4) ---
     p4 = data.get('phase4', {})
-        p4_state = data.get('phase4', {})
-        phase_progress['p4'] = 1.0 if p4_state.get('heuristics_data') else 0.0
+    phase_progress['p4'] = 1.0 if p4.get('heuristics_data') else 0.0
     
     # --- PHASE 5: 20% (3 fields, each 1/3 of phase 5) ---
     p5 = data.get('phase5', {})
@@ -1372,19 +1371,24 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
         except Exception as e:
             error_str = str(e)
             last_error = error_str
-            
+
             # Check if error is quota exhaustion (429 RESOURCE_EXHAUSTED)
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                 skipped_models.append(f"{model_name} (quota)")
             else:
                 skipped_models.append(f"{model_name} (unavailable)")
-            
-            time.sleep(0.3)  # Brief pause before trying next model
+
+            # Continue to next candidate
+            time.sleep(0.3)
             continue
 
     if not response:
-        # Short, user-friendly message
-        st.error("AI rate limit exceeded or model unavailable. Please try again later or choose a different model.")
+        tried_info = " → ".join(skipped_models) if skipped_models else ", ".join(candidates)
+        summary = "AI rate limit or model unavailable. Try again later or pick another model."
+        details = f"Details: {last_error}" if last_error else f"Tried: {tried_info}"
+        with st.expander(summary, expanded=False):
+            st.code(details)
+        st.error(summary)
         return None
 
     try:
