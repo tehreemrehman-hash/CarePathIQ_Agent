@@ -394,7 +394,7 @@ def render_bottom_navigation():
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                if st.button("← Previous Phase", key=f"bottom_prev_{current_idx}", use_container_width=True):
+                if st.button("← Previous Phase", key=f"bottom_prev_{current_idx}", use_container_width=True, type="primary"):
                     st.session_state.current_phase_label = prev_phase
                     st.rerun()
         if current_idx < len(PHASES) - 1:
@@ -1661,37 +1661,57 @@ st.markdown(
 
 ## --- PHASE NAVIGATION ---
 
-# Create horizontal arrow navigation bar using Streamlit columns
+# Create horizontal arrow navigation bar with proper styling
 phase = st.session_state.get("current_phase_label", PHASES[0])
 current_phase_index = PHASES.index(phase) if phase in PHASES else 0
 
-# Create columns for navigation buttons
-nav_cols = st.columns(len(PHASES) * 2 - 1)  # Cols for buttons + arrows
-
-col_idx = 0
+# Build custom styled navigation with arrows
+nav_html = "<div style='display: flex; align-items: center; justify-content: center; gap: 0px; margin: 20px 0; flex-wrap: wrap;'>"
 for i, p in enumerate(PHASES):
     is_active = (i == current_phase_index)
     
-    # Button styling
-    button_type = "primary" if is_active else "secondary"
+    # Styling: white bg/brown text (inactive) or brown bg/white text (active)
+    if is_active:
+        bg_color = "#5D4037"  # Dark brown
+        text_color = "white"
+        font_weight = "bold"
+    else:
+        bg_color = "white"
+        text_color = "#5D4037"  # Dark brown
+        font_weight = "normal"
     
-    with nav_cols[col_idx]:
-        if st.button(
-            p,
-            key=f"phase_{p.replace(' ', '_').replace('&', 'and')}",
-            type=button_type,
-            use_container_width=True
-        ):
-            st.session_state.current_phase_label = p
-            st.rerun()
+    phase_id = p.replace(" ", "_").replace("&", "and")
+    nav_html += f"""
+    <button id="nav_{phase_id}" 
+            style="background-color: {bg_color}; 
+                   color: {text_color}; 
+                   border: 2px solid #5D4037; 
+                   padding: 10px 15px; 
+                   font-size: 13px; 
+                   font-weight: {font_weight};
+                   cursor: pointer;
+                   border-radius: 4px;
+                   transition: all 0.3s ease;">
+        {p}
+    </button>
+    """
     
-    col_idx += 1
-    
-    # Add arrow separator (except after last button)
+    # Add arrow between phases (except after last phase)
     if i < len(PHASES) - 1:
-        with nav_cols[col_idx]:
-            st.markdown("<div style='display: flex; align-items: center; justify-content: center;'><span style='color: #5D4037; font-size: 20px;'>→</span></div>", unsafe_allow_html=True)
-        col_idx += 1
+        nav_html += "<span style='color: #5D4037; font-size: 20px; margin: 0 8px;'>→</span>"
+
+nav_html += "</div>"
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# Create actual Streamlit buttons (invisible/collapsed) to handle navigation logic
+nav_container = st.container()
+with nav_container:
+    nav_cols = st.columns(len(PHASES))
+    for i, p in enumerate(PHASES):
+        with nav_cols[i]:
+            if st.button(p, key=f"nav_button_{p.replace(' ', '_').replace('&', 'and')}", label_visibility="collapsed", use_container_width=True):
+                st.session_state.current_phase_label = p
+                st.rerun()
 
 st.divider()
 
