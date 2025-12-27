@@ -1382,8 +1382,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
             continue
 
     if not response:
-        tried_info = " → ".join(skipped_models) if skipped_models else ", ".join(candidates)
-        st.error(f"AI Error: All models exhausted quota or unavailable.\n\nTried: {tried_info}\n\nPlease try again in a few moments as quotas reset daily.")
+        # Short, user-friendly message
+        st.error("AI rate limit exceeded or model unavailable. Please try again later or choose a different model.")
         return None
 
     try:
@@ -1405,8 +1405,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
             except Exception:
                 return None
         return text
-    except Exception as e:
-        st.error(f"Error parsing response: {e}")
+    except Exception:
+        st.error("AI response parsing error. Please retry.")
         return None
 
 @st.cache_data(ttl=3600)
@@ -1451,7 +1451,16 @@ def validate_ai_connection() -> bool:
         )
         return bool(resp and hasattr(resp, 'text') and resp.text)
     except Exception as e:
-        st.session_state["ai_error"] = f"{e}"
+        # Store concise summary instead of verbose raw error
+        err = str(e)
+        if "RESOURCE_EXHAUSTED" in err or "429" in err or "quota" in err:
+            st.session_state["ai_error"] = "Rate limit exceeded. Please try again later."
+        elif "UNAUTHENTICATED" in err or "invalid" in err:
+            st.session_state["ai_error"] = "Invalid API key. Check and retry."
+        elif "PERMISSION_DENIED" in err:
+            st.session_state["ai_error"] = "Permission denied for model. Try another model."
+        else:
+            st.session_state["ai_error"] = "AI service error. Please try again."
         return False
 
 @st.cache_data(ttl=3600)
@@ -1682,9 +1691,10 @@ with st.sidebar:
                     st.session_state["ai_valid"] = True
                     st.session_state.pop("ai_error", None)
                 else:
+                    # Show concise message only
                     err = st.session_state.get("ai_error")
-                    detail = f" Details: {err}" if err else ""
-                    st.error("API key invalid or model unavailable. Try a different model or check the key." + detail)
+                    short_msg = err or "API key invalid or model unavailable."
+                    st.error(short_msg)
                     st.session_state["ai_valid"] = False
             else:
                 # Preserve prior validation result
