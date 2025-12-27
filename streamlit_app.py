@@ -230,6 +230,21 @@ st.markdown("""
         text-decoration: underline dotted;
         font-size: 1.05em;
     }
+    /* Inline info icon for section headers */
+    .tooltip-info {
+        display: inline-block;
+        margin-left: 6px;
+        color: #5D4037;
+        background: #A9EED1;
+        border: 1px solid #5D4037;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        line-height: 16px;
+        text-align: center;
+        font-size: 12px;
+        cursor: help;
+    }
     
     /* GRADE FILTER MULTISELECT */
     div[data-testid="stMultiSelect"] label:has(+ div[data-baseweb="select"]) {
@@ -2918,7 +2933,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
     with col1:
-        st.subheader(deliverables['expert'])
+        st.markdown(f"<h3>{deliverables['expert']} <span class='tooltip-info' title='Generate an HTML form for expert feedback. Use Refine & Regenerate to apply Nielsen heuristics (visibility, consistency, error prevention) to questions and layout.'>i</span></h3>", unsafe_allow_html=True)
         
         aud_expert = st.text_input(
             "Target Audience",
@@ -2976,7 +2991,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
-        st.subheader(deliverables['beta'])
+        st.markdown(f"<h3>{deliverables['beta']} <span class='tooltip-info' title='Create a beta testing guide. Refine & Regenerate applies Nielsen heuristics (recognition vs recall, minimalist design, flexibility) to tasks and metrics.'>i</span></h3>", unsafe_allow_html=True)
         
         aud_beta = st.text_input(
             "Target Audience",
@@ -3035,7 +3050,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== BOTTOM LEFT: EDUCATION MODULE ==========
     with col3:
-        st.subheader(deliverables['education'])
+        st.markdown(f"<h3>{deliverables['education']} <span class='tooltip-info' title='Build an education module. Refine & Regenerate considers Nielsen heuristics (match to real world, error prevention) to improve learning content.'>i</span></h3>", unsafe_allow_html=True)
         
         aud_edu = st.text_input(
             "Target Audience",
@@ -3146,7 +3161,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
     with col4:
-        st.subheader(deliverables['executive'])
+        st.markdown(f"<h3>{deliverables['executive']} <span class='tooltip-info' title='Generate an executive summary. Refine & Regenerate emphasizes clarity, status visibility, and helpful documentation (Nielsen heuristics).'>i</span></h3>", unsafe_allow_html=True)
         
         aud_exec = st.text_input(
             "Target Audience",
