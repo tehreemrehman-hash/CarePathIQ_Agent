@@ -389,10 +389,7 @@ def generate_expert_form_html(
             </div>
 
             <div class="button-group">
-                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                    <button type="button" onclick="downloadAsCSV()">Download Responses</button>
-                    <span title="Downloads responses in CSV format" aria-label="Downloads responses in CSV format" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid var(--border-gray);border-radius:50%;font-weight:700;color:#555;">?</span>
-                </div>
+                <button type="button" onclick="downloadAsCSV()" style="background:var(--brown);color:white;padding:10px 20px;border:none;border-radius:4px;cursor:pointer;font-size:1em;">Download Responses (CSV)</button>
                 <button type="reset">Reset Form</button>
             </div>
         </form>
@@ -749,10 +746,7 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 </div>
 
 <div class="button-group" style="margin-top:30px;gap:10px;align-items:center;flex-wrap:wrap">
-    <div style="display:flex;align-items:center;gap:8px">
-        <button type="button" onclick="downloadCSV()" style="background:var(--brown);color:white;font-size:1.05em;padding:14px 28px">Download Responses</button>
-        <span style="font-size:0.9em;color:#555" title="Downloads a CSV file you can email back">?</span>
-    </div>
+    <button type="button" onclick="downloadCSV()" style="background:var(--brown);color:white;font-size:1.05em;padding:14px 28px">Download Responses (CSV)</button>
     <button type="reset" style="background:#999;color:white">Reset Form</button>
 </div>
 </form>
