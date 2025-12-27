@@ -2008,14 +2008,26 @@ if "Scope" in phase:
         chart_data['Start'] = pd.to_datetime(chart_data['Start'])
         chart_data['End'] = pd.to_datetime(chart_data['End'])
         if not chart_data.empty:
+            # Define consistent color scheme for all owners
+            owner_colors = {
+                'PM': '#5f9ea0',           # Cadet blue
+                'Clinical Lead': '#4169e1',  # Royal blue
+                'Expert Panel': '#b0c4de',   # Light steel blue
+                'IT': '#dc143c',             # Crimson
+                'Ops': '#ffb6c1',            # Light pink
+                'Quality': '#5D4037'         # Brown (consistent with brand)
+            }
+            
             chart = alt.Chart(chart_data).mark_bar().encode(
                 x=alt.X('Start', title='Date'),
                 x2='End',
                 y=alt.Y('Stage', sort=None),
-                color=alt.condition(
-                    alt.datum.Owner == 'Quality',
-                    alt.value('#5D4037'),
-                    alt.Color('Owner')
+                color=alt.Color('Owner', 
+                    scale=alt.Scale(
+                        domain=list(owner_colors.keys()),
+                        range=list(owner_colors.values())
+                    ),
+                    legend=alt.Legend(title='Owner')
                 ),
                 tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
