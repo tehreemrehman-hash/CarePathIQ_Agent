@@ -1590,18 +1590,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
-        st.divider()
-
-        # Navigation Logic for sidebar buttons (only current phase after activation)
-        current_phase = st.session_state.get('current_phase_label', PHASES[0])
-        st.button(
-            current_phase,
-            key=f"nav_{current_phase}",
-            width="stretch",
-            type="primary",
-            on_click=change_phase,
-            args=(current_phase,)
-        )
 
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
@@ -1644,20 +1632,17 @@ if "suggestions" not in st.session_state:
 if "pico_p" in st.session_state.data.get("phase2", {}):
     # Old PICO structure detected; clear Phase 2 data to force new layout
     st.session_state.data["phase2"] = {"evidence": [], "mesh_query": ""}
-    # Optional: trigger a rerun if you want immediate effect, usually not needed if logic below is safe
 
 # ==========================================
 # 4. MAIN WORKFLOW LOGIC
 # ==========================================
-## --- PHASE NAVIGATION ---
-try:
-    radio_index = PHASES.index(st.session_state.current_phase_label)
-except ValueError:
-    radio_index = 0
+# Display tagline at top (always visible when logged in)
+st.markdown(
+    "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
+    unsafe_allow_html=True,
+)
 
-# Use a callback to sync radio selection to current_phase_label
-def sync_radio_to_phase():
-    st.session_state.current_phase_label = st.session_state.top_nav_radio
+## --- PHASE NAVIGATION ---
 
 # Create horizontal arrow navigation bar
 phase = st.session_state.get("current_phase_label", PHASES[0])
@@ -1784,11 +1769,6 @@ if "Scoping" in phase:
     st.session_state.setdefault('p1_prob',       st.session_state.data['phase1'].get('problem', ''))
     st.session_state.setdefault('p1_obj',        st.session_state.data['phase1'].get('objectives', ''))
     
-    st.markdown(
-        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
     st.header("Scoping & Charter")
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
@@ -1932,11 +1912,6 @@ if "Scoping" in phase:
 
 # --- PHASE 2 ---
 elif "Evidence" in phase:
-    st.markdown(
-        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
     st.header("Evidence Appraisal")
 
     # Build robust default query from Phase 1 if none saved
@@ -2269,11 +2244,6 @@ elif "Evidence" in phase:
 
 # --- PHASE 3 ---
 elif "Decision" in phase:
-    st.markdown(
-        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
     st.header("Decision Science")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
     
@@ -2539,11 +2509,6 @@ elif "Decision" in phase:
 
 # --- PHASE 4 ---
 elif "User Interface" in phase:
-    st.markdown(
-        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
     st.header("User Interface Design")
     styled_info("<b>Tip:</b> Evaluate your pathway against Nielsen's 10 Usability Heuristics. The AI agent can provide suggestions for each criterion.")
     
