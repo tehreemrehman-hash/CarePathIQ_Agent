@@ -796,7 +796,7 @@ function initializeHeuristics() {{
             <textarea id="${{h.id}}_comments" placeholder="Comment (optional)"></textarea>
         </div>
     `).join('');
-}
+}}
 
 // Download CSV
 function downloadCSV() {{
@@ -856,7 +856,7 @@ function downloadCSV() {{
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `BetaTesting_${{condition.replace(/\s+/g, '_')}}_${{name.replace(/\s+/g, '_')}}_${{new Date().toISOString().slice(0,10)}}.csv`;
+  link.download = `BetaTesting_${{condition.replace(/\\s+/g, '_')}}_${{name.replace(/\\s+/g, '_')}}_${{new Date().toISOString().slice(0,10)}}.csv`;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
