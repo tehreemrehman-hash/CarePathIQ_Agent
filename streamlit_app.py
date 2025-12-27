@@ -2390,7 +2390,10 @@ elif "Evidence" in phase or "Appraise" in phase:
                     preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
                     pc1, pc2 = st.columns([1,1])
                     with pc1:
-                        components.html(f"<a class=\\"cpq-link-button\\" href=\\"data:text/html;base64,{preview_b64}\\" target=\\"_blank\\">Open Preview ↗</a>", height=52)
+                        components.html(
+                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank">Open Preview ↗</a>',
+                            height=52,
+                        )
                     with pc2:
                         st.download_button("Download (CSV)", csv_data_full, file_name="evidence_table.csv", mime="text/csv", use_container_width=True)
 
@@ -2404,7 +2407,10 @@ elif "Evidence" in phase or "Appraise" in phase:
                     preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
                     dc1, dc2 = st.columns([1,1])
                     with dc1:
-                        components.html(f"<a class=\\"cpq-link-button\\" href=\\"data:text/html;base64,{preview_b64}\\" target=\\"_blank\\">Open Preview ↗</a>", height=52)
+                        components.html(
+                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank">Open Preview ↗</a>',
+                            height=52,
+                        )
                     with dc2:
                         docx_bytes = create_references_docx(citations, style=citation_style)
                         if docx_bytes:
