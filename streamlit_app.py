@@ -446,9 +446,6 @@ def render_bottom_navigation():
         current_idx = PHASES.index(st.session_state.current_phase_label)
         st.divider()
         
-        # Display current phase info
-        st.caption(f"Currently on: **Phase {current_idx + 1} - {PHASES[current_idx]}**")
-        
         col_prev, col_middle, col_next = st.columns([1, 1, 1])
         
         if current_idx > 0:
@@ -457,9 +454,12 @@ def render_bottom_navigation():
                 if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", use_container_width=True, type="secondary"):
                     st.session_state.current_phase_label = prev_phase
                     st.rerun()
+        else:
+            with col_prev:
+                st.write("")  # Empty space for alignment
         
         with col_middle:
-            # Phase counter in the middle
+            # Simple phase counter
             st.markdown(
                 f"<div style='text-align: center; padding: 10px; color: #5D4037; font-weight: bold;'>Phase {current_idx + 1} of {len(PHASES)}</div>",
                 unsafe_allow_html=True
@@ -1821,10 +1821,6 @@ for i, p in enumerate(PHASES):
             st.markdown("<div style='text-align: center; color: #5D4037; font-size: 18px; margin-top: 6px;'>→</div>", unsafe_allow_html=True)
         col_idx += 1
 
-st.divider()
-
-# Display current phase context
-st.caption(f"**Current Phase ({current_phase_index + 1}/{len(PHASES)}):** {phase}")
 st.divider()
 
 # --- PHASE 1 ---
