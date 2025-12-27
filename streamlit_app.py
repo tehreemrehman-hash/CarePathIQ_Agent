@@ -352,20 +352,25 @@ st.markdown("""
     
     /* Make navigation buttons more compact */
     [data-testid="stHorizontalBlock"] > div[data-testid="column"] button {
-        font-size: 0.75rem !important;
-        padding: 6px 8px !important;
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
-        line-height: 1.2 !important;
-        min-height: 45px !important;
-        height: auto !important;
+        font-size: 0.9rem !important;
+        padding: 10px 8px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        line-height: 1.3 !important;
+        min-height: 42px !important;
+        max-height: 42px !important;
+        height: 42px !important;
     }
     
-    /* Force horizontal text in buttons */
+    /* Ensure all button text stays horizontal */
+    [data-testid="stHorizontalBlock"] button div,
+    [data-testid="stHorizontalBlock"] button p,
     [data-testid="stHorizontalBlock"] button span {
         writing-mode: horizontal-tb !important;
+        text-orientation: mixed !important;
         transform: none !important;
+        display: inline !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1786,12 +1791,12 @@ phase_completion.append(p5_complete)
 # Compact navigation with numbered phases and status indicators
 st.caption("**Select Phase:**")
 
-# Use shorter labels for navigation buttons
+# Use ultra-short labels for navigation buttons
 phase_short_labels = [
     "Scope",
     "Evidence",
-    "Decision Tree",
-    "UI Design",
+    "Tree",
+    "Design",
     "Deploy"
 ]
 
@@ -1821,7 +1826,7 @@ for i, p in enumerate(PHASES):
             st.markdown("<div style='text-align: center; color: #5D4037; font-size: 18px; margin-top: 6px;'>→</div>", unsafe_allow_html=True)
         col_idx += 1
 
-st.divider()
+st.markdown("---")
 
 # --- PHASE 1 ---
 if "Scope" in phase:
