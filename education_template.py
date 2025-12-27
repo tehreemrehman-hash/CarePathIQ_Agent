@@ -43,10 +43,40 @@ def create_education_module_template(
     # Calculate total time from topics
     total_time_minutes = sum(topic.get('time_minutes', 5) for topic in topics) if topics else 15
     
-    # Build full header with condition and care setting
-    header_display = f"{condition.title()}"
+    # Build professional, pathway-focused header
+    condition_display = condition.strip() if condition else "Pathway"
+    condition_display = condition_display.title()
+    header_display = f"{condition_display} Pathway"
     if care_setting:
-        header_display = f"{condition.title()} - {care_setting}"
+        header_display = f"{condition_display} Pathway — {care_setting}"
+
+    # Provide a minimal default module if none supplied (ensures Start works)
+    if not topics:
+        topics = [
+            {
+                "title": f"Module 1: {condition_display} essentials",
+                "content": f"<p>Overview of the {condition_display.lower()} pathway in {care_setting or 'clinical practice'}.</p>",
+                "learning_objectives": [
+                    f"Describe the goals of the {condition_display} pathway",
+                    f"Outline the care flow for {condition_display.lower()} in {care_setting or 'your setting'}",
+                    "Identify where to find supporting tools and documentation"
+                ],
+                "quiz": [
+                    {
+                        "question": "What is the primary aim of this pathway?",
+                        "options": [
+                            "Standardize care and improve safety",
+                            "Increase paperwork",
+                            "Delay treatment",
+                            "Remove clinical judgment"
+                        ],
+                        "correct": 0,
+                        "explanation": "Clinical pathways standardize high-quality care and improve safety/throughput."
+                    }
+                ],
+                "time_minutes": 5
+            }
+        ]
     
     if learning_objectives is None:
         learning_objectives = [
@@ -783,9 +813,9 @@ def create_education_module_template(
 
             <!-- Breadcrumb -->
             <div class="breadcrumb">
-                <span class="breadcrumb-item active">Course</span>
+                <span class="breadcrumb-item active">Pathway</span>
                 <span class="breadcrumb-divider">/</span>
-                <span class="breadcrumb-item" id="breadcrumbTitle">{condition}</span>
+                <span class="breadcrumb-item" id="breadcrumbTitle">{header_display}</span>
             </div>
 
             <!-- Content Wrapper -->
@@ -1009,6 +1039,10 @@ def create_education_module_template(
         }}
 
         function startCourse() {{
+            if (TOPICS.length === 0) {{
+                alert('No modules available yet. Please add modules to start the course.');
+                return;
+            }}
             document.getElementById('courseIntro').classList.remove('active');
             switchModule(0);
         }}

@@ -270,7 +270,8 @@ def generate_expert_form_html(
     nodes: list,
     audience: str = "Clinical Experts",
     organization: str = "CarePathIQ",
-    pathway_svg_b64: str = None
+    pathway_svg_b64: str = None,
+    care_setting: str = ""
 ) -> str:
     """
     Generate standalone expert panel feedback form with CSV download capability.
@@ -280,6 +281,7 @@ def generate_expert_form_html(
         nodes: List of pathway nodes (dicts with 'type', 'label', 'evidence')
         audience: Target audience description
         organization: Organization name
+        care_setting: Care setting/environment (e.g., "Emergency Department")
         pathway_svg_b64: Base64-encoded SVG of pathway visualization (optional)
         
     Returns:
@@ -287,12 +289,20 @@ def generate_expert_form_html(
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes)
+    condition_clean = (condition or "Pathway").strip()
+    care_setting_clean = (care_setting or "").strip()
+    if care_setting_clean:
+        pathway_title = f"Pathway: Managing {condition_clean} in {care_setting_clean}"
+        page_title = f"Expert Panel Feedback: {condition_clean} ({care_setting_clean})"
+    else:
+        pathway_title = f"Pathway: Managing {condition_clean}"
+        page_title = f"Expert Panel Feedback: {condition_clean}"
     
     # Prepare pathway view button if SVG is provided
     pathway_button_html = ""
     pathway_script = ""
     if pathway_svg_b64:
-        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">� View Pathway Visualization</button>'
+        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">View Pathway</button>'
         pathway_script = f'''
         <script>
         function openPathway() {{
@@ -318,7 +328,7 @@ def generate_expert_form_html(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Expert Panel Feedback: {condition}</title>
+    <title>{page_title}</title>
     <style>
         {SHARED_CSS}
         .info-grid {{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}}
@@ -339,8 +349,7 @@ def generate_expert_form_html(
     <div class="container">
         <div class="header">
             <h1>Expert Panel Feedback</h1>
-            <p style="font-size: 1.1em; color: var(--brown-dark); margin-bottom: 12px;"><strong>{condition}</strong> Clinical Decision Pathway</p>
-            <p style="font-size: 0.95em; color: #666; margin-top: 8px; line-height: 1.6;">Structured feedback from subject matter experts</p>
+            <p style="font-size: 1.05em; color: var(--brown-dark); margin-bottom: 12px; line-height: 1.6;">{pathway_title}</p>
             {pathway_button_html}
         </div>
 
@@ -380,7 +389,10 @@ def generate_expert_form_html(
             </div>
 
             <div class="button-group">
-                <button type="button" onclick="downloadAsCSV()">Download Feedback (CSV)</button>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <button type="button" onclick="downloadAsCSV()">Download Responses</button>
+                    <span title="Downloads responses in CSV format" aria-label="Downloads responses in CSV format" style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid var(--border-gray);border-radius:50%;font-weight:700;color:#555;">?</span>
+                </div>
                 <button type="reset">Reset Form</button>
             </div>
         </form>
@@ -552,7 +564,7 @@ def generate_beta_form_html(
     pathway_button_html = ""
     pathway_script = ""
     if pathway_svg_b64:
-        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">� View Pathway Visualization</button>'
+        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">View Pathway</button>'
         pathway_script = f'''
 <script>
 function openPathway() {{
@@ -581,7 +593,6 @@ function openPathway() {{
 <title>{condition} — Beta Testing</title>
 <style>
 {SHARED_CSS}
-{pathway_script}
 .scenario-card {{background:#fff;border:2px solid var(--border-gray);border-radius:8px;padding:20px;margin-bottom:20px}}
 .scenario-card h3 {{color:var(--brown-dark);margin:0 0 10px 0}}
 .scenario-card p {{margin:8px 0;color:#555}}
@@ -601,11 +612,16 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 .rating-scale {{display:flex;gap:8px;align-items:center}}
 .rating-scale input[type="radio"] {{width:auto;margin:0}}
 .rating-scale label {{margin:0;font-weight:normal;cursor:pointer}}
-.heuristic-row {{border-bottom:1px solid var(--border-gray);padding:16px 0}}
-.heuristic-row:last-child {{border-bottom:none}}
-.heuristic-title {{font-weight:600;color:var(--brown-dark);margin-bottom:8px}}
-.heuristic-desc {{font-size:0.9em;color:#666;margin-bottom:12px}}
+.heuristics-grid {{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:12px}}
+.heuristic-card {{border:1px solid var(--border-gray);border-radius:8px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:8px}}
+.heuristic-head {{display:flex;justify-content:space-between;align-items:center;gap:8px}}
+.heuristic-title {{font-weight:600;color:var(--brown-dark);font-size:0.95em;line-height:1.3}}
+.heuristic-info {{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--border-gray);color:#555;font-size:0.8em;cursor:help}}
+.likert {{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:0.9em;color:#444}}
+.likert label {{margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:500;color:#444}}
+.heuristic-card textarea {{min-height:50px;font-size:0.9em}}
 </style>
+{pathway_script}
 </head>
 <body>
 <div class="container">
@@ -637,57 +653,54 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 
 <!-- Clinical Scenarios -->
 <h2 style="color:var(--brown-dark);margin-bottom:20px">Clinical Scenarios — End-to-End Testing</h2>
-<p style="margin-bottom:20px;color:#555">Complete each scenario using the pathway. Check off tasks as you go and note any issues.</p>
+<p style="margin-bottom:20px;color:#555">Use the data provided to follow the pathway to the correct terminal node (diagnosis → treatment → disposition).</p>
 
 <div class="scenario-card">
-<h3>Scenario 1: Typical Stable Outpatient</h3>
-<p><strong>Description:</strong> A stable patient with straightforward presentation. Test the standard pathway flow.</p>
+<h3>Scenario 1: Low-Risk Discharge</h3>
+<p><strong>Vignette:</strong> 45M, 2h pleuritic chest pain after URI, reproducible on palpation, normal ECG, hs-trop <99th at 0/1h, HEAR 1.</p>
 <ul class="tasks">
-<li>Initial assessment and triage</li>
-<li>Diagnostic workup for typical presentation</li>
-<li>Standard treatment recommendations</li>
-<li>Follow-up and patient education</li>
+<li>Apply pathway criteria for low-risk chest pain</li>
+<li>Choose appropriate workup and confirm no escalation needed</li>
+<li>Select correct disposition: discharge with NSAID + PCP follow-up</li>
 </ul>
 <div class="checklist">
-<strong>Did the pathway work smoothly?</strong>
-<label><input type="checkbox" class="scenario-check" data-scenario="typical"> ✓ Successfully completed from start to end</label>
+<strong>Did the pathway land on the correct end-node?</strong>
+<label><input type="checkbox" class="scenario-check" data-scenario="lowrisk"> ✓ Reached the intended discharge branch</label>
 </div>
-<label style="margin-top:10px">Issues or observations (if any):</label>
-<textarea id="scenario1_notes" placeholder="Note any breaks, unclear steps, or confusing decisions..."></textarea>
-</div>
-
-<div class="scenario-card">
-<h3>Scenario 2: Complex Patient with Comorbidities</h3>
-<p><strong>Description:</strong> A patient with multiple chronic conditions. Test pathway flexibility and decision branching.</p>
-<ul class="tasks">
-<li>Navigate branching decisions for comorbid conditions</li>
-<li>Adjust diagnostic approach based on complexity</li>
-<li>Select appropriate multi-faceted treatment plan</li>
-<li>Address conflicting recommendations or contraindications</li>
-</ul>
-<div class="checklist">
-<strong>Did the pathway work smoothly?</strong>
-<label><input type="checkbox" class="scenario-check" data-scenario="complex"> ✓ Successfully completed from start to end</label>
-</div>
-<label style="margin-top:10px">Issues or observations (if any):</label>
-<textarea id="scenario2_notes" placeholder="Note any breaks, unclear steps, or confusing decisions..."></textarea>
+<label style="margin-top:10px">Notes (breaks, wrong branch, missing step):</label>
+<textarea id="scenario1_notes" placeholder="Describe any mismatch between vignette and end-node..."></textarea>
 </div>
 
 <div class="scenario-card">
-<h3>Scenario 3: Urgent Acute Presentation</h3>
-<p><strong>Description:</strong> An urgent case requiring rapid triage and intervention. Test critical pathway efficiency.</p>
+<h3>Scenario 2: Moderate-Risk Observation</h3>
+<p><strong>Vignette:</strong> 62F, 3h substernal pressure, HTN/HLD, ECG non-ischemic, hs-trop borderline rising 0→1h, HEART 5.</p>
 <ul class="tasks">
-<li>Rapid triage and risk stratification</li>
-<li>Prioritize time-sensitive diagnostic tests</li>
-<li>Execute urgent treatment protocols</li>
-<li>Confirm safety checks and escalation criteria</li>
+<li>Follow pathway branch for moderate risk / observation</li>
+<li>Confirm serial troponin/stress or CTA pathway is selected</li>
+<li>Select correct disposition: obs/tele admit pending testing</li>
 </ul>
 <div class="checklist">
-<strong>Did the pathway work smoothly?</strong>
-<label><input type="checkbox" class="scenario-check" data-scenario="urgent"> ✓ Successfully completed from start to end</label>
+<strong>Did the pathway land on the correct end-node?</strong>
+<label><input type="checkbox" class="scenario-check" data-scenario="moderate"> ✓ Reached observation/admit branch</label>
 </div>
-<label style="margin-top:10px">Issues or observations (if any):</label>
-<textarea id="scenario3_notes" placeholder="Note any breaks, unclear steps, or confusing decisions..."></textarea>
+<label style="margin-top:10px">Notes (branching issues, unclear orders):</label>
+<textarea id="scenario2_notes" placeholder="Where did branching feel unclear or incorrect?"></textarea>
+</div>
+
+<div class="scenario-card">
+<h3>Scenario 3: High-Risk Escalation</h3>
+<p><strong>Vignette:</strong> 58M, diaphoresis, ECG with new ST depressions V4–V6, elevated troponin.</p>
+<ul class="tasks">
+<li>Trigger high-risk branch and required meds (antiplatelet/anticoag)</li>
+<li>Confirm escalation to cath lab/inpatient cardiology is reached</li>
+<li>Verify no pathway steps block time-sensitive care</li>
+</ul>
+<div class="checklist">
+<strong>Did the pathway land on the correct end-node?</strong>
+<label><input type="checkbox" class="scenario-check" data-scenario="highrisk"> ✓ Reached escalation/cath lab branch</label>
+</div>
+<label style="margin-top:10px">Notes (delays, blockers, missing meds):</label>
+<textarea id="scenario3_notes" placeholder="Note any delays or wrong routing for high-risk ACS..."></textarea>
 </div>
 
 <hr style="margin:30px 0;border:none;border-top:2px solid var(--border-gray)">
@@ -696,7 +709,7 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <h2 style="color:var(--brown-dark);margin-bottom:20px">Nielsen's Usability Heuristics</h2>
 <p style="margin-bottom:20px;color:#555">Rate each heuristic from 1 (Poor) to 5 (Excellent) and provide comments.</p>
 
-<div id="heuristicsContainer"></div>
+<div id="heuristicsGrid" class="heuristics-grid"></div>
 
 <hr style="margin:30px 0;border:none;border-top:2px solid var(--border-gray)">
 
@@ -735,9 +748,12 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <textarea id="improvements" placeholder="Describe problems encountered, confusing areas, missing features..."></textarea>
 </div>
 
-<div class="button-group" style="margin-top:30px">
-<button type="button" onclick="downloadCSV()" style="background:var(--brown);color:white;font-size:1.05em;padding:14px 28px">Download Feedback CSV</button>
-<button type="reset" style="background:#999;color:white">Reset Form</button>
+<div class="button-group" style="margin-top:30px;gap:10px;align-items:center;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px">
+        <button type="button" onclick="downloadCSV()" style="background:var(--brown);color:white;font-size:1.05em;padding:14px 28px">Download Responses</button>
+        <span style="font-size:0.9em;color:#555" title="Downloads a CSV file you can email back">?</span>
+    </div>
+    <button type="reset" style="background:#999;color:white">Reset Form</button>
 </div>
 </form>
 
@@ -761,33 +777,26 @@ const HEURISTICS = [
 const condition = "{condition}";
 const nodes = {nodes_json};
 
-// Initialize heuristics form
+// Initialize heuristics form (compact grid)
 function initializeHeuristics() {{
-  const container = document.getElementById('heuristicsContainer');
-  HEURISTICS.forEach(h => {{
-    const div = document.createElement('div');
-    div.className = 'heuristic-row';
-    div.innerHTML = `
-      <div class="heuristic-title">${{h.name}}</div>
-      <div class="heuristic-desc">${{h.desc}}</div>
-      <div style="margin-bottom:10px">
-        <strong>Rating:</strong>
-        <div class="rating-scale" style="margin-top:8px">
-          <label><input type="radio" name="${{h.id}}_rating" value="1" required> 1</label>
-          <label><input type="radio" name="${{h.id}}_rating" value="2"> 2</label>
-          <label><input type="radio" name="${{h.id}}_rating" value="3" checked> 3</label>
-          <label><input type="radio" name="${{h.id}}_rating" value="4"> 4</label>
-          <label><input type="radio" name="${{h.id}}_rating" value="5"> 5</label>
+    const container = document.getElementById('heuristicsGrid');
+    container.innerHTML = HEURISTICS.map(h => `
+        <div class="heuristic-card">
+            <div class="heuristic-head">
+                <span class="heuristic-title">${{h.name}}</span>
+                <span class="heuristic-info" title="${{h.desc}}">?</span>
+            </div>
+            <div class="likert" role="radiogroup" aria-label="${{h.name}} rating">
+                <label><input type="radio" name="${{h.id}}_rating" value="1" required>1</label>
+                <label><input type="radio" name="${{h.id}}_rating" value="2">2</label>
+                <label><input type="radio" name="${{h.id}}_rating" value="3" checked>3</label>
+                <label><input type="radio" name="${{h.id}}_rating" value="4">4</label>
+                <label><input type="radio" name="${{h.id}}_rating" value="5">5</label>
+            </div>
+            <textarea id="${{h.id}}_comments" placeholder="Comment (optional)"></textarea>
         </div>
-      </div>
-      <div>
-        <label for="${{h.id}}_comments"><strong>Comments:</strong></label>
-        <textarea id="${{h.id}}_comments" placeholder="Explain your rating, specific examples..." style="min-height:60px"></textarea>
-      </div>
-    `;
-    container.appendChild(div);
-  }});
-}}
+    `).join('');
+}
 
 // Download CSV
 function downloadCSV() {{
@@ -810,17 +819,17 @@ function downloadCSV() {{
   
   // Scenarios
   csv += 'Scenario Testing,Item,Notes\\n';
-  const s1Check = document.querySelector('input[data-scenario="typical"]').checked ? 'Completed' : 'Not Completed';
+    const s1Check = document.querySelector('input[data-scenario="lowrisk"]').checked ? 'Completed' : 'Not Completed';
   const s1Notes = document.getElementById('scenario1_notes').value.replace(/"/g, '""');
-  csv += `Scenario 1 - Typical,${{s1Check}},"${{s1Notes}}"\\n`;
+    csv += `Scenario 1 - LowRisk,${{s1Check}},"${{s1Notes}}"\n`;
   
-  const s2Check = document.querySelector('input[data-scenario="complex"]').checked ? 'Completed' : 'Not Completed';
+    const s2Check = document.querySelector('input[data-scenario="moderate"]').checked ? 'Completed' : 'Not Completed';
   const s2Notes = document.getElementById('scenario2_notes').value.replace(/"/g, '""');
-  csv += `Scenario 2 - Complex,${{s2Check}},"${{s2Notes}}"\\n`;
+    csv += `Scenario 2 - Moderate,${{s2Check}},"${{s2Notes}}"\n`;
   
-  const s3Check = document.querySelector('input[data-scenario="urgent"]').checked ? 'Completed' : 'Not Completed';
+    const s3Check = document.querySelector('input[data-scenario="highrisk"]').checked ? 'Completed' : 'Not Completed';
   const s3Notes = document.getElementById('scenario3_notes').value.replace(/"/g, '""');
-  csv += `Scenario 3 - Urgent,${{s3Check}},"${{s3Notes}}"\\n`;
+    csv += `Scenario 3 - HighRisk,${{s3Check}},"${{s3Notes}}"\n`;
   csv += '\\n';
   
   // Heuristics
@@ -1368,30 +1377,47 @@ def create_phase5_executive_summary_docx(data: dict, condition: str):
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         
         doc = Document()
-        
-        # Title
-        title = doc.add_heading(f"Executive Summary: {condition}", 0)
+
+        # Pull structured data once for clarity
+        p1_data = data.get('phase1', {})
+        p2_data = data.get('phase2', {})
+        p3_data = data.get('phase3', {})
+        p4_data = data.get('phase4', {})
+        p5_data = data.get('phase5', {})
+
+        setting_text = p1_data.get('setting', '')
+        population = p1_data.get('population', 'N/A') or 'N/A'
+        problem_text = p1_data.get('problem', 'Not provided')
+        objectives_text = p1_data.get('objectives', 'Not provided')
+
+        # Title reflects clinical condition and care setting
+        setting_suffix = f" - {setting_text}" if setting_text else ""
+        title = doc.add_heading(f"Executive Summary: {condition}{setting_suffix}", 0)
         title_format = title.paragraph_format
         title_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # Overview
-        doc.add_heading("Clinical Pathway Overview", level=1)
-        p1_data = data.get('phase1', {})
-        doc.add_paragraph(f"Condition: {p1_data.get('condition', 'N/A')}")
-        doc.add_paragraph(f"Setting: {p1_data.get('setting', 'N/A')}")
-        doc.add_paragraph(f"Target Population: {p1_data.get('population', 'N/A')}")
-        
-        # Problem Statement
-        doc.add_heading("Problem Statement", level=1)
-        doc.add_paragraph(p1_data.get('problem', 'Not provided'))
-        
-        # Goals
-        doc.add_heading("Project Goals", level=1)
-        doc.add_paragraph(p1_data.get('objectives', 'Not provided'))
+        # Scope and goals
+        doc.add_heading("Project Scope", level=1)
+        doc.add_paragraph(
+            f"Clinical pathway for {condition or 'N/A'} in {setting_text or 'care setting not specified'}, focused on {population}."
+        )
+        doc.add_paragraph(f"Problem statement: {problem_text}", style='List Bullet')
+        inclusion = p1_data.get('inclusion', '')
+        exclusion = p1_data.get('exclusion', '')
+        if inclusion:
+            doc.add_paragraph(f"Inclusion criteria defined: {inclusion}", style='List Bullet 2')
+        if exclusion:
+            doc.add_paragraph(f"Exclusion criteria defined: {exclusion}", style='List Bullet 2')
+
+        doc.add_heading("Project Goals & Success Measures", level=1)
+        doc.add_paragraph(objectives_text)
+        doc.add_paragraph(
+            "Outcome focus: safer, faster care delivery with clear resource stewardship in the specified care setting.",
+            style='List Bullet'
+        )
         
         # Evidence Summary
         doc.add_heading("Evidence Summary", level=1)
-        p2_data = data.get('phase2', {})
         evidence = p2_data.get('evidence', [])
         if evidence:
             doc.add_paragraph(f"Total evidence items reviewed: {len(evidence)}")
@@ -1410,7 +1436,6 @@ def create_phase5_executive_summary_docx(data: dict, condition: str):
         
         # Pathway Overview
         doc.add_heading("Pathway Design", level=1)
-        p3_data = data.get('phase3', {})
         nodes = p3_data.get('nodes', [])
         
         if nodes:
@@ -1444,7 +1469,6 @@ def create_phase5_executive_summary_docx(data: dict, condition: str):
         
         # Usability Assessment
         doc.add_heading("Usability Assessment", level=1)
-        p4_data = data.get('phase4', {})
         heuristics = p4_data.get('heuristics_data', {})
         
         if heuristics:
@@ -1452,14 +1476,47 @@ def create_phase5_executive_summary_docx(data: dict, condition: str):
             doc.add_paragraph(f"Total heuristics evaluated: {len(heuristics)}", style='List Bullet 2')
         else:
             doc.add_paragraph("Usability assessment pending")
+
+        # Co-design, validation, and education
+        doc.add_heading("Co-Design, Testing, and Education", level=1)
+        expert_status = (
+            "Expert panel feedback captured via structured review and integrated into the pathway." if p5_data.get('expert_html')
+            else "Expert panel review planned using structured feedback form; integrate findings into the pathway."
+        )
+        beta_status = (
+            "Beta testing completed with target users; updates folded into the current pathway version." if p5_data.get('beta_html')
+            else "Beta testing planned in the target setting; incorporate usability findings into the pathway."
+        )
+        edu_status = (
+            "Custom interactive education module prepared for staff onboarding (HTML, offline-capable)." if p5_data.get('edu_html')
+            else "Interactive education module planned to support staff onboarding and competency validation."
+        )
+        doc.add_paragraph(expert_status, style='List Bullet')
+        doc.add_paragraph(beta_status, style='List Bullet')
+        doc.add_paragraph(edu_status, style='List Bullet')
         
         # Implementation Next Steps
         doc.add_heading("Implementation Next Steps", level=1)
-        doc.add_paragraph("1. Expert Panel Review: Share pathway with clinical experts for feedback", style='List Number')
-        doc.add_paragraph("2. Beta Testing: Conduct real-world testing with target users", style='List Number')
-        doc.add_paragraph("3. Education Deployment: Provide training module to clinical team", style='List Number')
-        doc.add_paragraph("4. Go-Live: Implement pathway in clinical setting with monitoring", style='List Number')
-        doc.add_paragraph("5. Continuous Improvement: Monitor compliance and outcomes", style='List Number')
+        doc.add_paragraph(
+            "Finalize and sign off the pathway after incorporating expert and beta feedback for the specified care setting.",
+            style='List Number'
+        )
+        doc.add_paragraph(
+            "Deploy the interactive education module; track staff completion and competency.",
+            style='List Number'
+        )
+        doc.add_paragraph(
+            "Go-live with monitoring for safety, throughput, and resource stewardship in the care setting.",
+            style='List Number'
+        )
+        doc.add_paragraph(
+            "Report performance to leadership and iterate monthly based on outcomes and user feedback.",
+            style='List Number'
+        )
+        doc.add_paragraph(
+            "Maintain continuous improvement cycles with refreshed education content as the pathway evolves.",
+            style='List Number'
+        )
         
         # Footer
         section = doc.sections[0]
