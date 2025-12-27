@@ -1188,29 +1188,33 @@ def get_smart_model_cascade(requires_vision=False, requires_json=False):
     """Return prioritized list of models for Auto mode based on task requirements.
     
     Model names per official docs: https://ai.google.dev/gemini-api/docs/models
-    - gemini-2.5-flash: Fast, multimodal, 1M token context
-    - gemini-2.5-pro: Most capable, best for complex tasks  
-    - gemini-2.5-flash-lite: Lightweight fallback
+    - gemini-2.5-flash: Fast, multimodal, 1M token context (most sophisticated)
+    - gemini-3-flash: Newest model with improved performance
+    - gemini-2.5-flash-lite: Lightweight variant
     - gemini-2.5-flash-tts: Multimodal with text-to-speech
     
-    Strategy: Try high-performance models first, then fallback to stable versions.
-    Vision tasks get models with multimodal support.
+    Strategy: Try models from most to least sophisticated. Auto mode cascades through
+    available models until quota is found. User-selected models fall back to alternatives.
     """
     if model_choice == "Auto":
-        # Optimize cascade order: gemini-2.5-flash has better quota and performance
+        # Cascade from most to least sophisticated (broader quota coverage)
         if requires_vision:
             return [
-                "gemini-2.5-flash",      # Best for vision
-                "gemini-2.5-flash-lite",      # Fallback for vision
+                "gemini-2.5-flash",           # Most sophisticated for vision
+                "gemini-3-flash",              # Newest alternative
+                "gemini-2.5-flash-lite",       # Lighter weight fallback
+                "gemini-2.5-flash-tts",        # Text-to-speech variant
             ]
         else:
             return [
-                "gemini-2.5-flash",      # Best general performance
-                "gemini-2.5-flash-lite",      # Lightweight fallback for simple tasks
+                "gemini-2.5-flash",           # Most sophisticated general model
+                "gemini-3-flash",              # Newest alternative
+                "gemini-2.5-flash-lite",       # Lighter weight fallback
+                "gemini-2.5-flash-tts",        # Alternative multimodal option
             ]
     else:
-        # Use user-selected model with fallback to gemini-2.5-flash
-        return [model_choice, "gemini-2.5-flash"]
+        # Use user-selected model with intelligent fallback
+        return [model_choice, "gemini-2.5-flash", "gemini-3-flash", "gemini-2.5-flash-lite"]
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None, image_data=None, timeout=30):
     """
@@ -1261,6 +1265,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
 
     response = None
     last_error = None
+    skipped_models = []
+    
     for model_name in candidates:
         try:
             response = client.models.generate_content(
@@ -1271,14 +1277,21 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
             if response and hasattr(response, 'text'):
                 break
         except Exception as e:
-            last_error = str(e)
-            time.sleep(0.3)  # Brief pause before retry
+            error_str = str(e)
+            last_error = error_str
+            
+            # Check if error is quota exhaustion (429 RESOURCE_EXHAUSTED)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                skipped_models.append(f"{model_name} (quota)")
+            else:
+                skipped_models.append(f"{model_name} (unavailable)")
+            
+            time.sleep(0.3)  # Brief pause before trying next model
             continue
 
     if not response:
-        model_list = ", ".join(candidates)
-        detail = f" Last error: {last_error}" if last_error else ""
-        st.error(f"AI Error. Please check API Key or model access. Tried models: {model_list}.{detail}")
+        tried_info = " → ".join(skipped_models) if skipped_models else ", ".join(candidates)
+        st.error(f"AI Error: All models exhausted quota or unavailable.\n\nTried: {tried_info}\n\nPlease try again in a few moments as quotas reset daily.")
         return None
 
     try:
