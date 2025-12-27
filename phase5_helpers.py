@@ -624,7 +624,8 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 .heuristic-card {{border:1px solid var(--border-gray);border-radius:8px;padding:12px;background:#fff;display:flex;flex-direction:column;gap:8px}}
 .heuristic-head {{display:flex;justify-content:space-between;align-items:center;gap:8px}}
 .heuristic-title {{font-weight:600;color:var(--brown-dark);font-size:0.95em;line-height:1.3}}
-.heuristic-info {{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--border-gray);color:#555;font-size:0.8em;cursor:help}}
+.heuristic-info {{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid var(--border-gray);color:#555;font-size:0.8em;cursor:help;position:relative}}
+.heuristic-info:hover::after {{content:attr(data-desc);position:absolute;top:28px;left:50%;transform:translateX(-50%);background:#fff;border:1px solid #ccc;padding:8px 10px;border-radius:6px;color:#333;white-space:normal;max-width:280px;box-shadow:0 2px 8px rgba(0,0,0,0.1);z-index:10;font-size:0.85em;line-height:1.4;font-weight:normal}}
 .likert {{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:0.9em;color:#444}}
 .likert label {{margin:0;display:inline-flex;align-items:center;gap:4px;font-weight:500;color:#444}}
 .heuristic-card textarea {{min-height:50px;font-size:0.9em}}
@@ -789,7 +790,7 @@ function initializeHeuristics() {{
         <div class="heuristic-card">
             <div class="heuristic-head">
                 <span class="heuristic-title">${{h.name}}</span>
-                <span class="heuristic-info" title="${{h.desc}}">?</span>
+                <span class="heuristic-info" data-desc="${{h.desc}}">?</span>
             </div>
             <div class="likert" role="radiogroup" aria-label="${{h.name}} rating">
                 <label><input type="radio" name="${{h.id}}_rating" value="1" required>1</label>
