@@ -542,6 +542,78 @@ def styled_info(text):
         {formatted_text}
     </div>""", unsafe_allow_html=True)
 
+def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
+    """
+    Upload a file to Gemini, auto-review it, and return markdown summary + file URI.
+    Args:
+        uploaded_file: Streamlit UploadedFile object
+        phase_key: Unique key for session state (e.g., 'p1_refine')
+        context: Optional context about what the file is for (e.g., 'clinical pathway')
+    Returns:
+        dict with 'review' (markdown), 'file_uri', and 'filename'
+    """
+    if not uploaded_file:
+        return None
+    
+    client = get_genai_client()
+    if not client:
+        st.error("API connection error. Cannot upload file.")
+        return None
+    
+    try:
+        # Read file bytes
+        file_bytes = uploaded_file.read()
+        
+        # Build MIME type
+        mime_type = uploaded_file.type or "application/octet-stream"
+        if uploaded_file.name.endswith('.pdf'):
+            mime_type = 'application/pdf'
+        elif uploaded_file.name.endswith('.txt'):
+            mime_type = 'text/plain'
+        elif uploaded_file.name.endswith('.md'):
+            mime_type = 'text/markdown'
+        
+        # Upload to Gemini Files API
+        from io import BytesIO
+        file_obj = BytesIO(file_bytes)
+        file_obj.name = uploaded_file.name
+        
+        file_response = client.files.create(file=(uploaded_file.name, file_obj, mime_type))
+        file_uri = file_response.uri
+        
+        # Auto-review: ask AI to create markdown summary
+        review_prompt = f"""Create a concise markdown summary of this document with:
+1. **Overview**: 1-2 sentence purpose/summary
+2. **Key Points**: Bulleted list of main takeaways (5-10 items)
+3. **Relevance**: How this applies to {context if context else 'clinical pathways'}
+
+Be brief and focus on actionable insights."""
+        
+        review_response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                {"text": review_prompt},
+                {"file_data": {"file_uri": file_uri, "mime_type": mime_type}}
+            ]
+        )
+        
+        review_text = review_response.text if hasattr(review_response, 'text') else ""
+        
+        # Store in session for later use in refinement
+        st.session_state[f"file_{phase_key}_uri"] = file_uri
+        st.session_state[f"file_{phase_key}_review"] = review_text
+        st.session_state[f"file_{phase_key}_name"] = uploaded_file.name
+        
+        return {
+            "review": review_text,
+            "file_uri": file_uri,
+            "filename": uploaded_file.name
+        }
+    
+    except Exception as e:
+        st.error(f"File upload failed: {str(e)}")
+        return None
+
 def auto_grade_evidence_list(evidence_list):
     """Assign GRADE and rationale for a list of evidence items in-place using the existing AI helper.
     Falls back to safe defaults when the AI response is missing or malformed.
@@ -1714,7 +1786,7 @@ with st.sidebar:
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
     st.markdown(
-        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligently Build & Deploy Care Pathways</h2>",
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -1758,7 +1830,7 @@ if "pico_p" in st.session_state.data.get("phase2", {}):
 # ==========================================
 # Display tagline at top (always visible when logged in)
 st.markdown(
-    "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
+    "<h2 style='color:#5D4037;font-style:italic;'>Intelligently Build & Deploy Care Pathways</h2>",
     unsafe_allow_html=True,
 )
 
@@ -1988,6 +2060,18 @@ if "Scope" in phase:
     
     # Natural Language Refinement Section
     st.subheader("Refine Content")
+    
+    # File upload for Phase 1 refinement
+    col_file, col_text = st.columns([1, 2])
+    with col_file:
+        st.markdown("**📎 Supporting Document**")
+        p1_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p1_file_upload", accept_multiple_files=False)
+        if p1_uploaded:
+            file_result = upload_and_review_file(p1_uploaded, "p1_refine", "clinical scope and charter")
+            if file_result:
+                with st.expander("📄 File Review", expanded=True):
+                    st.markdown(file_result["review"])
+    
     st.text_area(
         "Refinement instructions",
         placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...",
@@ -2013,6 +2097,11 @@ if "Scope" in phase:
     
     if st.button(p1_refine_button_label, type=p1_refine_button_type, key="p1_apply_refine_btn"):
         if not p1_refinement_applied:
+            # Include uploaded file context in refinement
+            refinement_text = st.session_state.p1_refine_input
+            if st.session_state.get("file_p1_refine_review"):
+                refinement_text += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p1_refine_review')}"
+            st.session_state.p1_refine_input = refinement_text
             apply_refinements()
             st.session_state['p1_refinement_applied'] = True
             st.success("Phase 1 refinements applied successfully!")
@@ -2594,6 +2683,17 @@ elif "Decision" in phase or "Tree" in phase:
     st.divider()
 
     # Natural Language Refinement Interface (placed below the table)
+    # File upload for Phase 3 refinement
+    col_file, col_text = st.columns([1, 2])
+    with col_file:
+        st.markdown("**📎 Supporting Document**")
+        p3_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p3_file_upload", accept_multiple_files=False)
+        if p3_uploaded:
+            file_result = upload_and_review_file(p3_uploaded, "p3_refine", "decision tree pathway")
+            if file_result:
+                with st.expander("📄 File Review", expanded=True):
+                    st.markdown(file_result["review"])
+    
     st.text_area(
         "Refine Decision Tree",
         placeholder="E.g., 'Add a branch for patients with renal impairment', 'Include specific discharge medications for heart failure'...",
@@ -2620,6 +2720,9 @@ elif "Decision" in phase or "Tree" in phase:
     if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
         if not p3_refinement_applied:
             refinement_request = st.session_state.get('p3_refine_input', '').strip()
+            # Include uploaded file context
+            if st.session_state.get("file_p3_refine_review"):
+                refinement_request += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p3_refine_review')}"
             if refinement_request and st.session_state.data['phase3']['nodes']:
                 with ai_activity("Applying refinements to decision tree..."):
                     current_nodes = st.session_state.data['phase3']['nodes']
@@ -2787,6 +2890,18 @@ elif "Interface" in phase or "UI" in phase:
         h_data = p4_state.get('heuristics_data', {})
         if h_data:
             st.subheader("Refine & Regenerate")
+            
+            # File upload for Phase 4 refinement
+            col_file, col_text = st.columns([1, 2])
+            with col_file:
+                st.markdown("**📎 Supporting Document**")
+                p4_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p4_file_upload", accept_multiple_files=False)
+                if p4_uploaded:
+                    file_result = upload_and_review_file(p4_uploaded, "p4_refine", "user interface design")
+                    if file_result:
+                        with st.expander("📄 File Review", expanded=True):
+                            st.markdown(file_result["review"])
+            
             refine_all = st.text_area(
                 "Refine & Regenerate",
                 placeholder="E.g., 'Consolidate redundant steps', 'Add alerts for critical values', 'Use patient-friendly terminology'",
@@ -2798,11 +2913,15 @@ elif "Interface" in phase or "UI" in phase:
             if st.button("Refine and Regenerate", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
                 p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                 with ai_activity("Refining pathway with all heuristics and your custom request…"):
+                    # Include file context
+                    refine_with_file = refine_all
+                    if st.session_state.get("file_p4_refine_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_review')}"
                     ordered_keys = sorted(h_data.keys(), key=lambda hk: int(hk[1:]) if hk[1:].isdigit() else 0)
                     all_recommendations = "\n".join([f"{hkey}: {h_data[hkey]}" for hkey in ordered_keys])
                     prompt_refine_all = f"""
                     Refine and improve the clinical pathway considering ALL Nielsen's heuristics and the user's specific request.
-                    User refinement request: {refine_all}
+                    User refinement request: {refine_with_file}
                     
                     All heuristic recommendations:
                     {all_recommendations}
@@ -2946,6 +3065,16 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        col_file, col_text = st.columns([1, 2])
+        with col_file:
+            st.markdown("**📎 Supporting Document**")
+            p5e_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_expert_upload", accept_multiple_files=False)
+            if p5e_uploaded:
+                file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback")
+                if file_result:
+                    with st.expander("📄 File Review", expanded=True):
+                        st.markdown(file_result["review"])
+        
         refine_expert = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Add questions about implementation barriers'...",
@@ -2956,7 +3085,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
         )
         if refine_expert and st.button("Refine and Regenerate", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
-                prompt = f"Regenerate expert feedback form for {cond}. User refinement: {refine_expert}"
+                refine_with_file = refine_expert
+                if st.session_state.get("file_p5_expert_review"):
+                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
+                prompt = f"Regenerate expert feedback form for {cond}. User refinement: {refine_with_file}"
                 refined_html = generate_expert_form_html(
                     condition=cond,
                     nodes=nodes,
@@ -3003,6 +3135,16 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        col_file, col_text = st.columns([1, 2])
+        with col_file:
+            st.markdown("**📎 Supporting Document**")
+            p5b_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_beta_upload", accept_multiple_files=False)
+            if p5b_uploaded:
+                file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
+                if file_result:
+                    with st.expander("📄 File Review", expanded=True):
+                        st.markdown(file_result["review"])
+        
         refine_beta = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Add usability metrics'...",
@@ -3013,6 +3155,9 @@ elif "Operationalize" in phase or "Deploy" in phase:
         )
         if refine_beta and st.button("Refine and Regenerate", key="regen_beta", use_container_width=True):
             with st.spinner("Refining..."):
+                refine_with_file = refine_beta
+                if st.session_state.get("file_p5_beta_review"):
+                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
                 refined_html = generate_beta_form_html(
                     condition=cond,
                     nodes=nodes,
@@ -3099,6 +3244,17 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        col_file, col_text = st.columns([1, 2])
+        with col_file:
+            st.markdown("**📎 Supporting Document**")
+            p5ed_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_edu_upload", accept_multiple_files=False)
+            if p5ed_uploaded:
+                file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
+                if file_result:
+                    with st.expander("📄 File Review", expanded=True):
+                        st.markdown(file_result["review"])
+        
+        # Refine section
         refine_edu = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Add case studies'...",
@@ -3109,6 +3265,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
         )
         if refine_edu and st.button("Refine and Regenerate", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
+                # Include file context
+                refine_with_file = refine_edu
+                if st.session_state.get("file_p5_edu_review"):
+                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
                 # Recreate modules with refinement notes
                 edu_topics = []
                 if nodes:
@@ -3117,7 +3277,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         node_desc = node.get('description', f'Clinical decision point: {node_name}')
                         edu_topics.append({
                             "title": f"Module {i+1}: {node_name}",
-                            "content": f"<p>{node_desc}</p><p><strong>Key Points:</strong></p><ul><li>Clinical presentation and assessment</li><li>Diagnostic approach</li><li>Management strategy</li></ul><p><em>Refinement: {refine_edu}</em></p>",
+                            "content": f"<p>{node_desc}</p><p><strong>Key Points:</strong></p><ul><li>Clinical presentation and assessment</li><li>Diagnostic approach</li><li>Management strategy</li></ul><p><em>Refinement: {refine_with_file}</em></p>",
                             "learning_objectives": [
                                 f"Understand {node_name} clinical context",
                                 "Apply evidence-based decision logic",
@@ -3174,6 +3334,17 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        col_file, col_text = st.columns([1, 2])
+        with col_file:
+            st.markdown("**📎 Supporting Document**")
+            p5ex_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_exec_upload", accept_multiple_files=False)
+            if p5ex_uploaded:
+                file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
+                if file_result:
+                    with st.expander("📄 File Review", expanded=True):
+                        st.markdown(file_result["review"])
+        
+        # Refine section
         refine_exec = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Focus on cost-benefit analysis'...",
@@ -3184,7 +3355,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
         )
         if refine_exec and st.button("Refine and Regenerate", key="regen_exec", use_container_width=True):
             with st.spinner("Refining..."):
-                refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_exec}"
+                refine_with_file = refine_exec
+                if st.session_state.get("file_p5_exec_review"):
+                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_exec_review')}"
+                refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_with_file}"
                 st.session_state.data['phase5']['exec_summary'] = refined_summary
             st.success("Refined!")
     
