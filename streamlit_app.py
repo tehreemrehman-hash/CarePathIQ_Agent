@@ -1606,7 +1606,7 @@ with st.sidebar:
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
     st.markdown(
-        "<h2 style='color:#5D4037;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -1744,7 +1744,7 @@ if "Phase 1" in phase:
     st.session_state.setdefault('p1_obj',        st.session_state.data['phase1'].get('objectives', ''))
     
     st.markdown(
-        "<h2 style='color:#5D4037;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -1892,7 +1892,7 @@ if "Phase 1" in phase:
 # --- PHASE 2 ---
 elif "Phase 2" in phase:
     st.markdown(
-        "<h2 style='color:#5D4037;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -2229,7 +2229,7 @@ elif "Phase 2" in phase:
 # --- PHASE 3 ---
 elif "Phase 3" in phase:
     st.markdown(
-        "<h2 style='color:#5D4037;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -2499,7 +2499,7 @@ elif "Phase 3" in phase:
 # --- PHASE 4 ---
 elif "Phase 4" in phase:
     st.markdown(
-        "<h2 style='color:#5D4037;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -2881,7 +2881,7 @@ elif "Phase 4" in phase:
 # --- PHASE 5 ---
 elif "Phase 5" in phase:
     st.markdown(
-        "<h2 style='color:#5D4037;'>Intelligent Clinical Pathway Development</h2>",
+        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
