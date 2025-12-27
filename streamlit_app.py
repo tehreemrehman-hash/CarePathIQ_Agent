@@ -1790,7 +1790,7 @@ st.caption("**Select Phase:**")
 phase_short_labels = [
     "Scoping",
     "Evidence",
-    "Decision",
+    "Decision Tree",
     "UI Design",
     "Operationalize"
 ]
