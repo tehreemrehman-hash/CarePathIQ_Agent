@@ -3073,11 +3073,48 @@ elif "Operationalize" in phase:
             st.session_state["p5_aud_edu"] = aud_edu
             st.session_state["p5_aud_edu_prev"] = aud_edu
             with st.spinner("Generating module..."):
+                # Create default educational modules from pathway nodes
+                edu_topics = []
+                if nodes:
+                    # Generate modules from pathway decision points
+                    for i, node in enumerate(nodes[:3]):  # Limit to 3 modules
+                        node_name = node.get('name', f'Module {i+1}')
+                        node_desc = node.get('description', f'Clinical decision point: {node_name}')
+                        edu_topics.append({
+                            "title": f"Module {i+1}: {node_name}",
+                            "content": f"<p>{node_desc}</p><p><strong>Key Points:</strong></p><ul><li>Clinical presentation and assessment</li><li>Diagnostic approach</li><li>Management strategy</li></ul>",
+                            "learning_objectives": [
+                                f"Understand {node_name} clinical context",
+                                "Apply evidence-based decision logic",
+                                "Implement recommended pathway"
+                            ],
+                            "quiz": [{
+                                "question": f"Which is the appropriate approach for {node_name}?",
+                                "options": ["Option A", "Option B", "Option C", "Option D"],
+                                "correct": 0,
+                                "explanation": "This represents the recommended pathway decision."
+                            }],
+                            "time_minutes": 5
+                        })
+                else:
+                    # Default modules if no pathway nodes
+                    edu_topics = [
+                        {
+                            "title": "Module 1: Pathway Overview",
+                            "content": "<p>Evidence-based approach to clinical decision-making.</p>",
+                            "learning_objectives": ["Understand pathway fundamentals"],
+                            "quiz": [{"question": "What is the first step?", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "Correct!"}],
+                            "time_minutes": 5
+                        }
+                    ]
+                
                 edu_html = create_education_module_template(
                     condition=cond,
-                    nodes=nodes,
-                    audience=aud_edu,
-                    organization=cond
+                    topics=edu_topics,
+                    target_audience=aud_edu,
+                    organization=cond,
+                    care_setting=setting,
+                    require_100_percent=True
                 )
                 st.session_state.data['phase5']['edu_html'] = edu_html
             st.success("Generated!")
@@ -3102,11 +3139,30 @@ elif "Operationalize" in phase:
         )
         if refine_edu and st.button("Regenerate", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
+                # Recreate modules with refinement notes
+                edu_topics = []
+                if nodes:
+                    for i, node in enumerate(nodes[:3]):
+                        node_name = node.get('name', f'Module {i+1}')
+                        node_desc = node.get('description', f'Clinical decision point: {node_name}')
+                        edu_topics.append({
+                            "title": f"Module {i+1}: {node_name}",
+                            "content": f"<p>{node_desc}</p><p><strong>Key Points:</strong></p><ul><li>Clinical presentation and assessment</li><li>Diagnostic approach</li><li>Management strategy</li></ul><p><em>Refinement: {refine_edu}</em></p>",
+                            "learning_objectives": [
+                                f"Understand {node_name} clinical context",
+                                "Apply evidence-based decision logic",
+                                "Implement recommended pathway"
+                            ],
+                            "quiz": [{"question": f"Which is the appropriate approach for {node_name}?", "options": ["Option A", "Option B", "Option C", "Option D"], "correct": 0, "explanation": "This represents the recommended pathway decision."}],
+                            "time_minutes": 5
+                        })
                 refined_html = create_education_module_template(
                     condition=cond,
-                    nodes=nodes,
-                    audience=st.session_state.get("p5_aud_edu", ""),
-                    organization=cond
+                    topics=edu_topics,
+                    target_audience=st.session_state.get("p5_aud_edu", ""),
+                    organization=cond,
+                    care_setting=setting,
+                    require_100_percent=True
                 )
                 st.session_state.data['phase5']['edu_html'] = refined_html
             st.success("Refined!")
