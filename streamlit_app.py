@@ -3049,16 +3049,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
             exp_html = st.session_state.data['phase5']['expert_html']
             exp_b64 = base64.b64encode(exp_html.encode('utf-8')).decode('utf-8')
             dcol1, dcol2 = st.columns([1,1])
-                        with dcol1:
-                open_html = f"""
-                <div style='width:100%;'>
-                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{exp_b64}\" target=\"_blank\">Open Preview ↗</a>
-                </div>
-                """
-                components.html(open_html, height=52)
+            with dcol1:
+                components.html(
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{exp_b64}" target="_blank">Open Preview ↗</a>',
+                    height=52,
+                )
             with dcol2:
                 st.download_button(
-                                        "Download (HTML)",
+                    "Download (HTML)",
                     exp_html,
                     f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
                     "text/html",
@@ -3069,32 +3067,30 @@ elif "Operationalize" in phase or "Deploy" in phase:
         col_file, col_text = st.columns([1, 2])
         with col_file:
             st.caption("Supporting Document (optional)")
-            p5b_uploaded = st.file_uploader(
+            p5e_uploaded = st.file_uploader(
                 "Drag & drop or browse",
-                key="p5_beta_upload",
+                key="p5_expert_upload",
                 accept_multiple_files=False,
                 label_visibility="collapsed"
             )
-            if p5b_uploaded:
-                file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
+            if p5e_uploaded:
+                file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback form")
                 if file_result:
                     with st.expander("File Review", expanded=True):
                         st.markdown(file_result["review"])        
         with col_text:
-            refine_beta = st.text_area(
+            refine_expert = st.text_area(
                 "Refinement Notes",
                 placeholder="Add usability metrics; clarify scenarios; shorten steps",
-                key="p5_refine_beta",
+                key="p5_refine_expert",
                 height=90,
                 label_visibility="visible"
             )
-        )
         if refine_expert and st.button("Apply Refinements", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
                 refine_with_file = refine_expert
                 if st.session_state.get("file_p5_expert_review"):
                     refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
-                prompt = f"Regenerate expert feedback form for {cond}. User refinement: {refine_with_file}"
                 refined_html = generate_expert_form_html(
                     condition=cond,
                     nodes=nodes,
@@ -3135,16 +3131,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
             beta_html = st.session_state.data['phase5']['beta_html']
             beta_b64 = base64.b64encode(beta_html.encode('utf-8')).decode('utf-8')
             dcol1, dcol2 = st.columns([1,1])
-                        with dcol1:
-                open_html = f"""
-                <div style='width:100%;'>
-                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{beta_b64}\" target=\"_blank\">Open Preview ↗</a>
-                </div>
-                """
-                components.html(open_html, height=52)
+            with dcol1:
+                components.html(
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{beta_b64}" target="_blank">Open Preview ↗</a>',
+                    height=52,
+                )
             with dcol2:
                 st.download_button(
-                                        "Download (HTML)",
+                    "Download (HTML)",
                     beta_html,
                     f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
                     "text/html",
@@ -3259,16 +3253,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
             edu_html = st.session_state.data['phase5']['edu_html']
             edu_b64 = base64.b64encode(edu_html.encode('utf-8')).decode('utf-8')
             dcol1, dcol2 = st.columns([1,1])
-                        with dcol1:
-                open_html = f"""
-                <div style='width:100%;'>
-                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{edu_b64}\" target=\"_blank\">Open Preview ↗</a>
-                </div>
-                """
-                components.html(open_html, height=52)
+            with dcol1:
+                components.html(
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{edu_b64}" target="_blank">Open Preview ↗</a>',
+                    height=52,
+                )
             with dcol2:
                 st.download_button(
-                                        "Download (HTML)",
+                    "Download (HTML)",
                     edu_html,
                     f"EducationModule_{cond.replace(' ', '_')}.html",
                     "text/html",
@@ -3366,16 +3358,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 summary_text=exec_text
             )
             dcol1, dcol2 = st.columns([1,1])
-                        with dcol1:
-                open_html = f"""
-                <div style='width:100%;'>
-                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{preview_b64}\" target=\"_blank\">Open Preview ↗</a>
-                </div>
-                """
-                components.html(open_html, height=52)
+            with dcol1:
+                components.html(
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank">Open Preview ↗</a>',
+                    height=52,
+                )
             with dcol2:
                 st.download_button(
-                                        "Download (DOC)",
+                    "Download (DOC)",
                     docx_bytes,
                     f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
