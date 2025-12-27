@@ -29,6 +29,14 @@ os.environ["PATH"] += os.pathsep + '/usr/bin'
 def get_genai_client():
     return st.session_state.get("genai_client")
 
+
+# Column helper that prefers top alignment but gracefully falls back
+def columns_top(spec, **kwargs):
+    try:
+        return st.columns(spec, vertical_alignment="top", **kwargs)
+    except TypeError:
+        return st.columns(spec, **kwargs)
+
 # --- LIBRARY HANDLING ---
 try:
     from docx import Document
@@ -1976,9 +1984,6 @@ for i, p in enumerate(PHASES):
 
 st.markdown("---")
 
-"""
-REPLACED CORRUPTED PHASE 1 BLOCK WITH CLEAN IMPLEMENTATION
-"""
 # --- PHASE 1 ---
 if "Scope" in phase:
     # 1) Draft helper
@@ -2025,7 +2030,7 @@ if "Scope" in phase:
     st.header(f"Phase 1. {PHASES[0]}")
     styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent drafts the rest automatically.")
 
-    col1, col2 = st.columns(2)
+    col1, col2 = columns_top(2)
     with col1:
         st.subheader("1. Clinical Focus")
         st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
@@ -2672,7 +2677,7 @@ elif "Decision" in phase or "Tree" in phase:
 
     # Natural Language Refinement Interface (placed below the table)
     # File upload for Phase 3 refinement
-    col_file, col_text = st.columns([1, 2])
+    col_file, col_text = columns_top([1, 2])
     with col_file:
         st.caption("Supporting Document (optional)")
         p3_uploaded = st.file_uploader(
@@ -2843,11 +2848,22 @@ elif "Interface" in phase or "UI" in phase:
     with col_left:
         st.subheader("Pathway Visualization")
         if svg_b64:
-            c1, c2 = st.columns([1, 1])
+            # Build a lightweight HTML wrapper so the preview opens as a full page with the SVG embedded
+            preview_html = f"""
+            <!doctype html>
+            <html><head><meta charset='utf-8'><title>Pathway Visualization</title></head>
+            <body style='margin:0;padding:16px;font-family:Segoe UI,Arial,sans-serif;background:#f8f9fa;'>
+              <h2 style='margin-top:0;'>Pathway Visualization</h2>
+              <img src="data:image/svg+xml;base64,{svg_b64}" alt="Pathway Visualization" style="max-width:100%;height:auto;display:block;border:1px solid #ddd;box-shadow:0 2px 6px rgba(0,0,0,0.08);" />
+            </body></html>
+            """
+            preview_b64 = base64.b64encode(preview_html.encode("utf-8")).decode("utf-8")
+
+            c1, c2 = columns_top([1, 1])
             with c1:
                 open_html = f"""
                 <div style='width:100%;'>
-                  <a class=\"cpq-link-button\" href=\"data:image/svg+xml;base64,{svg_b64}\" target=\"_blank\" rel=\"noopener noreferrer\">Open Preview ↗</a>
+                  <a class="cpq-link-button" style="display:block;text-align:center;" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>
                 </div>
                 """
                 components.html(open_html, height=52)
@@ -2889,7 +2905,7 @@ elif "Interface" in phase or "UI" in phase:
             st.subheader("Refine & Regenerate")
 
             # File upload for Phase 4 refinement (compact, no emoji, minimal redundancy)
-            col_file, col_text = st.columns([1, 2])
+            col_file, col_text = columns_top([1, 2])
             with col_file:
                 st.caption("Supporting Document (optional)")
                 p4_uploaded = st.file_uploader(
@@ -3076,7 +3092,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 )
         
         # Refine section
-        col_file, col_text = st.columns([1, 2])
+        col_file, col_text = columns_top([1, 2])
         with col_file:
             st.caption("Supporting Document (optional)")
             p5e_uploaded = st.file_uploader(
@@ -3158,7 +3174,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 )
         
         # Refine section
-        col_file, col_text = st.columns([1, 2])
+        col_file, col_text = columns_top([1, 2])
         with col_file:
             st.caption("Supporting Document (optional)")
             p5b_uploaded = st.file_uploader(
@@ -3196,7 +3212,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     st.divider()
     
-    col3, col4 = st.columns(2)
+    col3, col4 = columns_top(2)
     
     # ========== BOTTOM LEFT: EDUCATION MODULE ==========
     with col3:
@@ -3280,7 +3296,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 )
         
         # Refine section
-        col_file, col_text = st.columns([1, 2])
+        col_file, col_text = columns_top([1, 2])
         with col_file:
             st.caption("Supporting Document (optional)")
             p5ed_uploaded = st.file_uploader(
@@ -3385,7 +3401,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 )
         
         # Refine section
-        col_file, col_text = st.columns([1, 2])
+        col_file, col_text = columns_top([1, 2])
         with col_file:
             st.caption("Supporting Document (optional)")
             p5ex_uploaded = st.file_uploader(
