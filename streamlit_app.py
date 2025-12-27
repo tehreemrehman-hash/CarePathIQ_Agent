@@ -1795,7 +1795,7 @@ st.caption("**Select Phase:**")
 phase_short_labels = [
     "Scope",
     "Evidence",
-    "Tree",
+    "Logic",
     "Design",
     "Deploy"
 ]
