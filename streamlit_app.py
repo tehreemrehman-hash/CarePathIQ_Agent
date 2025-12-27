@@ -1665,53 +1665,26 @@ st.markdown(
 phase = st.session_state.get("current_phase_label", PHASES[0])
 current_phase_index = PHASES.index(phase) if phase in PHASES else 0
 
-# Build custom styled navigation with arrows
-nav_html = "<div style='display: flex; align-items: center; justify-content: center; gap: 0px; margin: 20px 0; flex-wrap: wrap;'>"
+# Streamlit buttons with arrows - functional navigation only
+nav_cols = st.columns([1] * len(PHASES) + [0.1] * (len(PHASES) - 1))  # Allocate space for arrows
+
+col_idx = 0
 for i, p in enumerate(PHASES):
     is_active = (i == current_phase_index)
+    button_type = "primary" if is_active else "secondary"
     
-    # Styling: white bg/brown text (inactive) or brown bg/white text (active)
-    if is_active:
-        bg_color = "#5D4037"  # Dark brown
-        text_color = "white"
-        font_weight = "bold"
-    else:
-        bg_color = "white"
-        text_color = "#5D4037"  # Dark brown
-        font_weight = "normal"
+    with nav_cols[col_idx]:
+        if st.button(p, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
+            st.session_state.current_phase_label = p
+            st.rerun()
     
-    phase_id = p.replace(" ", "_").replace("&", "and")
-    nav_html += f"""
-    <button id="nav_{phase_id}" 
-            style="background-color: {bg_color}; 
-                   color: {text_color}; 
-                   border: 2px solid #5D4037; 
-                   padding: 10px 15px; 
-                   font-size: 13px; 
-                   font-weight: {font_weight};
-                   cursor: pointer;
-                   border-radius: 4px;
-                   transition: all 0.3s ease;">
-        {p}
-    </button>
-    """
+    col_idx += 1
     
-    # Add arrow between phases (except after last phase)
+    # Add arrow between phases
     if i < len(PHASES) - 1:
-        nav_html += "<span style='color: #5D4037; font-size: 20px; margin: 0 8px;'>→</span>"
-
-nav_html += "</div>"
-st.markdown(nav_html, unsafe_allow_html=True)
-
-# Create actual Streamlit buttons (invisible/collapsed) to handle navigation logic
-nav_container = st.container()
-with nav_container:
-    nav_cols = st.columns(len(PHASES))
-    for i, p in enumerate(PHASES):
-        with nav_cols[i]:
-            if st.button(p, key=f"nav_button_{p.replace(' ', '_').replace('&', 'and')}", use_container_width=True):
-                st.session_state.current_phase_label = p
-                st.rerun()
+        with nav_cols[col_idx]:
+            st.markdown("<div style='text-align: center; color: #5D4037; font-size: 20px; margin-top: 8px;'>→</div>", unsafe_allow_html=True)
+        col_idx += 1
 
 st.divider()
 
