@@ -1,4 +1,10 @@
 import streamlit as st
+# Version info sidebar caption
+try:
+    from app_version import COMMIT_SHORT, COMMIT_DATE
+    st.sidebar.caption(f"Version {COMMIT_SHORT} • {COMMIT_DATE}")
+except Exception:
+    pass
 import streamlit.components.v1 as components
 from google import genai
 import pandas as pd
