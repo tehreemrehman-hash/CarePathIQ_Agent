@@ -2959,7 +2959,7 @@ elif "Operationalize" in phase:
             height=80,
             label_visibility="collapsed"
         )
-        if refine_expert and st.button("Regenerate", key="regen_expert", use_container_width=True):
+        if refine_expert and st.button("Refine and Regenerate", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
                 prompt = f"Regenerate expert feedback form for {cond}. User refinement: {refine_expert}"
                 refined_html = generate_expert_form_html(
@@ -3015,7 +3015,7 @@ elif "Operationalize" in phase:
             height=80,
             label_visibility="collapsed"
         )
-        if refine_beta and st.button("Regenerate", key="regen_beta", use_container_width=True):
+        if refine_beta and st.button("Refine and Regenerate", key="regen_beta", use_container_width=True):
             with st.spinner("Refining..."):
                 refined_html = generate_beta_form_html(
                     condition=cond,
@@ -3110,7 +3110,7 @@ elif "Operationalize" in phase:
             height=80,
             label_visibility="collapsed"
         )
-        if refine_edu and st.button("Regenerate", key="regen_edu", use_container_width=True):
+        if refine_edu and st.button("Refine and Regenerate", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
                 # Recreate modules with refinement notes
                 edu_topics = []
@@ -3184,7 +3184,7 @@ elif "Operationalize" in phase:
             height=80,
             label_visibility="collapsed"
         )
-        if refine_exec and st.button("Regenerate", key="regen_exec", use_container_width=True):
+        if refine_exec and st.button("Refine and Regenerate", key="regen_exec", use_container_width=True):
             with st.spinner("Refining..."):
                 refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_exec}"
                 st.session_state.data['phase5']['exec_summary'] = refined_summary
