@@ -394,11 +394,15 @@ def render_bottom_navigation():
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                st.button(f"{prev_phase.split(':')[0]}", key="bottom_prev", width="stretch", on_click=change_phase, args=(prev_phase,))
+                if st.button("← Previous Phase", key=f"bottom_prev_{current_idx}", use_container_width=True):
+                    st.session_state.current_phase_label = prev_phase
+                    st.rerun()
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                st.button(f"{next_phase.split(':')[0]}", key="bottom_next", use_container_width=True, type="secondary", on_click=change_phase, args=(next_phase,))
+                if st.button("Next Phase →", key=f"bottom_next_{current_idx}", use_container_width=True, type="primary"):
+                    st.session_state.current_phase_label = next_phase
+                    st.rerun()
 
 def calculate_granular_progress():
     """
@@ -1657,55 +1661,37 @@ st.markdown(
 
 ## --- PHASE NAVIGATION ---
 
-# Create horizontal arrow navigation bar
+# Create horizontal arrow navigation bar using Streamlit columns
 phase = st.session_state.get("current_phase_label", PHASES[0])
 current_phase_index = PHASES.index(phase) if phase in PHASES else 0
 
-# Build navigation HTML with arrows
-nav_html = "<div style='display: flex; align-items: center; justify-content: center; gap: 0px; margin: 20px 0;'>"
+# Create columns for navigation buttons
+nav_cols = st.columns(len(PHASES) * 2 - 1)  # Cols for buttons + arrows
+
+col_idx = 0
 for i, p in enumerate(PHASES):
-    # Determine if this is the active phase
     is_active = (i == current_phase_index)
     
     # Button styling
-    if is_active:
-        bg_color = "#5D4037"  # Dark brown
-        text_color = "white"
-        font_weight = "bold"
-    else:
-        bg_color = "white"
-        text_color = "#5D4037"  # Dark brown
-        font_weight = "normal"
+    button_type = "primary" if is_active else "secondary"
     
-    # Create button with onclick
-    phase_id = p.replace(" ", "_").replace("&", "and")
-    nav_html += f"""
-    <button onclick="document.getElementById('phase_{phase_id}').click()" 
-            style="background-color: {bg_color}; 
-                   color: {text_color}; 
-                   border: 2px solid #5D4037; 
-                   padding: 10px 20px; 
-                   font-size: 14px; 
-                   font-weight: {font_weight};
-                   cursor: pointer;
-                   transition: all 0.3s;">
-        {p}
-    </button>
-    """
+    with nav_cols[col_idx]:
+        if st.button(
+            p,
+            key=f"phase_{p.replace(' ', '_').replace('&', 'and')}",
+            type=button_type,
+            use_container_width=True
+        ):
+            st.session_state.current_phase_label = p
+            st.rerun()
     
-    # Add arrow between phases (except after last phase)
+    col_idx += 1
+    
+    # Add arrow separator (except after last button)
     if i < len(PHASES) - 1:
-        nav_html += "<span style='color: white; font-size: 24px; margin: 0 5px;'>→</span>"
-
-nav_html += "</div>"
-st.markdown(nav_html, unsafe_allow_html=True)
-
-# Hidden buttons for actual navigation (triggered by HTML buttons)
-for p in PHASES:
-    phase_id = p.replace(" ", "_").replace("&", "and")
-    if st.button(p, key=f"phase_{phase_id}", type="secondary"):
-        st.session_state.current_phase_label = p
-        st.rerun()
+        with nav_cols[col_idx]:
+            st.markdown("<div style='display: flex; align-items: center; justify-content: center;'><span style='color: #5D4037; font-size: 20px;'>→</span></div>", unsafe_allow_html=True)
+        col_idx += 1
 
 st.divider()
 
