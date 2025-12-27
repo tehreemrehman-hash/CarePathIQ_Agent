@@ -2380,34 +2380,37 @@ elif "Evidence" in phase or "Appraise" in phase:
                     citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
                     references_source = display_data if display_data else evidence_data
 
-            # Align download buttons horizontally in a new row
+            # Align download/preview buttons in two columns
             btn_c1, btn_c2 = st.columns(2)
             with btn_c1:
                 if show_table:
-                    _, btn_col1, _ = st.columns([1, 1, 1])
-                    with col_file:
-                        st.caption("Supporting Document (optional)")
-                        p5e_uploaded = st.file_uploader(
-                            "Drag & drop or browse",
-                            key="p5_expert_upload",
-                            accept_multiple_files=False,
-                            label_visibility="collapsed"
-                        )
-                        if p5e_uploaded:
-                            file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback")
-                            if file_result:
-                                with st.expander("File Review", expanded=True):
-                                    st.markdown(file_result["review"])        
-                    with col_text:
-                        refine_expert = st.text_area(
-                            "Refinement Notes",
-                            placeholder="Add implementation barriers; usability metrics; streamline sections",
-                            key="p5_refine_expert",
-                            height=90,
-                            label_visibility="visible"
-                        )
+                    # Preview: render table in a simple HTML page
+                    table_html = full_export_df.to_html(index=False)
+                    preview_html = f"<html><head><title>Evidence Table</title></head><body style='font-family:Segoe UI,Arial,sans-serif;padding:16px'>{table_html}</body></html>"
+                    preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
+                    pc1, pc2 = st.columns([1,1])
+                    with pc1:
+                        components.html(f"<a class=\\"cpq-link-button\\" href=\\"data:text/html;base64,{preview_b64}\\" target=\\"_blank\\">Open Preview ↗</a>", height=52)
+                    with pc2:
+                        st.download_button("Download (CSV)", csv_data_full, file_name="evidence_table.csv", mime="text/csv", use_container_width=True)
+
+            with btn_c2:
+                if show_citations:
+                    # Build citation lines
+                    citations = references_source or []
+                    lines = [format_citation_line(entry, citation_style) for entry in citations]
+                    cite_html = "<ol>" + "".join([f"<li>{l}</li>" for l in lines]) + "</ol>"
+                    preview_html = f"<html><head><title>Citations</title></head><body style='font-family:Segoe UI,Arial,sans-serif;padding:16px'>{cite_html}</body></html>"
+                    preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
+                    dc1, dc2 = st.columns([1,1])
+                    with dc1:
+                        components.html(f"<a class=\\"cpq-link-button\\" href=\\"data:text/html;base64,{preview_b64}\\" target=\\"_blank\\">Open Preview ↗</a>", height=52)
+                    with dc2:
+                        docx_bytes = create_references_docx(citations, style=citation_style)
+                        if docx_bytes:
+                            st.download_button("Download (DOC)", docx_bytes, file_name="citations.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
                         else:
-                            st.warning("python-docx is not available; install it to enable Word downloads.")
+                            st.info("Word export unavailable (python-docx not installed)")
 
     else:
         # If nothing to show, provide a helpful prompt and the PubMed link if available
