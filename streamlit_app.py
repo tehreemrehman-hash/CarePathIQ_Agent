@@ -352,11 +352,20 @@ st.markdown("""
     
     /* Make navigation buttons more compact */
     [data-testid="stHorizontalBlock"] > div[data-testid="column"] button {
-        font-size: 0.85rem !important;
-        padding: 8px 12px !important;
-        white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
+        font-size: 0.75rem !important;
+        padding: 6px 8px !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        line-height: 1.2 !important;
+        min-height: 45px !important;
+        height: auto !important;
+    }
+    
+    /* Force horizontal text in buttons */
+    [data-testid="stHorizontalBlock"] button span {
+        writing-mode: horizontal-tb !important;
+        transform: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1776,6 +1785,16 @@ phase_completion.append(p5_complete)
 
 # Compact navigation with numbered phases and status indicators
 st.caption("**Select Phase:**")
+
+# Use shorter labels for navigation buttons
+phase_short_labels = [
+    "Scoping",
+    "Evidence",
+    "Decision",
+    "UI Design",
+    "Operationalize"
+]
+
 nav_cols = st.columns([1] * len(PHASES) + [0.1] * (len(PHASES) - 1))  # Allocate space for arrows
 
 col_idx = 0
@@ -1784,9 +1803,10 @@ for i, p in enumerate(PHASES):
     is_complete = phase_completion[i] if i < len(phase_completion) else False
     button_type = "primary" if is_active else "secondary"
     
-    # Create button label with phase number
+    # Create button label with phase number using shorter label
     phase_num = i + 1
-    button_label = f"{phase_num}. {p}"
+    short_label = phase_short_labels[i]
+    button_label = f"{phase_num}. {short_label}"
     
     with nav_cols[col_idx]:
         if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
