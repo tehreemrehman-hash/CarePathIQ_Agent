@@ -1937,7 +1937,7 @@ if "Scope" in phase:
     st.session_state.setdefault('p1_prob',       st.session_state.data['phase1'].get('problem', ''))
     st.session_state.setdefault('p1_obj',        st.session_state.data['phase1'].get('objectives', ''))
     
-    st.header(PHASES[0])
+    st.header(f"Phase 1. {PHASES[0]}")
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
     col1, col2 = st.columns([1, 1])
@@ -2092,7 +2092,7 @@ if "Scope" in phase:
 
 # --- PHASE 2 ---
 elif "Evidence" in phase or "Appraise" in phase:
-    st.header(PHASES[1])
+    st.header(f"Phase 2. {PHASES[1]}")
 
     # Build robust default query from Phase 1 if none saved
     # Format: "managing patients with [clinical condition] in [care setting]" using PubMed syntax
@@ -2396,7 +2396,7 @@ elif "Evidence" in phase or "Appraise" in phase:
 
 # --- PHASE 3 ---
 elif "Decision" in phase or "Tree" in phase:
-    st.header(PHASES[2])
+    st.header(f"Phase 3. {PHASES[2]}")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
     
     # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
@@ -2663,7 +2663,7 @@ elif "Decision" in phase or "Tree" in phase:
 
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
-    st.header(PHASES[3])
+    st.header(f"Phase 4. {PHASES[3]}")
     styled_info("<b>Tip:</b> Heuristic recommendations are auto-generated. Review, then apply or undo per criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
@@ -2872,7 +2872,7 @@ elif "Interface" in phase or "UI" in phase:
 
 # --- PHASE 5 ---
 elif "Operationalize" in phase or "Deploy" in phase:
-    st.header(PHASES[4])
+    st.header(f"Phase 5. {PHASES[4]}")
     
     # Import Phase 5 helpers
     try:
