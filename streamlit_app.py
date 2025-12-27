@@ -416,11 +416,11 @@ ROLE_COLORS = {
     "Process": "#FFFDE7",
 }
 PHASES = [
-    "Scoping & Charter",
-    "Evidence Appraisal",
-    "Decision Science",
-    "User Interface Design",
-    "Operationalize"
+    "Define Scope & Charter",
+    "Appraise Evidence",
+    "Build Decision Tree",
+    "Design User Interface",
+    "Operationalize & Deploy"
 ]
 
 PROVIDER_OPTIONS = {
@@ -1788,11 +1788,11 @@ st.caption("**Select Phase:**")
 
 # Use shorter labels for navigation buttons
 phase_short_labels = [
-    "Scoping",
+    "Scope",
     "Evidence",
     "Decision Tree",
     "UI Design",
-    "Operationalize"
+    "Deploy"
 ]
 
 nav_cols = st.columns([1] * len(PHASES) + [0.1] * (len(PHASES) - 1))  # Allocate space for arrows
@@ -1828,7 +1828,7 @@ st.caption(f"**Current Phase ({current_phase_index + 1}/{len(PHASES)}):** {phase
 st.divider()
 
 # --- PHASE 1 ---
-if "Scoping" in phase:
+if "Scope" in phase:
     # 1. TRIGGER FUNCTIONS (Callbacks)
     def trigger_p1_draft():
         # Only trigger if both fields have text
@@ -2042,7 +2042,7 @@ if "Scoping" in phase:
     st.stop()
 
 # --- PHASE 2 ---
-elif "Evidence" in phase:
+elif "Evidence" in phase or "Appraise" in phase:
     st.header("Evidence Appraisal")
 
     # Build robust default query from Phase 1 if none saved
@@ -2374,8 +2374,8 @@ elif "Evidence" in phase:
     st.stop()
 
 # --- PHASE 3 ---
-elif "Decision" in phase:
-    st.header("Decision Science")
+elif "Decision" in phase or "Tree" in phase:
+    st.header("Build Decision Tree")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
     
     # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
@@ -2639,8 +2639,8 @@ elif "Decision" in phase:
     st.stop()
 
 # --- PHASE 4 ---
-elif "User Interface Design" in phase:
-    st.header("User Interface Design")
+elif "Interface" in phase or "UI" in phase:
+    st.header("Design User Interface")
     styled_info("<b>Tip:</b> Evaluate your pathway against Nielsen's 10 Usability Heuristics. The AI agent can provide suggestions for each criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
@@ -2901,8 +2901,8 @@ elif "User Interface Design" in phase:
     st.stop()
 
 # --- PHASE 5 ---
-elif "Operationalize" in phase:
-    st.header("Operationalize")
+elif "Operationalize" in phase or "Deploy" in phase:
+    st.header("Operationalize & Deploy")
     
     # Import Phase 5 helpers
     try:
