@@ -1,6 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import google.genai as genai
+from google import genai
 import pandas as pd
 import urllib.request
 import urllib.parse
@@ -24,6 +24,8 @@ import textwrap
 os.environ["PATH"] += os.pathsep + '/usr/bin'
 
 # --- GOOGLE GENAI CLIENT HELPER ---
+# Using official google-genai SDK per https://ai.google.dev/gemini-api/docs/quickstart
+# Pattern: from google import genai -> client = genai.Client(api_key=key)
 def get_genai_client():
     return st.session_state.get("genai_client")
 
@@ -1183,37 +1185,44 @@ def render_graphviz_bytes(graph, fmt="svg"):
         return None
 
 def get_smart_model_cascade(requires_vision=False, requires_json=False):
-    """
-    Return prioritized list of models for Auto mode based on task requirements.
+    """Return prioritized list of models for Auto mode based on task requirements.
     
-    Strategy: Try high-quota models first, then fallback to lite versions.
+    Model names per official docs: https://ai.google.dev/gemini-api/docs/models
+    - gemini-2.5-flash: Fast, multimodal, 1M token context
+    - gemini-2.5-pro: Most capable, best for complex tasks  
+    - gemini-1.5-flash: Stable fallback
+    - gemini-1.5-pro: Legacy pro model
+    
+    Strategy: Try high-performance models first, then fallback to stable versions.
     Vision tasks get models with multimodal support.
     """
     if model_choice == "Auto":
         # Optimize cascade order: gemini-2.5-flash has better quota and performance
         if requires_vision:
             return [
-                "gemini-2.5-flash-latest",      # Best for vision
-                "gemini-2.5-flash-lite-latest", # Fallback for vision
+                "gemini-2.5-flash",      # Best for vision
+                "gemini-1.5-flash",      # Fallback for vision
             ]
         else:
             return [
-                "gemini-2.5-flash-latest",      # Best general performance
-                "gemini-2.5-flash-lite-latest", # Lighter/faster for simple tasks
+                "gemini-2.5-flash",      # Best general performance
+                "gemini-1.5-flash",      # Stable fallback for simple tasks
             ]
     else:
-        return [f"{model_choice}-latest", "gemini-2.5-flash-latest"]
+        # Use user-selected model with fallback to gemini-2.5-flash
+        return [model_choice, "gemini-2.5-flash"]
 
 def get_gemini_response(prompt, json_mode=False, stream_container=None, image_data=None, timeout=30):
     """
     Send a prompt (with optional image) to Gemini and get a response.
+    Per official API: https://ai.google.dev/gemini-api/docs/api-key
     
     Args:
-        prompt: Text prompt or list of content parts
+        prompt: Text prompt string
         json_mode: If True, extract JSON from response
         stream_container: Deprecated (v1 API)
         image_data: Optional dict with 'mime_type' and 'data' (base64 bytes) for image
-        timeout: Seconds to wait per model before moving to next (not enforced by SDK, for logic)
+        timeout: Seconds to wait per model before moving to next
     """
     client = get_genai_client()
     if not client:
@@ -1223,14 +1232,32 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
     # Smart cascade: if image provided, prioritize vision models
     candidates = get_smart_model_cascade(requires_vision=bool(image_data), requires_json=json_mode)
 
-    # Build content: text + image if provided
+    # Build contents array per official API structure
+    # https://ai.google.dev/gemini-api/docs/api-overview#request-body
     if image_data:
+        # Multimodal: text + image
         contents = [
-            {"text": prompt},
-            {"inline_data": image_data}
+            {
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inline_data": {
+                            "mime_type": image_data.get('mime_type', 'image/jpeg'),
+                            "data": image_data['data']
+                        }
+                    }
+                ]
+            }
         ]
     else:
-        contents = prompt
+        # Text-only: wrap in proper structure
+        contents = [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
 
     response = None
     last_error = None
@@ -1240,7 +1267,8 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
                 model=model_name,
                 contents=contents,
             )
-            if response:
+            # Check if response has valid text
+            if response and hasattr(response, 'text'):
                 break
         except Exception as e:
             last_error = str(e)
@@ -1254,10 +1282,16 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
         return None
 
     try:
-        text = getattr(response, "text", "")
+        # Access response.text per official API
+        text = response.text if hasattr(response, 'text') else ""
+        
+        if not text:
+            return None
 
         if json_mode:
+            # Clean markdown code blocks
             text = text.replace('```json', '').replace('```', '').strip()
+            # Extract JSON object or array
             match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
             if match:
                 text = match.group(0)
@@ -1266,39 +1300,53 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
             except Exception:
                 return None
         return text
-    except Exception:
+    except Exception as e:
+        st.error(f"Error parsing response: {e}")
         return None
 
 @st.cache_data(ttl=3600)
 def get_available_models(api_key):
-    """Fetch list of available models from Gemini API."""
+    """Fetch list of available models from Gemini API.
+    Uses client.models.list() per official SDK.
+    https://ai.google.dev/gemini-api/docs/models
+    """
     try:
         client = genai.Client(api_key=api_key)
         models = client.models.list()
         model_names = []
         for m in models:
+            # Extract model name
             name = getattr(m, 'name', '')
-            # Extract model ID from 'models/gemini-2.5-flash' format
-            if 'models/' in name:
-                model_id = name.split('models/')[-1]
-                model_names.append(model_id)
+            if name:
+                # Model names come as 'models/gemini-2.5-flash' format
+                # Extract just the model ID
+                if 'models/' in name:
+                    model_id = name.split('models/')[-1]
+                    model_names.append(model_id)
+                else:
+                    model_names.append(name)
         return sorted(list(set(model_names))) if model_names else None
-    except Exception:
+    except Exception as e:
+        # Silently fail for caching purposes
         return None
 
 def validate_ai_connection() -> bool:
     """Attempt a minimal generate_content call to verify the API key/model works.
     Returns True if a response is obtained, else False.
+    Per official API: https://ai.google.dev/gemini-api/docs/quickstart
     """
     client = get_genai_client()
     if not client:
         return False
     try:
-        mdl = f"{model_choice}-latest" if model_choice != "Auto" else "gemini-2.5-flash-latest"
-        resp = client.models.generate_content(model=mdl, contents="ping")
-        return bool(getattr(resp, "text", None))
+        # Use proper content structure per official API
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[{"parts": [{"text": "ping"}]}]
+        )
+        return bool(resp and hasattr(resp, 'text') and resp.text)
     except Exception as e:
-        st.session_state["ai_error"] = f"{e} (model: {mdl})"
+        st.session_state["ai_error"] = f"{e}"
         return False
 
 @st.cache_data(ttl=3600)
@@ -1507,7 +1555,7 @@ with st.sidebar:
     if gemini_api_key:
         available_models = get_available_models(gemini_api_key)
     
-    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-flash-lite"])
+    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"])
     model_choice = st.selectbox("Model", model_options, index=0)
     
     # Preview before activation
