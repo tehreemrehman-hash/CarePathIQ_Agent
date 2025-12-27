@@ -1964,183 +1964,113 @@ for i, p in enumerate(PHASES):
 
 st.markdown("---")
 
+"""
+REPLACED CORRUPTED PHASE 1 BLOCK WITH CLEAN IMPLEMENTATION
+"""
 # --- PHASE 1 ---
 if "Scope" in phase:
-    # 1. TRIGGER FUNCTIONS (Callbacks)
+    # 1) Draft helper
     def trigger_p1_draft():
-        # Only trigger if both fields have text
-        c = st.session_state.p1_cond_input
-        s = st.session_state.p1_setting
-        if c and s:
-            prompt = f"""
-            Act as a Chief Medical Officer. For '{c}' in '{s}', generate a single JSON object with these 4 keys:
-            1. "inclusion": Detailed inclusion criteria (formatted as a numbered list).
-            2. "exclusion": Detailed exclusion criteria (formatted as a numbered list).
-            3. "problem": A problem statement referencing care variation.
-    # File upload for Phase 1 refinement (compact side-by-side)
-            """
-            with ai_activity("Drafting Phase 1 content…"):
-        st.caption("Supporting Document (optional)")
-            if data:
-                # Use the helper to enforce numbered lists formatting
-                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
-                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
-                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-    with col_text:
-        st.text_area(
-            "Refinement Notes",
-            placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-            key="p1_refine_input",
-            label_visibility="visible",
-            height=90
-        )
-            current_data = st.session_state.data['phase1']
-            prompt = f"""
-            Update the following clinical pathway sections based on this specific user feedback: "{refinement_text}"
-            
-            Current Data:
-            - Inclusion: {current_data['inclusion']}
-            - Exclusion: {current_data['exclusion']}
-            - Problem: {current_data['problem']}
-            - Objectives: {current_data['objectives']}
-            
-            Return a JSON object with the updated keys: "inclusion", "exclusion", "problem", "objectives".
-            """
-            with ai_activity("Applying refinements to Phase 1 content…"):
-                data = get_gemini_response(prompt, json_mode=True)
-                if data:
-                    st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
-                    st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
-                    st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                    st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                else:
-                    st.error("Failed to apply refinements. Please try again.")
+        c = st.session_state.get('p1_cond_input', '').strip()
+        s = st.session_state.get('p1_setting', '').strip()
+        if not (c and s):
+            return
+        prompt = f"""
+        Act as a Chief Medical Officer. For "{c}" in "{s}", return a JSON object with keys:
+        inclusion, exclusion, problem, objectives. Make inclusion/exclusion numbered lists.
+        """
+        with ai_activity("Drafting Phase 1 content…"):
+            data = get_gemini_response(prompt, json_mode=True)
+        if data and isinstance(data, dict):
+            st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+            st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
+            st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+            st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
 
-    # 2. SYNC FUNCTION (General)
+    # 2) Sync helpers
     def sync_p1_widgets():
         st.session_state.data['phase1']['condition'] = st.session_state.get('p1_cond_input', '')
+        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
         st.session_state.data['phase1']['inclusion'] = st.session_state.get('p1_inc', '')
         st.session_state.data['phase1']['exclusion'] = st.session_state.get('p1_exc', '')
-        st.session_state.data['phase1']['setting'] = st.session_state.get('p1_setting', '')
         st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
 
     def sync_and_draft():
-        """Persist current inputs, then trigger draft generation."""
         sync_p1_widgets()
         trigger_p1_draft()
 
-    # Always seed widget keys from saved data without clobbering in-progress input
-    st.session_state.setdefault('p1_cond_input', st.session_state.data['phase1'].get('condition', ''))
-    st.session_state.setdefault('p1_setting',    st.session_state.data['phase1'].get('setting', ''))
-    st.session_state.setdefault('p1_inc',        st.session_state.data['phase1'].get('inclusion', ''))
-    st.session_state.setdefault('p1_exc',        st.session_state.data['phase1'].get('exclusion', ''))
-    st.session_state.setdefault('p1_prob',       st.session_state.data['phase1'].get('problem', ''))
-    st.session_state.setdefault('p1_obj',        st.session_state.data['phase1'].get('objectives', ''))
-    
+    # 3) Seed widget values
+    p1 = st.session_state.data['phase1']
+    st.session_state.setdefault('p1_cond_input', p1.get('condition', ''))
+    st.session_state.setdefault('p1_setting',    p1.get('setting', ''))
+    st.session_state.setdefault('p1_inc',        p1.get('inclusion', ''))
+    st.session_state.setdefault('p1_exc',        p1.get('exclusion', ''))
+    st.session_state.setdefault('p1_prob',       p1.get('problem', ''))
+    st.session_state.setdefault('p1_obj',        p1.get('objectives', ''))
+
+    # 4) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
-    styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
-    
-    col1, col2 = st.columns([1, 1])
-                        with c1:
+    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent drafts the rest automatically.")
+
+    col1, col2 = st.columns(2)
+    with col1:
         st.subheader("1. Clinical Focus")
-        # SPECIFIC TRIGGER ON CARE SETTING CHANGE via on_change
-        cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
-                                        Open Preview ↗
-        setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_and_draft)
-        
+        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
+        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_and_draft)
+
         st.subheader("2. Target Population")
-        st.text_area(
-            "Inclusion Criteria",
-            height=compute_textarea_height(st.session_state.get('p1_inc', ''), min_rows=14),
-            key="p1_inc",
-            on_change=sync_p1_widgets,
-        )
-        st.text_area(
-            "Exclusion Criteria",
-            height=compute_textarea_height(st.session_state.get('p1_exc', ''), min_rows=14),
-            key="p1_exc",
-            on_change=sync_p1_widgets,
-        )
-        
+        st.text_area("Inclusion Criteria", key="p1_inc", height=compute_textarea_height(st.session_state.get('p1_inc',''), 14), on_change=sync_p1_widgets)
+        st.text_area("Exclusion Criteria", key="p1_exc", height=compute_textarea_height(st.session_state.get('p1_exc',''), 14), on_change=sync_p1_widgets)
+
     with col2:
         st.subheader("3. Clinical Gap / Problem Statement")
-        st.text_area(
-            "Problem Statement / Clinical Gap",
-            height=compute_textarea_height(st.session_state.get('p1_prob', ''), min_rows=12),
-            key="p1_prob",
-            on_change=sync_p1_widgets,
-            label_visibility="collapsed",
-        )
-        
-        st.subheader("4. Goals")
-        st.text_area(
-            "Project Goals",
-            height=compute_textarea_height(st.session_state.get('p1_obj', ''), min_rows=14),
-            key="p1_obj",
-            on_change=sync_p1_widgets,
-            label_visibility="collapsed",
-        )
+        st.text_area("Problem Statement / Clinical Gap", key="p1_prob", height=compute_textarea_height(st.session_state.get('p1_prob',''), 12), on_change=sync_p1_widgets, label_visibility="collapsed")
 
-    # Manual Trigger Button using Callback
+        st.subheader("4. Goals")
+        st.text_area("Project Goals", key="p1_obj", height=compute_textarea_height(st.session_state.get('p1_obj',''), 14), on_change=sync_p1_widgets, label_visibility="collapsed")
+
     if st.button("Regenerate", key="regen_draft"):
         trigger_p1_draft()
 
     st.divider()
-    
-    # Natural Language Refinement Section
     st.subheader("Refine & Regenerate")
-    
-    # File upload for Phase 1 refinement
-    col_file, col_text = st.columns([1, 2])
+
+    # 5) Refinement row: uploader left, notes right
+    col_file, col_text = st.columns([1,2])
     with col_file:
-        st.markdown("**📎 Supporting Document**")
-        p1_uploaded = st.file_uploader(
-            "Drag & drop or browse",
-            key="p1_file_upload",
-            accept_multiple_files=False,
-            label_visibility="collapsed"
-        )
+        st.caption("Supporting Document (optional)")
+        p1_uploaded = st.file_uploader("Drag & drop or browse", key="p1_file_upload", accept_multiple_files=False, label_visibility="collapsed")
         if p1_uploaded:
             file_result = upload_and_review_file(p1_uploaded, "p1_refine", "clinical scope and charter")
             if file_result:
                 with st.expander("File Review", expanded=True):
                     st.markdown(file_result["review"])
-    
-    st.text_area(
-        "Refinement instructions",
-        placeholder="E.g., 'Make the inclusion criteria strictly for patients over 65'...",
-        key="p1_refine_input",
-        label_visibility="collapsed",
-    )
-    
-    # Reset refinement applied flag if text area content changes
-    if 'p1_last_refine_input' not in st.session_state:
-        st.session_state['p1_last_refine_input'] = ""
-    
-    current_p1_refine = st.session_state.get('p1_refine_input', '').strip()
-    if current_p1_refine != st.session_state['p1_last_refine_input']:
-        st.session_state['p1_refinement_applied'] = False
-        st.session_state['p1_last_refine_input'] = current_p1_refine
-    
-    # Check if refinements were just applied
-    p1_refinement_applied = st.session_state.get('p1_refinement_applied', False)
-    
-    # Determine button type and label
-    p1_refine_button_type = "primary" if p1_refinement_applied else "secondary"
-    p1_refine_button_label = "Applied" if p1_refinement_applied else "Apply Refinements"
-    
-    if st.button(p1_refine_button_label, type=p1_refine_button_type, key="p1_apply_refine_btn"):
-        if not p1_refinement_applied:
-            # Include uploaded file context in refinement
-            refinement_text = st.session_state.p1_refine_input
+    with col_text:
+        st.text_area("Refinement Notes", placeholder="Clarify inclusion criteria; tighten scope; align objectives", key="p1_refine_input", height=90)
+
+    # 6) Apply refinements
+    if st.button("Apply Refinements", key="p1_apply_refine_btn"):
+        refinement_text = st.session_state.get('p1_refine_input', '').strip()
+        if refinement_text:
             if st.session_state.get("file_p1_refine_review"):
-                refinement_text += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p1_refine_review')}"
-            st.session_state.p1_refine_input = refinement_text
-            apply_refinements()
-            st.session_state['p1_refinement_applied'] = True
-            st.success("Phase 1 refinements applied successfully!")
+                refinement_text += f"\n\nSupporting Document:\n{st.session_state.get('file_p1_refine_review')}"
+            current = st.session_state.data['phase1']
+            prompt = f"""
+            Update the following sections based on this user feedback: "{refinement_text}"
+            Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
+            Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
+            """
+            with ai_activity("Applying refinements to Phase 1 content…"):
+                data = get_gemini_response(prompt, json_mode=True)
+            if data and isinstance(data, dict):
+                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
+                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+                st.success("Phase 1 refinements applied successfully!")
+            else:
+                st.error("Failed to apply refinements. Please try again.")
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -2891,28 +2821,17 @@ elif "Interface" in phase or "UI" in phase:
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
         st.subheader("Pathway Visualization")
-                if svg_b64:
-                        c1, c2 = st.columns([1, 1])
-                        with c1:
-                                open_html = f"""
-                                <div style='width:100%;'>
-                                    <a class="cpq-link-button" href="data:image/svg+xml;base64,{svg_b64}" target="_blank">
-                                        Open Fullscreen Visualization
-                                    </a>
-                                </div>
-                                <style>
-                                    .cpq-link-button {
-                                        display: flex; align-items: center; justify-content: center;
-                                        width: 100%; padding: 10px 14px; border-radius: 5px;
-                                        background-color: #5D4037; color: #fff; text-decoration: none;
-                                        border: 1px solid #5D4037; font-weight: 600; height: 42px;
-                                    }
-                                    .cpq-link-button:hover { background-color: #3E2723; border-color: #3E2723; color: #fff; }
-                                </style>
-                                """
-                                components.html(open_html, height=52)
-                        with c2:
-                            st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+        if svg_b64:
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                open_html = f"""
+                <div style='width:100%;'>
+                  <a class=\"cpq-link-button\" href=\"data:image/svg+xml;base64,{svg_b64}\" target=\"_blank\">Open Preview ↗</a>
+                </div>
+                """
+                components.html(open_html, height=52)
+            with c2:
+                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
         else:
             st.warning("Unable to render pathway visualization")
 
