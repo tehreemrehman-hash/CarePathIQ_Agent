@@ -46,9 +46,13 @@ def create_education_module_template(
     # Build professional, pathway-focused header
     condition_display = condition.strip() if condition else "Pathway"
     condition_display = condition_display.title()
-    header_display = f"{condition_display} Pathway"
-    if care_setting:
-        header_display = f"{condition_display} Pathway — {care_setting}"
+    care_setting_display = care_setting.strip().title() if care_setting else ""
+    
+    # Dynamic title based on Phase 1 inputs
+    if care_setting_display:
+        header_display = f"{condition_display} Pathway — {care_setting_display}"
+    else:
+        header_display = f"{condition_display} Pathway"
 
     # Provide a minimal default module if none supplied (ensures Start works)
     if not topics:

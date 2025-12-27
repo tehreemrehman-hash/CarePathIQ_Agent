@@ -349,7 +349,8 @@ def generate_expert_form_html(
     <div class="container">
         <div class="header">
             <h1>Expert Panel Feedback</h1>
-            <p style="font-size: 1.05em; color: var(--brown-dark); margin-bottom: 12px; line-height: 1.6;">{pathway_title}</p>
+            <p style="font-size: 1.05em; color: var(--brown-dark); margin-bottom: 8px; line-height: 1.6;">{pathway_title}</p>
+            <p style="font-size:0.9em;margin-top:5px;color:#666;">Target Audience: {audience} | {organization}</p>
             {pathway_button_html}
         </div>
 
@@ -535,7 +536,8 @@ def generate_beta_form_html(
     nodes: list,
     audience: str = "Clinical Team",
     organization: str = "CarePathIQ",
-    pathway_svg_b64: str = None
+    pathway_svg_b64: str = None,
+    care_setting: str = ""
 ) -> str:
     """
     Generate simplified beta testing form focused on:
@@ -550,12 +552,21 @@ def generate_beta_form_html(
         audience: Target audience description
         organization: Organization name
         pathway_svg_b64: Base64-encoded SVG of pathway visualization (optional)
+        care_setting: Care setting/environment (e.g., "Emergency Department")
         
     Returns:
         Complete standalone HTML string
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
+    condition_clean = (condition or "Pathway").strip()
+    care_setting_clean = (care_setting or "").strip()
+    if care_setting_clean:
+        pathway_title = f"Pathway: Managing {condition_clean} in {care_setting_clean}"
+        page_title = f"Beta Testing Guide: {condition_clean} ({care_setting_clean})"
+    else:
+        pathway_title = f"Pathway: Managing {condition_clean}"
+        page_title = f"Beta Testing Guide: {condition_clean}"
     
     # Prepare pathway view button if SVG is provided
     pathway_button_html = ""
@@ -587,7 +598,7 @@ function openPathway() {{
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{condition} — Beta Testing</title>
+<title>{page_title}</title>
 <style>
 {SHARED_CSS}
 .scenario-card {{background:#fff;border:2px solid var(--border-gray);border-radius:8px;padding:20px;margin-bottom:20px}}
@@ -623,8 +634,8 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <body>
 <div class="container">
 <div class="header">
-<h1>{condition} — Beta Testing Form</h1>
-<p style="margin-top:8px">Test the clinical pathway end-to-end using 3 scenarios and evaluate usability</p>
+<h1>Beta Testing Guide</h1>
+<p style="margin-top:8px;font-size:1.1em">{pathway_title}</p>
 <p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
 {pathway_button_html}
 </div>

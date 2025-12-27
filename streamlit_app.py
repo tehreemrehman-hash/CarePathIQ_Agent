@@ -37,6 +37,76 @@ def columns_top(spec, **kwargs):
     except TypeError:
         return st.columns(spec, **kwargs)
 
+# Unified status UI for AI tasks
+@contextmanager
+def ai_activity(label="Working with the AI agent…"):
+    with st.status(label, expanded=False) as status:
+        try:
+            yield status
+            status.update(label="Ready!", state="complete")
+        except Exception:
+            status.update(label="There was a problem completing this step.", state="error")
+            st.error("Please try again or adjust your input.")
+            return
+
+
+def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
+    """Regenerate Phase 3 nodes based on user refinement notes and optional heuristics context."""
+    refine_text = (refine_text or "").strip()
+    if not refine_text:
+        return None
+
+    cond = st.session_state.data['phase1'].get('condition') or "Pathway"
+    setting = st.session_state.data['phase1'].get('setting') or "care setting"
+    evidence_list = st.session_state.data['phase2'].get('evidence', [])
+
+    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+
+    heuristics_summary = ""
+    if heuristics_data:
+        bullet_lines = []
+        for key, val in heuristics_data.items():
+            try:
+                label = val.get('label', key)
+                recs = val.get('recommendations', [])
+                if recs:
+                    bullet_lines.append(f"- {label}: {recs[0]}")
+            except Exception:
+                continue
+        if bullet_lines:
+            heuristics_summary = "\nHeuristics guidance:\n" + "\n".join(bullet_lines[:5])
+
+    prompt = f"""
+    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
+
+    Current pathway for {cond} in {setting}:
+    {json.dumps(nodes, indent=2)}
+
+    Available Evidence:
+    {ev_context}
+
+    User's refinement request: "{refine_text}"
+    {heuristics_summary}
+
+    Apply the requested changes while maintaining:
+    - CGT/Ad/it principles and Medical Decision Analysis best practices
+    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+    - Actionable steps with medical acronyms for brevity
+    - Specific discharge details (prescriptions with dose/route, referrals)
+    - Evidence citations (PMIDs where applicable)
+
+    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
+    Rules:
+    - type in [Start, Decision, Process, End]
+    - First node: type "Start", label "patient present to {setting} with {cond}"
+    - NO node count limit - build complete clinical flow
+    - If >20 nodes, organize into sections or sub-pathways
+    - End nodes must be terminal single outcomes (no "or" phrasing)
+    - Consecutive decision nodes are allowed when logic requires it
+    """
+
+    return get_gemini_response(prompt, json_mode=True)
+
 # --- LIBRARY HANDLING ---
 try:
     from docx import Document
@@ -363,6 +433,17 @@ st.markdown("""
     div[data-testid="stTable"] tbody tr:has(input[type="checkbox"]:checked) td {
         background-color: #FFB0C9 !important;
     }
+
+    /* DATA TABLES — enable text wrapping for easier scanning */
+    div[data-testid="stDataFrame"] table,
+    div[data-testid="stTable"] table {
+        table-layout: fixed !important;
+    }
+    div[data-testid="stDataFrame"] td, div[data-testid="stDataFrame"] th,
+    div[data-testid="stTable"] td, div[data-testid="stTable"] th {
+        white-space: normal !important;
+        word-break: break-word !important;
+    }
     
     /* BOTTOM NAVIGATION */
     /* Hide only Streamlit's default footer, not custom navigation */
@@ -441,7 +522,7 @@ st.markdown("""
 # Integrating phase 5 helper functions into the Streamlit app
 
 # Importing necessary functions from phase5_helpers
-from phase5_helpers import CAREPATHIQ_COLORS, CAREPATHIQ_FOOTER, SHARED_CSS
+from phase5_helpers import CAREPATHIQ_COLORS, CAREPATHIQ_FOOTER, SHARED_CSS, ensure_carepathiq_branding
 
 # CONSTANTS
 COPYRIGHT_MD = "\n\n---\n**© 2024 CarePathIQ by Tehreem Rehman.** Licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)."
@@ -539,6 +620,11 @@ def render_bottom_navigation():
                 if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", use_container_width=True, type="primary"):
                     st.session_state.current_phase_label = next_phase
                     st.rerun()
+        # Always render brand/licensing footer before any phase stop()
+        try:
+            st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
+        except Exception:
+            pass
 
 def calculate_granular_progress():
     """
@@ -602,16 +688,16 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
     """
     if not uploaded_file:
         return None
-    
+
     client = get_genai_client()
     if not client:
         st.error("API connection error. Cannot upload file.")
         return None
-    
+
     try:
         # Read file bytes
         file_bytes = uploaded_file.read()
-        
+
         # Build MIME type
         mime_type = uploaded_file.type or "application/octet-stream"
         if uploaded_file.name.endswith('.pdf'):
@@ -620,105 +706,27 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
             mime_type = 'text/plain'
         elif uploaded_file.name.endswith('.md'):
             mime_type = 'text/markdown'
-        
+
         # Upload to Gemini Files API
         from io import BytesIO
         file_obj = BytesIO(file_bytes)
-        file_obj.name = uploaded_file.name
-        
-        file_response = client.files.create(file=(uploaded_file.name, file_obj, mime_type))
-        file_uri = file_response.uri
-        
-        # Auto-review: ask AI to create markdown summary
-        review_prompt = f"""Create a concise markdown summary of this document with:
-1. **Overview**: 1-2 sentence purpose/summary
-2. **Key Points**: Bulleted list of main takeaways (5-10 items)
-3. **Relevance**: How this applies to {context if context else 'clinical pathways'}
-
-Be brief and focus on actionable insights."""
-        
-        review_response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                {"text": review_prompt},
-                {"file_data": {"file_uri": file_uri, "mime_type": mime_type}}
-            ]
+        uploaded = client.files.upload(
+            file=file_obj,
+            mime_type=mime_type,
+            display_name=uploaded_file.name,
         )
-        
-        review_text = review_response.text if hasattr(review_response, 'text') else ""
-        
-        # Store in session for later use in refinement
-        st.session_state[f"file_{phase_key}_uri"] = file_uri
-        st.session_state[f"file_{phase_key}_review"] = review_text
-        st.session_state[f"file_{phase_key}_name"] = uploaded_file.name
-        
+
+        review_text = review_document(uploaded.uri, context)
+        st.session_state[f"file_{phase_key}"] = f"File: {uploaded.display_name} ({uploaded.uri})"
         return {
             "review": review_text,
-            "file_uri": file_uri,
-            "filename": uploaded_file.name
+            "file_uri": uploaded.uri,
+            "filename": uploaded.display_name,
         }
-    
     except Exception as e:
-        st.error(f"File upload failed: {str(e)}")
+        st.error(f"File upload failed: {e}")
         return None
 
-def auto_grade_evidence_list(evidence_list):
-    """Assign GRADE and rationale for a list of evidence items in-place using the existing AI helper.
-    Falls back to safe defaults when the AI response is missing or malformed.
-    """
-    try:
-        payload = [
-            {k: v for k, v in e.items() if k in ["id", "title"]}
-            for e in evidence_list if e.get("id") and e.get("title")
-        ]
-        if not payload:
-            for e in evidence_list:
-                e.setdefault("grade", "Un-graded")
-                e.setdefault("rationale", "Not yet evaluated.")
-            return
-        prompt = (
-            "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', 'Very Low (D)') "
-            "and provide a brief Rationale (1-2 sentences) for each article. "
-            f"{json.dumps(payload)}. "
-            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
-            "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
-        )
-        grades = get_gemini_response(prompt, json_mode=True)
-        if isinstance(grades, dict):
-            for e in evidence_list:
-                pmid_str = str(e.get("id", ""))
-                g = grades.get(pmid_str)
-                if isinstance(g, dict):
-                    e["grade"] = g.get("grade", e.get("grade", "Un-graded"))
-                    e["rationale"] = g.get("rationale", e.get("rationale", "Not provided."))
-        # ensure defaults
-        for e in evidence_list:
-            e.setdefault("grade", "Un-graded")
-            e.setdefault("rationale", "Not yet evaluated.")
-    except Exception:
-        for e in evidence_list:
-            e.setdefault("grade", "Un-graded")
-            e.setdefault("rationale", "Not yet evaluated.")
-
-def export_widget(content, filename, mime_type="text/plain", label="Download"):
-    final_content = content
-    if "text" in mime_type or "csv" in mime_type or "markdown" in mime_type:
-        if isinstance(content, str):
-            final_content = content + COPYRIGHT_MD
-    st.download_button(label, final_content, filename, mime_type)
-
-@contextmanager
-def ai_activity(label="Working with the AI agent…"):
-    """Unified, clean status UI for AI tasks; suppresses tracebacks."""
-    with st.status(label, expanded=False) as status:
-        try:
-            yield status
-            status.update(label="Ready!", state="complete")
-        except Exception:
-            status.update(label="There was a problem completing this step.", state="error")
-            st.error("Please try again or adjust your input.")
-            # Swallow exception to avoid exposing internals
-            return
 
 def create_formsubmit_html(form_html: str) -> str:
     """
@@ -1242,6 +1250,15 @@ def create_references_docx(citations, style="APA"):
     for idx, entry in enumerate(citations, start=1):
         line = format_citation_line(entry, style)
         doc.add_paragraph(f"{idx}. {line}")
+    # Add licensing/footer similar to other DOCX exports
+    try:
+        section = doc.sections[0]
+        footer = section.footer
+        p = footer.paragraphs[0]
+        p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    except Exception:
+        pass
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
 
@@ -2014,8 +2031,13 @@ if "Scope" in phase:
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
 
     def sync_and_draft():
+        # First sync widget values to session state, then request a rerun
+        # so the UI reflects the new values immediately.
+        # We set a flag to perform the AI draft on the next run to avoid
+        # blocking the UI refresh while the network call executes.
         sync_p1_widgets()
-        trigger_p1_draft()
+        st.session_state['p1_should_draft'] = True
+        st.rerun()
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
@@ -2025,6 +2047,12 @@ if "Scope" in phase:
     st.session_state.setdefault('p1_exc',        p1.get('exclusion', ''))
     st.session_state.setdefault('p1_prob',       p1.get('problem', ''))
     st.session_state.setdefault('p1_obj',        p1.get('objectives', ''))
+
+    # If a widget change requested an auto-draft, run it now on the main pass
+    # (after the immediate UI refresh) and then clear the flag.
+    if st.session_state.get('p1_should_draft'):
+        st.session_state['p1_should_draft'] = False
+        trigger_p1_draft()
 
     # 4) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
@@ -2046,48 +2074,6 @@ if "Scope" in phase:
 
         st.subheader("4. Goals")
         st.text_area("Project Goals", key="p1_obj", height=compute_textarea_height(st.session_state.get('p1_obj',''), 14), on_change=sync_p1_widgets, label_visibility="collapsed")
-
-    if st.button("Regenerate", key="regen_draft"):
-        trigger_p1_draft()
-
-    st.divider()
-    st.subheader("Refine & Regenerate")
-
-    # 5) Refinement row: uploader left, notes right
-    col_file, col_text = st.columns([1,2])
-    with col_file:
-        st.caption("Supporting Document (optional)")
-        p1_uploaded = st.file_uploader("Drag & drop or browse", key="p1_file_upload", accept_multiple_files=False, label_visibility="collapsed")
-        if p1_uploaded:
-            file_result = upload_and_review_file(p1_uploaded, "p1_refine", "clinical scope and charter")
-            if file_result:
-                with st.expander("File Review", expanded=True):
-                    st.markdown(file_result["review"])
-    with col_text:
-        st.text_area("Refinement Notes", placeholder="Clarify inclusion criteria; tighten scope; align objectives", key="p1_refine_input", height=90)
-
-    # 6) Apply refinements
-    if st.button("Apply Refinements", key="p1_apply_refine_btn"):
-        refinement_text = st.session_state.get('p1_refine_input', '').strip()
-        if refinement_text:
-            if st.session_state.get("file_p1_refine_review"):
-                refinement_text += f"\n\nSupporting Document:\n{st.session_state.get('file_p1_refine_review')}"
-            current = st.session_state.data['phase1']
-            prompt = f"""
-            Update the following sections based on this user feedback: "{refinement_text}"
-            Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
-            Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
-            """
-            with ai_activity("Applying refinements to Phase 1 content…"):
-                data = get_gemini_response(prompt, json_mode=True)
-            if data and isinstance(data, dict):
-                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
-                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
-                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                st.success("Phase 1 refinements applied successfully!")
-            else:
-                st.error("Failed to apply refinements. Please try again.")
 
     st.divider()
     st.subheader("5. Project Timeline (Gantt Chart)")
@@ -2159,6 +2145,62 @@ if "Scope" in phase:
                         st.download_button("Download Project Charter (.docx)", doc, f"Project_Charter_{d['condition']}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                     else:
                         status.update(label="Word export unavailable. Please ensure python-docx is installed.", state="error")
+
+    # Refine & Regenerate (placed below charter so edits can be made, then re-generate)
+    st.divider()
+    submitted = False
+    with st.expander("Refine & Regenerate", expanded=False):
+        with st.form("p1_refine_form"):
+            col_file, col_text = st.columns([1, 2])
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p1_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p1_file_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed",
+                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
+                )
+                if p1_uploaded:
+                    file_result = upload_and_review_file(p1_uploaded, "p1_refine", "clinical scope and charter")
+                    if file_result:
+                        with st.expander("File Review", expanded=False):
+                            st.markdown(file_result["review"])
+
+            with col_text:
+                st.text_area(
+                    "Refinement Notes",
+                    key="p1_refine_input",
+                    placeholder="Clarify inclusion criteria; tighten scope; align objectives",
+                    height=90,
+                    help="Describe what to change. After applying, click Generate Project Charter above again."
+                )
+
+            spacer, submit_col = st.columns([5, 2])
+            with submit_col:
+                submitted = st.form_submit_button("Apply Refinements", use_container_width=True)
+
+    if submitted:
+        refinement_text = st.session_state.get('p1_refine_input', '').strip()
+        if refinement_text:
+            if st.session_state.get("file_p1_refine_review"):
+                refinement_text += f"\n\nSupporting Document:\n{st.session_state.get('file_p1_refine_review')}"
+            current = st.session_state.data['phase1']
+            prompt = f"""
+            Update the following sections based on this user feedback: "{refinement_text}"
+            Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
+            Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
+            """
+            with ai_activity("Applying refinements to Phase 1 content…"):
+                data = get_gemini_response(prompt, json_mode=True)
+            if data and isinstance(data, dict):
+                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
+                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+                st.success("Refinements applied. Click 'Generate Project Charter' above to refresh the document.")
+            else:
+                st.error("Failed to apply refinements. Please try again.")
     render_bottom_navigation()
     st.stop()
 
@@ -2390,46 +2432,22 @@ elif "Evidence" in phase or "Appraise" in phase:
                     full_export_df = full_df[["id", "title", "grade", "rationale", "url", "journal", "year", "authors", "abstract"]].copy()
                     full_export_df.columns = ["PMID", "Title", "GRADE", "GRADE Rationale", "URL", "Journal", "Year", "Authors", "Abstract"]
                     csv_data_full = full_export_df.to_csv(index=False).encode('utf-8')
+                    # Centered download button beneath the section
+                    dl_l, dl_c, dl_r = st.columns([1,2,1])
+                    with dl_c:
+                        st.download_button("Download (CSV)", csv_data_full, file_name="evidence_table.csv", mime="text/csv", use_container_width=True)
 
             with c2:
                 if show_citations:
                     st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
                     citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
                     references_source = display_data if display_data else evidence_data
-
-            # Align download/preview buttons in two columns
-            btn_c1, btn_c2 = st.columns(2)
-            with btn_c1:
-                if show_table:
-                    # Preview: render table in a simple HTML page
-                    table_html = full_export_df.to_html(index=False)
-                    preview_html = f"<html><head><title>Evidence Table</title></head><body style='font-family:Segoe UI,Arial,sans-serif;padding:16px'>{table_html}</body></html>"
-                    preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
-                    pc1, pc2 = st.columns([1,1])
-                    with pc1:
-                        components.html(
-                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
-                            height=52,
-                        )
-                    with pc2:
-                        st.download_button("Download (CSV)", csv_data_full, file_name="evidence_table.csv", mime="text/csv", use_container_width=True)
-
-            with btn_c2:
-                if show_citations:
-                    # Build citation lines
+                    # Build citation lines and centered download
                     citations = references_source or []
                     lines = [format_citation_line(entry, citation_style) for entry in citations]
-                    cite_html = "<ol>" + "".join([f"<li>{l}</li>" for l in lines]) + "</ol>"
-                    preview_html = f"<html><head><title>Citations</title></head><body style='font-family:Segoe UI,Arial,sans-serif;padding:16px'>{cite_html}</body></html>"
-                    preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
-                    dc1, dc2 = st.columns([1,1])
-                    with dc1:
-                        components.html(
-                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
-                            height=52,
-                        )
-                    with dc2:
-                        docx_bytes = create_references_docx(citations, style=citation_style)
+                    docx_bytes = create_references_docx(citations, style=citation_style)
+                    dl2_l, dl2_c, dl2_r = st.columns([1,2,1])
+                    with dl2_c:
                         if docx_bytes:
                             st.download_button("Download (DOC)", docx_bytes, file_name="citations.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
                         else:
@@ -2520,6 +2538,8 @@ elif "Decision" in phase or "Tree" in phase:
         
         Rules:
         - First node: type "Start", label "patient present to {setting} with {cond}"
+        - Consecutive decision nodes are allowed when the logic requires back-to-back branching (do NOT force a process node between decision nodes)
+        - End nodes must be terminal single-outcome statements; NEVER include "or" (e.g., "discharge OR admit") in an End label. If alternatives exist, create a Decision node (e.g., "Discharge vs Admit") with explicit branches.
         - Focus on ACTION and SPECIFICITY (e.g., "Order CBC, BMP, troponin" not "Order labs")
         - Use BREVITY with standard medical abbreviations
         - Include discharge details: specific prescriptions (drug, dose, route) and outpatient referrals when applicable
@@ -2577,6 +2597,19 @@ elif "Decision" in phase or "Tree" in phase:
     
     # Display pathway metrics with evidence enrichment
     node_count = len(st.session_state.data['phase3']['nodes'])
+
+    # Flag problematic terminal nodes that include OR logic
+    problematic_ends = [
+        (idx + 1, n.get('label', ''))
+        for idx, n in enumerate(st.session_state.data['phase3']['nodes'])
+        if n.get('type') == 'End' and ' or ' in n.get('label', '').lower()
+    ]
+    if problematic_ends:
+        preview = "; ".join([f"{i}: {lbl[:80]}" for i, lbl in problematic_ends[:3]])
+        st.warning(
+            f"End nodes should be single outcomes. Found OR logic in: {preview}. "
+            "Convert these to Decision nodes with explicit branches (e.g., 'Discharge vs Admit')."
+        )
     
     # Extract all PMIDs from Phase 3 nodes
     phase3_pmids = extract_pmids_from_nodes(st.session_state.data['phase3']['nodes'])
@@ -2848,27 +2881,57 @@ elif "Interface" in phase or "UI" in phase:
     with col_left:
         st.subheader("Pathway Visualization")
         if svg_b64:
-            # Build a lightweight HTML wrapper so the preview opens as a full page with the SVG embedded
-            preview_html = f"""
-            <!doctype html>
-            <html><head><meta charset='utf-8'><title>Pathway Visualization</title></head>
-            <body style='margin:0;padding:16px;font-family:Segoe UI,Arial,sans-serif;background:#f8f9fa;'>
-              <h2 style='margin-top:0;'>Pathway Visualization</h2>
-              <img src="data:image/svg+xml;base64,{svg_b64}" alt="Pathway Visualization" style="max-width:100%;height:auto;display:block;border:1px solid #ddd;box-shadow:0 2px 6px rgba(0,0,0,0.08);" />
-            </body></html>
-            """
-            preview_b64 = base64.b64encode(preview_html.encode("utf-8")).decode("utf-8")
+            with st.expander("Open Preview", expanded=False):
+                preview_html = f"""
+                <div id="cpq-preview" style="border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;">
+                    <button id="cpq-zoom-out" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">-</button>
+                    <button id="cpq-zoom-in" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">+</button>
+                    <button id="cpq-fit" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Fit</button>
+                  </div>
+                  <div id="cpq-canvas" style="width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;">
+                    <div id="cpq-inner" style="transform-origin: top left;">
+                      <img id="cpq-svg" src="data:image/svg+xml;base64,{svg_b64}" style="display:block;" />
+                    </div>
+                  </div>
+                </div>
+                <script>
+                  (function() {{
+                    const img = document.getElementById('cpq-svg');
+                    const inner = document.getElementById('cpq-inner');
+                    const canvas = document.getElementById('cpq-canvas');
+                    let scale = 1;
+
+                    function fitToWidth() {{
+                      if (!img.complete) return;
+                      const naturalWidth = img.naturalWidth || img.width;
+                      const available = canvas.clientWidth - 24;
+                      if (naturalWidth > 0 && available > 0) {{
+                        scale = Math.min(1, available / naturalWidth);
+                        apply();
+                      }}
+                    }}
+
+                    function apply() {{
+                      inner.style.transform = `scale(${scale})`;
+                    }}
+
+                    document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); apply(); }};
+                    document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); apply(); }};
+                    document.getElementById('cpq-fit').onclick = () => fitToWidth();
+                    img.onload = fitToWidth;
+                    if (img.complete) fitToWidth();
+                    window.addEventListener('resize', fitToWidth);
+                  }})();
+                </script>
+                """
+                components.html(preview_html, height=520)
 
             c1, c2 = columns_top([1, 1])
             with c1:
-                open_html = f"""
-                <div style='width:100%;'>
-                  <a class="cpq-link-button" style="display:block;text-align:center;" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>
-                </div>
-                """
-                components.html(open_html, height=52)
-            with c2:
                 st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+            with c2:
+                st.caption("Preview opens inline with zoom controls; SVG download remains available.")
         else:
             st.warning("Unable to render pathway visualization")
 
@@ -2899,63 +2962,48 @@ elif "Interface" in phase or "UI" in phase:
 
         st.divider()
 
-        # REFINE AND REGENERATE SECTION
+        # REFINE AND REGENERATE SECTION (collapsed for cleaner UI)
         h_data = p4_state.get('heuristics_data', {})
-        if h_data:
-            st.subheader("Refine & Regenerate")
-
-            # File upload for Phase 4 refinement (compact, no emoji, minimal redundancy)
+        with st.expander("Refine & Regenerate", expanded=False):
             col_file, col_text = columns_top([1, 2])
             with col_file:
                 st.caption("Supporting Document (optional)")
-                p4_uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p4_file_upload",
+                uploaded = st.file_uploader(
+                    "Drag and drop file here",
+                    key="p4_upload",
                     accept_multiple_files=False,
-                    label_visibility="collapsed"
+                    label_visibility="collapsed",
+                    help="Limit 200MB per file"
                 )
-                if p4_uploaded:
-                    file_result = upload_and_review_file(p4_uploaded, "p4_refine", "user interface design")
+                if uploaded:
+                    file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
                     if file_result:
                         with st.expander("File Review", expanded=True):
                             st.markdown(file_result["review"])
 
             with col_text:
-                refine_all = st.text_area(
+                refine_notes = st.text_area(
                     "Refinement Notes",
-                    placeholder="Consolidate redundant steps; add alerts for critical values; use patient‑friendly terms",
-                    key="p4_refine_all",
+                    placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
+                    key="p4_refine_notes",
                     height=120,
                     label_visibility="visible"
                 )
-            if st.button("Apply Refinements", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
-                p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                with ai_activity("Refining pathway with all heuristics and your custom request…"):
-                    # Include file context
-                    refine_with_file = refine_all
-                    if st.session_state.get("file_p4_refine_review"):
-                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_review')}"
-                    ordered_keys = sorted(h_data.keys(), key=lambda hk: int(hk[1:]) if hk[1:].isdigit() else 0)
-                    all_recommendations = "\n".join([f"{hkey}: {h_data[hkey]}" for hkey in ordered_keys])
-                    prompt_refine_all = f"""
-                    Refine and improve the clinical pathway considering ALL Nielsen's heuristics and the user's specific request.
-                    User refinement request: {refine_with_file}
-                    
-                    All heuristic recommendations:
-                    {all_recommendations}
-                    
-                    Current pathway: {json.dumps(nodes)}
-                    
-                    Return ONLY the updated JSON array of nodes incorporating all recommendations and the user's refinement.
-                    """
-                    new_nodes = get_gemini_response(prompt_refine_all, json_mode=True)
-                    if new_nodes and isinstance(new_nodes, list):
-                        st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+
+            apply_disabled = not refine_notes and not st.session_state.get("file_p4_refine_file")
+            if st.button("Apply Refinements", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled):
+                with st.spinner("Applying refinements..."):
+                    refine_with_file = refine_notes
+                    if st.session_state.get("file_p4_refine_file"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_file')}"
+                    refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
+                    if refined:
+                        st.session_state.data['phase3']['nodes'] = refined
                         p4_state['viz_cache'] = {}
-                        st.success("✓ Pathway refined and regenerated successfully!")
+                        st.success("Refinements applied. Regenerated nodes below.")
                         st.rerun()
                     else:
-                        st.error("Failed to refine pathway. Please try again.")
+                        st.warning("Could not apply refinements. Please try different notes or regenerate.")
 
     # RIGHT: Nielsen's heuristics panel
     with col_right:
@@ -2974,9 +3022,13 @@ elif "Interface" in phase or "UI" in phase:
                 category_name = definition.split(':')[0] if ':' in definition else heuristic_key
                 with st.expander(f"**{heuristic_key}** - {category_name}", expanded=False):
                     st.markdown(f"**Definition:** {definition}")
-                    st.markdown("---")
-                    st.markdown(f"**AI Recommendation for Your Pathway:**")
-                    st.info(insight)
+                    st.divider()
+                    st.markdown(f"**AI Recommendation:**")
+                    # White background with black text for consistency
+                    st.markdown(
+                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
+                        unsafe_allow_html=True
+                    )
                     act_left, act_right = st.columns([1, 1])
                     with act_left:
                         if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}", use_container_width=True):
@@ -3046,22 +3098,22 @@ elif "Operationalize" in phase or "Deploy" in phase:
     # 2x2 GRID LAYOUT
     col1, col2 = st.columns(2)
     
-    # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
+        # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
     with col1:
         st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
-        
+
         aud_expert = st.text_input(
             "Target Audience",
             value=st.session_state.get("p5_aud_expert", ""),
-            placeholder="e.g., Clinical Experts (EM, Cardiology, Pharmacy)",
+            placeholder="e.g., Clinical Leaders, Quality & Safety",
             key="p5_aud_expert_input"
         )
-        
+
         # Auto-generate on input change
         if aud_expert and aud_expert != st.session_state.get("p5_aud_expert_prev", ""):
             st.session_state["p5_aud_expert"] = aud_expert
             st.session_state["p5_aud_expert_prev"] = aud_expert
-            with st.spinner("Generating form..."):
+            with st.spinner("Generating expert feedback form..."):
                 expert_html = generate_expert_form_html(
                     condition=cond,
                     nodes=nodes,
@@ -3069,28 +3121,21 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     organization=cond,
                     care_setting=setting
                 )
-                st.session_state.data['phase5']['expert_html'] = expert_html
+                st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
             st.success("Generated!")
-        
-        # Preview + Download (paired controls)
+
         if st.session_state.data['phase5'].get('expert_html'):
             exp_html = st.session_state.data['phase5']['expert_html']
-            exp_b64 = base64.b64encode(exp_html.encode('utf-8')).decode('utf-8')
-            dcol1, dcol2 = st.columns([1,1])
-            with dcol1:
-                components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{exp_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
-                    height=52,
-                )
-            with dcol2:
+            dl_l, dl_c, dl_r = st.columns([1, 2, 1])
+            with dl_c:
                 st.download_button(
                     "Download (HTML)",
                     exp_html,
-                    f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
+                    f"ExpertFeedback_{cond.replace(' ', '_')}.html",
                     "text/html",
                     use_container_width=True
                 )
-        
+
         # Refine section
         col_file, col_text = columns_top([1, 2])
         with col_file:
@@ -3105,7 +3150,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback form")
                 if file_result:
                     with st.expander("File Review", expanded=True):
-                        st.markdown(file_result["review"])        
+                        st.markdown(file_result["review"])
+
         with col_text:
             refine_expert = st.text_area(
                 "Refinement Notes",
@@ -3126,10 +3172,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     organization=cond,
                     care_setting=setting
                 )
-                st.session_state.data['phase5']['expert_html'] = refined_html
+                st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
             st.success("Refined!")
-    
-    # ========== TOP RIGHT: BETA TESTING GUIDE ==========
+
+# ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
         st.markdown(f"<h3>{deliverables['beta']}</h3>", unsafe_allow_html=True)
         
@@ -3149,22 +3195,17 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     condition=cond,
                     nodes=nodes,
                     audience=aud_beta,
-                    organization=cond
+                    organization=cond,
+                    care_setting=setting
                 )
-                st.session_state.data['phase5']['beta_html'] = beta_html
+                st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
             st.success("Generated!")
         
-        # Preview + Download (paired controls)
+        # Download centered
         if st.session_state.data['phase5'].get('beta_html'):
             beta_html = st.session_state.data['phase5']['beta_html']
-            beta_b64 = base64.b64encode(beta_html.encode('utf-8')).decode('utf-8')
-            dcol1, dcol2 = st.columns([1,1])
-            with dcol1:
-                components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{beta_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
-                    height=52,
-                )
-            with dcol2:
+            dl_l, dl_c, dl_r = st.columns([1,2,1])
+            with dl_c:
                 st.download_button(
                     "Download (HTML)",
                     beta_html,
@@ -3205,9 +3246,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     condition=cond,
                     nodes=nodes,
                     audience=st.session_state.get("p5_aud_beta", ""),
-                    organization=cond
+                    organization=cond,
+                    care_setting=setting
                 )
-                st.session_state.data['phase5']['beta_html'] = refined_html
+                st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
             st.success("Refined!")
     
     st.divider()
@@ -3230,63 +3272,153 @@ elif "Operationalize" in phase or "Deploy" in phase:
             st.session_state["p5_aud_edu"] = aud_edu
             st.session_state["p5_aud_edu_prev"] = aud_edu
             with st.spinner("Generating module..."):
-                # Create default educational modules from pathway nodes
+                # Extract learning objectives from Phase 1 charter
+                charter = st.session_state.data['phase1'].get('charter', '')
+                overall_objectives = []
+                if charter:
+                    if 'goals' in charter.lower() or 'objectives' in charter.lower():
+                        lines = charter.split('\n')
+                        for i, line in enumerate(lines):
+                            if any(word in line.lower() for word in ['goal', 'objective', 'aim']):
+                                for j in range(i+1, min(i+5, len(lines))):
+                                    if lines[j].strip().startswith(('-', '•', '*', '1.', '2.', '3.')):
+                                        obj_text = lines[j].strip().lstrip('-•*123456789. ')
+                                        if len(obj_text) > 10:
+                                            overall_objectives.append(obj_text)
+
+                if not overall_objectives:
+                    overall_objectives = [
+                        f"Understand the clinical approach to {cond}",
+                        f"Apply evidence-based decision-making in {setting or 'clinical practice'}",
+                        "Recognize key decision points in the care pathway",
+                        "Implement standardized protocols effectively"
+                    ]
+
+                # Create educational modules from pathway nodes
                 edu_topics = []
-                if nodes:
-                    # Generate modules from pathway decision points
-                    for i, node in enumerate(nodes[:3]):  # Limit to 3 modules
-                        node_name = node.get('name', f'Module {i+1}')
-                        node_desc = node.get('description', f'Clinical decision point: {node_name}')
-                        edu_topics.append({
-                            "title": f"Module {i+1}: {node_name}",
-                            "content": f"<p>{node_desc}</p><p><strong>Key Points:</strong></p><ul><li>Clinical presentation and assessment</li><li>Diagnostic approach</li><li>Management strategy</li></ul>",
-                            "learning_objectives": [
-                                f"Understand {node_name} clinical context",
-                                "Apply evidence-based decision logic",
-                                "Implement recommended pathway"
-                            ],
-                            "quiz": [{
-                                "question": f"Which is the appropriate approach for {node_name}?",
-                                "options": ["Option A", "Option B", "Option C", "Option D"],
+                if nodes and len(nodes) > 1:
+                    decision_nodes = [n for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label', '').strip()]
+                    nodes_per_module = max(1, len(decision_nodes) // 3)
+                    module_groups = [decision_nodes[i:i + nodes_per_module] for i in range(0, len(decision_nodes), nodes_per_module)][:4]
+
+                    for mod_idx, module_nodes in enumerate(module_groups):
+                        if not module_nodes:
+                            continue
+
+                        module_title = module_nodes[0].get('label', f'Module {mod_idx + 1}')
+                        if len(module_title) > 60:
+                            module_title = module_title[:60] + '...'
+
+                        content_html = f"<h4>Pathway Steps</h4>"
+                        quiz_questions = []
+
+                        for node in module_nodes:
+                            node_label = node.get('label', 'Decision point')
+                            node_type = node.get('type', 'Process')
+                            node_evidence = node.get('evidence', 'N/A')
+
+                            content_html += f"<div style='margin: 15px 0; padding: 10px; background: #f8f9fa; border-left: 3px solid #6c757d;'>"
+                            content_html += f"<strong>{node_type}:</strong> {node_label}"
+                            if node_evidence and node_evidence != 'N/A':
+                                content_html += f"<br><small style='color: #666;'>Evidence: {node_evidence}</small>"
+                            content_html += "</div>"
+
+                            if node_type == 'Decision' and len(quiz_questions) < 3:
+                                quiz_questions.append({
+                                    "question": f"What is the recommended approach when: {node_label[:80]}?",
+                                    "options": [
+                                        "Follow the evidence-based pathway protocol",
+                                        "Skip assessment and proceed to treatment",
+                                        "Wait for additional consultation before acting",
+                                        "Defer decision-making to ancillary services"
+                                    ],
+                                    "correct": 0,
+                                    "explanation": f"The pathway recommends following evidence-based protocols. {node_evidence if node_evidence != 'N/A' else ''}"
+                                })
+
+                        content_html += "<h4>Key Clinical Pearls</h4><ul>"
+                        content_html += f"<li>Early recognition and assessment improves outcomes</li>"
+                        content_html += f"<li>Evidence-based pathways reduce variation in care</li>"
+                        content_html += f"<li>Clear documentation supports care coordination</li>"
+                        content_html += "</ul>"
+
+                        if not quiz_questions:
+                            quiz_questions.append({
+                                "question": f"What is a key principle in this module?",
+                                "options": [
+                                    "Follow evidence-based protocols",
+                                    "Skip documentation steps",
+                                    "Delay patient care",
+                                    "Avoid clinical guidelines"
+                                ],
                                 "correct": 0,
-                                "explanation": "This represents the recommended pathway decision."
-                            }],
+                                "explanation": "Evidence-based protocols improve patient outcomes and standardize care."
+                            })
+
+                        edu_topics.append({
+                            "title": f"Module {mod_idx + 1}: {module_title}",
+                            "content": content_html,
+                            "learning_objectives": [
+                                f"Understand decision points in {module_title.lower()}",
+                                "Apply evidence-based clinical reasoning",
+                                "Recognize appropriate care pathway steps"
+                            ],
+                            "quiz": quiz_questions,
                             "time_minutes": 5
                         })
-                else:
-                    # Default modules if no pathway nodes
+
+                if not edu_topics:
                     edu_topics = [
                         {
-                            "title": "Module 1: Pathway Overview",
-                            "content": "<p>Evidence-based approach to clinical decision-making.</p>",
-                            "learning_objectives": ["Understand pathway fundamentals"],
-                            "quiz": [{"question": "What is the first step?", "options": ["A", "B", "C", "D"], "correct": 0, "explanation": "Correct!"}],
+                            "title": f"Module 1: {cond} Pathway Overview",
+                            "content": f"""
+                                <h4>Introduction</h4>
+                                <p>This module introduces the evidence-based clinical pathway for {cond} in {setting or 'clinical practice'}.</p>
+                                
+                                <h4>Core Principles</h4>
+                                <ul>
+                                    <li>Standardized assessment and triage</li>
+                                    <li>Evidence-based decision making</li>
+                                    <li>Coordinated multidisciplinary care</li>
+                                    <li>Clear documentation and communication</li>
+                                </ul>
+                                
+                                <h4>Key Takeaways</h4>
+                                <p>Following standardized pathways improves patient safety, reduces variation, and enhances outcomes.</p>
+                            """,
+                            "learning_objectives": overall_objectives[:3],
+                            "quiz": [{
+                                "question": "What is the primary benefit of using clinical pathways?",
+                                "options": [
+                                    "Standardize care and improve patient safety",
+                                    "Increase documentation burden",
+                                    "Slow down clinical decision-making",
+                                    "Eliminate clinical judgment"
+                                ],
+                                "correct": 0,
+                                "explanation": "Clinical pathways standardize high-quality care while preserving clinical judgment, leading to better outcomes."
+                            }],
                             "time_minutes": 5
                         }
                     ]
-                
+
                 edu_html = create_education_module_template(
                     condition=cond,
                     topics=edu_topics,
                     target_audience=aud_edu,
                     organization=cond,
                     care_setting=setting,
-                    require_100_percent=True
+                    require_100_percent=True,
+                    learning_objectives=overall_objectives[:4]
                 )
-                st.session_state.data['phase5']['edu_html'] = edu_html
+                st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
             st.success("Generated!")
         
-        # Preview + Download (paired controls)
+        # Download centered
         if st.session_state.data['phase5'].get('edu_html'):
             edu_html = st.session_state.data['phase5']['edu_html']
-            edu_b64 = base64.b64encode(edu_html.encode('utf-8')).decode('utf-8')
-            dcol1, dcol2 = st.columns([1,1])
-            with dcol1:
-                components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{edu_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
-                    height=52,
-                )
-            with dcol2:
+            dl_l, dl_c, dl_r = st.columns([1,2,1])
+            with dl_c:
                 st.download_button(
                     "Download (HTML)",
                     edu_html,
@@ -3326,32 +3458,153 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 refine_with_file = refine_edu
                 if st.session_state.get("file_p5_edu_review"):
                     refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
-                # Recreate modules with refinement notes
-                edu_topics = []
-                if nodes:
-                    for i, node in enumerate(nodes[:3]):
-                        node_name = node.get('name', f'Module {i+1}')
-                        node_desc = node.get('description', f'Clinical decision point: {node_name}')
-                        edu_topics.append({
-                            "title": f"Module {i+1}: {node_name}",
-                            "content": f"<p>{node_desc}</p><p><strong>Key Points:</strong></p><ul><li>Clinical presentation and assessment</li><li>Diagnostic approach</li><li>Management strategy</li></ul><p><em>Refinement: {refine_with_file}</em></p>",
-                            "learning_objectives": [
-                                f"Understand {node_name} clinical context",
-                                "Apply evidence-based decision logic",
-                                "Implement recommended pathway"
-                            ],
-                            "quiz": [{"question": f"Which is the appropriate approach for {node_name}?", "options": ["Option A", "Option B", "Option C", "Option D"], "correct": 0, "explanation": "This represents the recommended pathway decision."}],
-                            "time_minutes": 5
-                        })
-                refined_html = create_education_module_template(
-                    condition=cond,
-                    topics=edu_topics,
-                    target_audience=st.session_state.get("p5_aud_edu", ""),
-                    organization=cond,
-                    care_setting=setting,
-                    require_100_percent=True
-                )
-                st.session_state.data['phase5']['edu_html'] = refined_html
+                
+                    # Get existing modules and add refinement notes
+                    existing_html = st.session_state.data['phase5'].get('edu_html', '')
+                    if existing_html:
+                        # Append refinement notes to existing content
+                        edu_topics = []
+                        charter = st.session_state.data['phase1'].get('charter', '')
+                        overall_objectives = []
+                    
+                        # Extract objectives (same as initial generation)
+                        if charter:
+                            lines = charter.split('\n')
+                            for i, line in enumerate(lines):
+                                if any(word in line.lower() for word in ['goal', 'objective', 'aim']):
+                                    for j in range(i+1, min(i+5, len(lines))):
+                                        if lines[j].strip().startswith(('-', '•', '*', '1.', '2.', '3.')):
+                                            obj_text = lines[j].strip().lstrip('-•*123456789. ')
+                                            if len(obj_text) > 10:
+                                                overall_objectives.append(obj_text)
+                    
+                        if not overall_objectives:
+                            overall_objectives = [
+                                f"Understand the clinical approach to {cond}",
+                                f"Apply evidence-based decision-making in {setting or 'clinical practice'}",
+                                "Recognize key decision points in the care pathway",
+                                "Implement standardized protocols effectively"
+                            ]
+                    
+                        # Rebuild modules with refinement
+                        if nodes and len(nodes) > 1:
+                            decision_nodes = [n for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label', '').strip()]
+                            nodes_per_module = max(1, len(decision_nodes) // 3)
+                            module_groups = [decision_nodes[i:i + nodes_per_module] for i in range(0, len(decision_nodes), nodes_per_module)][:4]
+                        
+                            for mod_idx, module_nodes in enumerate(module_groups):
+                                if not module_nodes:
+                                    continue
+                            
+                                module_title = module_nodes[0].get('label', f'Module {mod_idx + 1}')
+                                if len(module_title) > 60:
+                                    module_title = module_title[:60] + '...'
+                            
+                                content_html = f"<h4>Pathway Steps</h4>"
+                                quiz_questions = []
+                            
+                                for node in module_nodes:
+                                    node_label = node.get('label', 'Decision point')
+                                    node_type = node.get('type', 'Process')
+                                    node_evidence = node.get('evidence', 'N/A')
+                                
+                                    content_html += f"<div style='margin: 15px 0; padding: 10px; background: #f8f9fa; border-left: 3px solid #6c757d;'>"
+                                    content_html += f"<strong>{node_type}:</strong> {node_label}"
+                                    if node_evidence and node_evidence != 'N/A':
+                                        content_html += f"<br><small style='color: #666;'>Evidence: {node_evidence}</small>"
+                                    content_html += "</div>"
+                                
+                                    if node_type == 'Decision' and len(quiz_questions) < 3:
+                                        quiz_questions.append({
+                                            "question": f"What is the recommended approach when: {node_label[:80]}?",
+                                            "options": [
+                                                "Follow the evidence-based pathway protocol",
+                                                "Skip assessment and proceed to treatment",
+                                                "Wait for additional consultation before acting",
+                                                "Defer decision-making to ancillary services"
+                                            ],
+                                            "correct": 0,
+                                            "explanation": f"The pathway recommends following evidence-based protocols. {node_evidence if node_evidence != 'N/A' else ''}"
+                                        })
+                            
+                                # Add refinement notes section
+                                content_html += "<h4>Key Clinical Pearls</h4><ul>"
+                                content_html += f"<li>Early recognition and assessment improves outcomes</li>"
+                                content_html += f"<li>Evidence-based pathways reduce variation in care</li>"
+                                content_html += f"<li>Clear documentation supports care coordination</li>"
+                                content_html += "</ul>"
+                                content_html += f"<div style='margin-top: 20px; padding: 15px; background: #fff3cd; border-left: 3px solid #ffc107;'>"
+                                content_html += f"<strong>Additional Guidance:</strong><br>{refine_with_file}</div>"
+                            
+                                if not quiz_questions:
+                                    quiz_questions.append({
+                                        "question": f"What is a key principle in this module?",
+                                        "options": [
+                                            "Follow evidence-based protocols",
+                                            "Skip documentation steps",
+                                            "Delay patient care",
+                                            "Avoid clinical guidelines"
+                                        ],
+                                        "correct": 0,
+                                        "explanation": "Evidence-based protocols improve patient outcomes and standardize care."
+                                    })
+                            
+                                edu_topics.append({
+                                    "title": f"Module {mod_idx + 1}: {module_title}",
+                                    "content": content_html,
+                                    "learning_objectives": [
+                                        f"Understand decision points in {module_title.lower()}",
+                                        "Apply evidence-based clinical reasoning",
+                                        "Recognize appropriate care pathway steps"
+                                    ],
+                                    "quiz": quiz_questions,
+                                    "time_minutes": 5
+                                })
+                    
+                        if not edu_topics:
+                            edu_topics = [{
+                                "title": f"Module 1: {cond} Pathway Overview",
+                                "content": f"""
+                                    <h4>Introduction</h4>
+                                    <p>This module introduces the evidence-based clinical pathway for {cond} in {setting or 'clinical practice'}.</p>
+                                    <h4>Core Principles</h4>
+                                    <ul>
+                                        <li>Standardized assessment and triage</li>
+                                        <li>Evidence-based decision making</li>
+                                        <li>Coordinated multidisciplinary care</li>
+                                        <li>Clear documentation and communication</li>
+                                    </ul>
+                                    <div style='margin-top: 20px; padding: 15px; background: #fff3cd; border-left: 3px solid #ffc107;'>
+                                        <strong>Additional Guidance:</strong><br>{refine_with_file}
+                                    </div>
+                                """,
+                                "learning_objectives": overall_objectives[:3],
+                                "quiz": [{
+                                    "question": "What is the primary benefit of using clinical pathways?",
+                                    "options": [
+                                        "Standardize care and improve patient safety",
+                                        "Increase documentation burden",
+                                        "Slow down clinical decision-making",
+                                        "Eliminate clinical judgment"
+                                    ],
+                                    "correct": 0,
+                                    "explanation": "Clinical pathways standardize high-quality care while preserving clinical judgment."
+                                }],
+                                "time_minutes": 5
+                            }]
+                    
+                        refined_html = create_education_module_template(
+                            condition=cond,
+                            topics=edu_topics,
+                            target_audience=st.session_state.get("p5_aud_edu", ""),
+                            organization=cond,
+                            care_setting=setting,
+                            require_100_percent=True,
+                            learning_objectives=overall_objectives[:4]
+                        )
+                        st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
+                    else:
+                        st.warning("Please generate the education module first before refining.")
             st.success("Refined!")
     
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
@@ -3374,24 +3627,15 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 st.session_state.data['phase5']['exec_summary'] = exec_summary
             st.success("Generated!")
         
-        # Preview + Download (paired controls)
+        # Download centered
         if st.session_state.data['phase5'].get('exec_summary'):
-            exec_text = st.session_state.data['phase5'].get('exec_summary', '')
-            preview_html = f"<html><head><title>Executive Summary</title></head><body style='font-family:Segoe UI,Arial,sans-serif;padding:24px;'><h2>Executive Summary</h2><p>{exec_text}</p></body></html>"
-            preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
+            # Pass session data and condition per function signature
             docx_bytes = create_phase5_executive_summary_docx(
-                condition=cond,
-                setting=setting,
-                audience=st.session_state.get("p5_aud_exec", ""),
-                summary_text=exec_text
+                data=st.session_state.data,
+                condition=cond
             )
-            dcol1, dcol2 = st.columns([1,1])
-            with dcol1:
-                components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
-                    height=52,
-                )
-            with dcol2:
+            dl_l, dl_c, dl_r = st.columns([1,2,1])
+            with dl_c:
                 st.download_button(
                     "Download (DOC)",
                     docx_bytes,
@@ -3437,6 +3681,4 @@ elif "Operationalize" in phase or "Deploy" in phase:
     render_bottom_navigation()
     st.stop()
 
-    st.stop()
-
-st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
+# Footer is now rendered within each phase via render_bottom_navigation()
