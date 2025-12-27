@@ -2317,68 +2317,32 @@ elif "Evidence" in phase or "Appraise" in phase:
         s = st.session_state.data['phase1'].get('setting', '')
         
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        col_b1, col_b2 = st.columns([1, 1])
-        with col_b1:
-            if c and st.button("Broaden: drop setting", key="p2_broaden_drop_setting"):
-                cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
-                q = f'{cond_q} AND english[lang]'
-                st.session_state.data['phase2']['mesh_query'] = q
-                full_query = f"{q} AND (\"last 5 years\"[dp])"
-                with ai_activity("Searching PubMed and auto‑grading…"):
-                    results = search_pubmed(full_query)
-                    st.session_state.data['phase2']['evidence'] = results
-                    if results:
-                        prompt = (
-                            "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
-                            "and provide a brief Rationale (1-2 sentences) for each article. "
-                            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
-                            "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
-                        )
-                        grades = get_gemini_response(prompt, json_mode=True)
-                        if grades and isinstance(grades, dict):
-                            for e in st.session_state.data['phase2']['evidence']:
-                                pmid_str = str(e['id'])
-                                if pmid_str in grades:
-                                    grade_data = grades[pmid_str]
-                                    e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
-                                    e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
-                st.session_state['p2_last_autorun_query'] = q
-                st.rerun()
-        with col_b2:
-            if st.button("Broaden: drop time filter", key="p2_broaden_drop_time"):
-                q_current = st.session_state.data['phase2'].get('mesh_query', '') or default_q
-                # If still empty, rebuild robust query from Phase 1
-                if not q_current and c:
-                    cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
-                    if s:
-                        set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
-                        q_current = f'({cond_q} AND {set_q}) AND english[lang]'
-                    else:
-                        q_current = f'{cond_q} AND english[lang]'
-                st.session_state.data['phase2']['mesh_query'] = q_current
-                # Run without last 5 years filter
-                with ai_activity("Searching PubMed and auto‑grading…"):
-                    results = search_pubmed(q_current)
-                    st.session_state.data['phase2']['evidence'] = results
-                    if results:
-                        prompt = (
-                            "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
-                            "and provide a brief Rationale (1-2 sentences) for each article. "
-                            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
-                            "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
-                        )
-                        grades = get_gemini_response(prompt, json_mode=True)
-                        if grades and isinstance(grades, dict):
-                            for e in st.session_state.data['phase2']['evidence']:
-                                pmid_str = str(e['id'])
-                                if pmid_str in grades:
-                                    grade_data = grades[pmid_str]
-                                    e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
-                                    e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
-                st.session_state['p2_last_autorun_query'] = q_current
-                st.rerun()
+        if c and st.button("Broaden: drop setting", key="p2_broaden_drop_setting", use_container_width=True):
+            cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+            q = f'{cond_q} AND english[lang]'
+            st.session_state.data['phase2']['mesh_query'] = q
+            full_query = f"{q} AND (\"last 5 years\"[dp])"
+            with ai_activity("Searching PubMed and auto‑grading…"):
+                results = search_pubmed(full_query)
+                st.session_state.data['phase2']['evidence'] = results
+                if results:
+                    prompt = (
+                        "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
+                        "and provide a brief Rationale (1-2 sentences) for each article. "
+                        f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
+                        "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+                        "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
+                    )
+                    grades = get_gemini_response(prompt, json_mode=True)
+                    if grades and isinstance(grades, dict):
+                        for e in st.session_state.data['phase2']['evidence']:
+                            pmid_str = str(e['id'])
+                            if pmid_str in grades:
+                                grade_data = grades[pmid_str]
+                                e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
+                                e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
+            st.session_state['p2_last_autorun_query'] = q
+            st.rerun()
         if st.session_state.data['phase2'].get('mesh_query'):
             search_q = st.session_state.data['phase2']['mesh_query']
             full_q = search_q if '"last 5 years"[dp]' in search_q else f"{search_q} AND (\"last 5 years\"[dp])"
