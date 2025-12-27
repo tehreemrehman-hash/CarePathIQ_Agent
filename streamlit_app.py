@@ -2186,9 +2186,17 @@ elif "Evidence" in phase or "Appraise" in phase:
                     st.session_state['p2_last_autorun_query'] = search_term
                     st.rerun()
         with col_open:
-            if q_clean:
-                full_q = ensure_time_filter(q_clean)
-                st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
+            # Show PubMed link using the best-available query (user input, current saved, or default)
+            effective_q = q_clean or current_q_full or default_q or ""
+            if effective_q:
+                full_q = ensure_time_filter(effective_q)
+                st.link_button(
+                    "Open in PubMed ↗",
+                    f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}",
+                    type="secondary",
+                )
+            else:
+                st.link_button("Open in PubMed ↗", "https://pubmed.ncbi.nlm.nih.gov", disabled=True, type="secondary")
 
     if st.session_state.data['phase2']['evidence']:
         grade_help = (
