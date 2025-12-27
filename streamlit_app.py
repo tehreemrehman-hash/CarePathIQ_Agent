@@ -2786,36 +2786,10 @@ elif "Interface" in phase or "UI" in phase:
     with col_right:
         st.subheader("Nielsen's Heuristics Evaluation")
         h_data = p4_state.get('heuristics_data', {})
-        auto_done = p4_state.get('auto_heuristics_done', False)
-        btn_label = "Run Heuristics Analysis" if not auto_done else "Retry Heuristics Analysis"
-        if st.button(btn_label, use_container_width=True, key="p4_run_heuristics_btn"):
-            with ai_activity("Analyzing usability heuristics…"):
-                nodes_sample = nodes[:10] if len(nodes) > 10 else nodes
-                prompt = f"""
-                Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
-                For each heuristic (H1-H10), provide a specific, actionable critique and suggestion in 2-3 sentences.
-                
-                Pathway nodes: {json.dumps(nodes_sample)}
-                
-                Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
-                Each value should be a string with the recommendation.
-                
-                Example format: {{"H1": "The pathway lacks clear status indicators...", "H2": "Medical jargon should be..."}}
-                """
-                res = get_gemini_response(prompt, json_mode=True)
-                if res and isinstance(res, dict):
-                    p4_state['heuristics_data'] = res
-                    h_data = res
-                    p4_state['auto_heuristics_done'] = True
-                    st.success("Heuristics analyzed successfully!")
-                    st.rerun()
-                else:
-                    st.error("Failed to generate heuristics. Please try again.")
-                    p4_state['auto_heuristics_done'] = True
 
         h_data = p4_state.get('heuristics_data', {})
         if not h_data:
-            styled_info("No heuristics yet. Click 'Run Heuristics Analysis' to evaluate this pathway.")
+            styled_info("Heuristics are generated automatically. They will appear here shortly.")
         else:
             st.caption("Click each heuristic to view definition and AI-generated recommendations")
             for heuristic_key in sorted(h_data.keys()):
