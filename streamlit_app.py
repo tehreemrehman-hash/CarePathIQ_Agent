@@ -2846,14 +2846,15 @@ elif "Interface" in phase or "UI" in phase:
     # REFINE AND REGENERATE SECTION AT BOTTOM
     if h_data:
         st.subheader("Refine & Regenerate")
-        st.caption("Use natural language to make custom edits to your pathway based on all heuristic recommendations")
+        st.caption("Type natural‑language instructions (e.g., 'Add visual status indicators', 'Simplify branching logic'). The AI will regenerate the pathway using Nielsen heuristics + your input.")
         
         refine_all = st.text_area(
             "Describe how you'd like to refine the pathway",
-            placeholder="E.g., 'Make the decision tree more concise' or 'Add more visual indicators for critical steps' or 'Simplify medical terminology'...",
+            placeholder="E.g., 'Consolidate redundant steps', 'Add alerts for critical values', 'Use patient-friendly terminology'",
             key="p4_refine_all",
             height=120,
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            help="Enter plain language. Your request is applied directly; AI blends it with heuristic recommendations."
         )
         
         if st.button("🔄 Refine and Regenerate Pathway", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
@@ -2974,7 +2975,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="E.g., 'Add questions about implementation barriers'...",
             key="p5_refine_expert",
             height=90,
-            label_visibility="visible"
+            label_visibility="visible",
+            help="Describe changes; AI regenerates using Nielsen heuristics (visibility, consistency, error prevention)."
         )
         if refine_expert and st.button("Refine and Regenerate", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3031,7 +3033,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="E.g., 'Add usability metrics'...",
             key="p5_refine_beta",
             height=90,
-            label_visibility="visible"
+            label_visibility="visible",
+            help="Describe changes; AI regenerates using Nielsen heuristics (recognition vs recall, minimalist design, flexibility)."
         )
         if refine_beta and st.button("Refine and Regenerate", key="regen_beta", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3127,7 +3130,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="E.g., 'Add case studies'...",
             key="p5_refine_edu",
             height=90,
-            label_visibility="visible"
+            label_visibility="visible",
+            help="Describe changes; AI regenerates using Nielsen heuristics (match to real world, error prevention)."
         )
         if refine_edu and st.button("Refine and Regenerate", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3202,7 +3206,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="E.g., 'Focus on cost-benefit analysis'...",
             key="p5_refine_exec",
             height=90,
-            label_visibility="visible"
+            label_visibility="visible",
+            help="Describe changes; AI regenerates using Nielsen heuristics (status visibility, help & documentation)."
         )
         if refine_exec and st.button("Refine and Regenerate", key="regen_exec", use_container_width=True):
             with st.spinner("Refining..."):
