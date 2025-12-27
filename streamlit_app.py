@@ -2920,7 +2920,8 @@ elif "Operationalize" in phase:
         st.error("Phase 5 helpers not found. Please ensure phase5_helpers.py and education_template.py are in the workspace.")
         st.stop()
     
-    st.markdown("Generate standalone deliverables. No hosting required — files work offline in any browser.")
+    # Single info box at top
+    styled_info("<b>Tip:</b> Download HTML files and share with anyone. They can open in any browser, provide feedback, and download results as CSV to share back with you.")
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     setting = st.session_state.data['phase1'].get('setting', '') or ""
@@ -2928,10 +2929,10 @@ elif "Operationalize" in phase:
     
     # Initialize session state for each deliverable
     deliverables = {
-        "expert": {"title": "Expert Panel Feedback", "desc": "Clinical expert review form"},
-        "beta": {"title": "Beta Testing Guide", "desc": "End-user usability testing"},
-        "education": {"title": "Education Module", "desc": "Team training & certification"},
-        "executive": {"title": "Executive Summary", "desc": "Leadership overview document"}
+        "expert": "Expert Panel Feedback",
+        "beta": "Beta Testing Guide",
+        "education": "Education Module",
+        "executive": "Executive Summary"
     }
     
     for key in deliverables:
@@ -2943,8 +2944,7 @@ elif "Operationalize" in phase:
     
     # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
     with col1:
-        st.markdown(f"### {deliverables['expert']['title']}")
-        st.caption(deliverables['expert']['desc'])
+        st.subheader(deliverables['expert'])
         
         aud_expert = st.text_input(
             "Target Audience",
@@ -2966,12 +2966,12 @@ elif "Operationalize" in phase:
                     care_setting=setting
                 )
                 st.session_state.data['phase5']['expert_html'] = expert_html
-            st.success("✓ Generated!")
+            st.success("Generated!")
         
         # Download button
         if st.session_state.data['phase5'].get('expert_html'):
             st.download_button(
-                "📥 Download Form",
+                "nload Form",
                 st.session_state.data['phase5']['expert_html'],
                 f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -2997,12 +2997,11 @@ elif "Operationalize" in phase:
                     care_setting=setting
                 )
                 st.session_state.data['phase5']['expert_html'] = refined_html
-            st.success("✓ Refined!")
+            st.success("Refined!")
     
     # ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
-        st.markdown(f"### {deliverables['beta']['title']}")
-        st.caption(deliverables['beta']['desc'])
+        st.subheader(deliverables['beta'])
         
         aud_beta = st.text_input(
             "Target Audience",
@@ -3023,12 +3022,12 @@ elif "Operationalize" in phase:
                     organization=cond
                 )
                 st.session_state.data['phase5']['beta_html'] = beta_html
-            st.success("✓ Generated!")
+            st.success("Generated!")
         
         # Download button
         if st.session_state.data['phase5'].get('beta_html'):
             st.download_button(
-                "📥 Download Guide",
+                "Download Guide",
                 st.session_state.data['phase5']['beta_html'],
                 f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -3052,7 +3051,7 @@ elif "Operationalize" in phase:
                     organization=cond
                 )
                 st.session_state.data['phase5']['beta_html'] = refined_html
-            st.success("✓ Refined!")
+            st.success("Refined!")
     
     st.divider()
     
@@ -3060,8 +3059,7 @@ elif "Operationalize" in phase:
     
     # ========== BOTTOM LEFT: EDUCATION MODULE ==========
     with col3:
-        st.markdown(f"### {deliverables['education']['title']}")
-        st.caption(deliverables['education']['desc'])
+        st.subheader(deliverables['education'])
         
         aud_edu = st.text_input(
             "Target Audience",
@@ -3082,12 +3080,12 @@ elif "Operationalize" in phase:
                     organization=cond
                 )
                 st.session_state.data['phase5']['edu_html'] = edu_html
-            st.success("✓ Generated!")
+            st.success("Generated!")
         
         # Download button
         if st.session_state.data['phase5'].get('edu_html'):
             st.download_button(
-                "📥 Download Module",
+                "Download Module",
                 st.session_state.data['phase5']['edu_html'],
                 f"EducationModule_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -3111,12 +3109,11 @@ elif "Operationalize" in phase:
                     organization=cond
                 )
                 st.session_state.data['phase5']['edu_html'] = refined_html
-            st.success("✓ Refined!")
+            st.success("Refined!")
     
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
     with col4:
-        st.markdown(f"### {deliverables['executive']['title']}")
-        st.caption(deliverables['executive']['desc'])
+        st.subheader(deliverables['executive'])
         
         aud_exec = st.text_input(
             "Target Audience",
@@ -3132,7 +3129,7 @@ elif "Operationalize" in phase:
             with st.spinner("Generating summary..."):
                 exec_summary = f"Executive Summary for {cond} - Prepared for {aud_exec}"
                 st.session_state.data['phase5']['exec_summary'] = exec_summary
-            st.success("✓ Generated!")
+            st.success("Generated!")
         
         # Download button
         if st.session_state.data['phase5'].get('exec_summary'):
@@ -3143,7 +3140,7 @@ elif "Operationalize" in phase:
                 summary_text=st.session_state.data['phase5'].get('exec_summary', '')
             )
             st.download_button(
-                "📥 Download Summary",
+                "Download Summary",
                 docx_bytes,
                 f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -3162,7 +3159,7 @@ elif "Operationalize" in phase:
             with st.spinner("Refining..."):
                 refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_exec}"
                 st.session_state.data['phase5']['exec_summary'] = refined_summary
-            st.success("✓ Refined!")
+            st.success("Refined!")
     
     render_bottom_navigation()
     st.stop()
