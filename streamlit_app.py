@@ -1830,6 +1830,18 @@ phase_short_labels = [
     "Deploy"
 ]
 
+# Sidebar quick navigation mirroring the short labels
+with st.sidebar:
+    st.markdown("### Quick Navigation")
+    for i, p in enumerate(PHASES):
+        is_active = (i == current_phase_index)
+        short_label = phase_short_labels[i]
+        button_label = f"{i + 1}. {short_label}"
+        button_type = "primary" if is_active else "secondary"
+        if st.button(button_label, key=f"side_nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
+            st.session_state.current_phase_label = p
+            st.rerun()
+
 nav_cols = st.columns(len(PHASES))  # Equal-width columns for each phase button
 
 col_idx = 0
@@ -1925,7 +1937,7 @@ if "Scope" in phase:
     st.session_state.setdefault('p1_prob',       st.session_state.data['phase1'].get('problem', ''))
     st.session_state.setdefault('p1_obj',        st.session_state.data['phase1'].get('objectives', ''))
     
-    st.header("Scoping & Charter")
+    st.header(PHASES[0])
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
     col1, col2 = st.columns([1, 1])
@@ -2080,7 +2092,7 @@ if "Scope" in phase:
 
 # --- PHASE 2 ---
 elif "Evidence" in phase or "Appraise" in phase:
-    st.header("Evidence Appraisal")
+    st.header(PHASES[1])
 
     # Build robust default query from Phase 1 if none saved
     # Format: "managing patients with [clinical condition] in [care setting]" using PubMed syntax
@@ -2384,7 +2396,7 @@ elif "Evidence" in phase or "Appraise" in phase:
 
 # --- PHASE 3 ---
 elif "Decision" in phase or "Tree" in phase:
-    st.header("Build Decision Tree")
+    st.header(PHASES[2])
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
     
     # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
@@ -2651,7 +2663,7 @@ elif "Decision" in phase or "Tree" in phase:
 
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
-    st.header("Design User Interface")
+    st.header(PHASES[3])
     styled_info("<b>Tip:</b> Heuristic recommendations are auto-generated. Review, then apply or undo per criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
@@ -2775,19 +2787,19 @@ elif "Interface" in phase or "UI" in phase:
         h_data = p4_state.get('heuristics_data', {})
         if h_data:
             st.subheader("Refine & Regenerate")
-            st.caption("Type natural‑language instructions (e.g., 'Add visual status indicators', 'Simplify branching logic'). The AI will regenerate the pathway using Nielsen heuristics + your input.")
             refine_all = st.text_area(
-                "Describe how you'd like to refine the pathway",
+                "Refine & Regenerate",
                 placeholder="E.g., 'Consolidate redundant steps', 'Add alerts for critical values', 'Use patient-friendly terminology'",
                 key="p4_refine_all",
                 height=120,
-                label_visibility="collapsed",
-                help="Enter plain language. Your request is applied directly; AI blends it with heuristic recommendations."
+                label_visibility="visible",
+                help="Describe changes and regenerate the pathway."
             )
-            if st.button("🔄 Refine and Regenerate Pathway", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
+            if st.button("Refine and Regenerate", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
                 p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                 with ai_activity("Refining pathway with all heuristics and your custom request…"):
-                    all_recommendations = "\n".join([f"{hkey}: {h_data[hkey]}" for hkey in sorted(h_data.keys())])
+                    ordered_keys = sorted(h_data.keys(), key=lambda hk: int(hk[1:]) if hk[1:].isdigit() else 0)
+                    all_recommendations = "\n".join([f"{hkey}: {h_data[hkey]}" for hkey in ordered_keys])
                     prompt_refine_all = f"""
                     Refine and improve the clinical pathway considering ALL Nielsen's heuristics and the user's specific request.
                     User refinement request: {refine_all}
@@ -2818,7 +2830,8 @@ elif "Interface" in phase or "UI" in phase:
             styled_info("Heuristics are generated automatically. They will appear here shortly.")
         else:
             st.caption("Click each heuristic to view definition and AI-generated recommendations")
-            for heuristic_key in sorted(h_data.keys()):
+            ordered_keys = sorted(h_data.keys(), key=lambda hk: int(hk[1:]) if hk[1:].isdigit() else 0)
+            for heuristic_key in ordered_keys:
                 insight = h_data[heuristic_key]
                 definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
                 category_name = definition.split(':')[0] if ':' in definition else heuristic_key
@@ -2859,7 +2872,7 @@ elif "Interface" in phase or "UI" in phase:
 
 # --- PHASE 5 ---
 elif "Operationalize" in phase or "Deploy" in phase:
-    st.header("Operationalize & Deploy")
+    st.header(PHASES[4])
     
     # Import Phase 5 helpers
     try:
@@ -2898,7 +2911,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
     with col1:
-        st.markdown(f"<h3>{deliverables['expert']} <span class='tooltip-info' title='Generate an HTML form for expert feedback. Use Refine & Regenerate to apply Nielsen heuristics (visibility, consistency, error prevention) to questions and layout.'>i</span></h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
         
         aud_expert = st.text_input(
             "Target Audience",
@@ -2933,14 +2946,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
-        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (visibility, consistency, error prevention).")
         refine_expert = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Add questions about implementation barriers'...",
             key="p5_refine_expert",
             height=90,
             label_visibility="visible",
-            help="Describe changes; AI regenerates using Nielsen heuristics (visibility, consistency, error prevention)."
+            help="Describe changes and regenerate the form."
         )
         if refine_expert and st.button("Refine and Regenerate", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
@@ -2957,7 +2969,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
-        st.markdown(f"<h3>{deliverables['beta']} <span class='tooltip-info' title='Create a beta testing guide. Refine & Regenerate applies Nielsen heuristics (recognition vs recall, minimalist design, flexibility) to tasks and metrics.'>i</span></h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3>{deliverables['beta']}</h3>", unsafe_allow_html=True)
         
         aud_beta = st.text_input(
             "Target Audience",
@@ -2991,14 +3003,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
-        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (recognition, minimalism, flexibility).")
         refine_beta = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Add usability metrics'...",
             key="p5_refine_beta",
             height=90,
             label_visibility="visible",
-            help="Describe changes; AI regenerates using Nielsen heuristics (recognition vs recall, minimalist design, flexibility)."
+            help="Describe changes and regenerate the guide."
         )
         if refine_beta and st.button("Refine and Regenerate", key="regen_beta", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3017,7 +3028,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== BOTTOM LEFT: EDUCATION MODULE ==========
     with col3:
-        st.markdown(f"<h3>{deliverables['education']} <span class='tooltip-info' title='Build an education module. Refine & Regenerate considers Nielsen heuristics (match to real world, error prevention) to improve learning content.'>i</span></h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3>{deliverables['education']}</h3>", unsafe_allow_html=True)
         
         aud_edu = st.text_input(
             "Target Audience",
@@ -3088,14 +3099,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
-        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (match to real world, error prevention).")
         refine_edu = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Add case studies'...",
             key="p5_refine_edu",
             height=90,
             label_visibility="visible",
-            help="Describe changes; AI regenerates using Nielsen heuristics (match to real world, error prevention)."
+            help="Describe changes and regenerate the module."
         )
         if refine_edu and st.button("Refine and Regenerate", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3129,7 +3139,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
     with col4:
-        st.markdown(f"<h3>{deliverables['executive']} <span class='tooltip-info' title='Generate an executive summary. Refine & Regenerate emphasizes clarity, status visibility, and helpful documentation (Nielsen heuristics).'>i</span></h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3>{deliverables['executive']}</h3>", unsafe_allow_html=True)
         
         aud_exec = st.text_input(
             "Target Audience",
@@ -3164,14 +3174,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
-        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (status visibility, help & documentation).")
         refine_exec = st.text_area(
             "Refine & Regenerate",
             placeholder="E.g., 'Focus on cost-benefit analysis'...",
             key="p5_refine_exec",
             height=90,
             label_visibility="visible",
-            help="Describe changes; AI regenerates using Nielsen heuristics (status visibility, help & documentation)."
+            help="Describe changes and regenerate the summary."
         )
         if refine_exec and st.button("Refine and Regenerate", key="regen_exec", use_container_width=True):
             with st.spinner("Refining..."):
