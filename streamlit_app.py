@@ -523,7 +523,8 @@ def calculate_granular_progress():
     
     # --- PHASE 4: 20% (1 field, worth full phase 4) ---
     p4 = data.get('phase4', {})
-    phase_progress['p4'] = 1.0 if p4.get('heuristics_data') else 0.0
+        p4_state = data.get('phase4', {})
+        phase_progress['p4'] = 1.0 if p4_state.get('heuristics_data') else 0.0
     
     # --- PHASE 5: 20% (3 fields, each 1/3 of phase 5) ---
     p5 = data.get('phase5', {})
@@ -1992,7 +1993,7 @@ if "Scope" in phase:
     
     # Determine button type and label
     p1_refine_button_type = "primary" if p1_refinement_applied else "secondary"
-    p1_refine_button_label = "Applied" if p1_refinement_applied else "Apply Refinements"
+    p1_refine_button_label = "Applied" if p1_refinement_applied else "Refine & Regenerate"
     
     if st.button(p1_refine_button_label, type=p1_refine_button_type, key="p1_apply_refine_btn"):
         if not p1_refinement_applied:
@@ -2598,7 +2599,7 @@ elif "Decision" in phase or "Tree" in phase:
     
     # Determine button type and label
     refine_button_type = "primary" if p3_refinement_applied else "secondary"
-    refine_button_label = "Applied" if p3_refinement_applied else "Apply Refinements"
+    refine_button_label = "Applied" if p3_refinement_applied else "Refine & Regenerate"
     
     if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
         if not p3_refinement_applied:
@@ -2635,6 +2636,8 @@ elif "Decision" in phase or "Tree" in phase:
                     nodes = get_gemini_response(prompt, json_mode=True)
                     if isinstance(nodes, list) and len(nodes) > 0:
                         st.session_state.data['phase3']['nodes'] = nodes
+                        # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
+                        st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
                         st.session_state['p3_refinement_applied'] = True
                         st.success("Refinements applied")
                         st.rerun()
@@ -2748,12 +2751,18 @@ elif "Interface" in phase or "UI" in phase:
             else:
                 df_p4['node_id'] = range(1, len(df_p4) + 1)
             edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
-            if not df_p4.equals(edited_p4):
+            manual_changed = not df_p4.equals(edited_p4)
+            if manual_changed:
                 if 'node_id' in edited_p4.columns:
                     edited_p4 = edited_p4.drop('node_id', axis=1)
                 st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
                 p4_state['viz_cache'] = {}
-                st.success("Nodes updated. Refresh page to see changes.")
+                st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
+
+            regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
+            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", use_container_width=True, disabled=regen_disabled):
+                p4_state['viz_cache'] = {}
+                st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
                 st.rerun()
 
         st.divider()
@@ -2789,6 +2798,7 @@ elif "Interface" in phase or "UI" in phase:
                     new_nodes = get_gemini_response(prompt_refine_all, json_mode=True)
                     if new_nodes and isinstance(new_nodes, list):
                         st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                        p4_state['viz_cache'] = {}
                         st.success("✓ Pathway refined and regenerated successfully!")
                         st.rerun()
                     else:
@@ -2827,6 +2837,7 @@ elif "Interface" in phase or "UI" in phase:
                                 new_nodes = get_gemini_response(prompt_apply, json_mode=True)
                                 if new_nodes and isinstance(new_nodes, list):
                                     st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                    p4_state['viz_cache'] = {}
                                     st.success(f"Applied {heuristic_key} recommendation")
                                     st.rerun()
                     with act_right:
