@@ -366,7 +366,7 @@ ROLE_COLORS = {
     "Care Coordinator": "#FFF8E1",
     "Process": "#FFFDE7",
 }
-PHASES = ["Phase 1: Scoping & Charter", "Phase 2: Evidence Appraisal", "Phase 3: Decision Science", "Phase 4: User Interface Design", "Phase 5: Operationalize"]
+PHASES = ["Scoping & Charter", "Evidence Appraisal", "Decision Science", "User Interface Design", "Operationalize"]
 
 PROVIDER_OPTIONS = {
     "google": "Google Forms (user account)",
@@ -1659,19 +1659,60 @@ except ValueError:
 def sync_radio_to_phase():
     st.session_state.current_phase_label = st.session_state.top_nav_radio
 
-# Prominent phase header
-st.markdown(
-    "<div style='font-weight: 800; font-size: 1.1rem;'>AI Agent Phase</div>",
-    unsafe_allow_html=True,
-)
-
-# Use single source of truth for active phase
+# Create horizontal arrow navigation bar
 phase = st.session_state.get("current_phase_label", PHASES[0])
+current_phase_index = PHASES.index(phase) if phase in PHASES else 0
+
+# Build navigation HTML with arrows
+nav_html = "<div style='display: flex; align-items: center; justify-content: center; gap: 0px; margin: 20px 0;'>"
+for i, p in enumerate(PHASES):
+    # Determine if this is the active phase
+    is_active = (i == current_phase_index)
+    
+    # Button styling
+    if is_active:
+        bg_color = "#5D4037"  # Dark brown
+        text_color = "white"
+        font_weight = "bold"
+    else:
+        bg_color = "white"
+        text_color = "#5D4037"  # Dark brown
+        font_weight = "normal"
+    
+    # Create button with onclick
+    phase_id = p.replace(" ", "_").replace("&", "and")
+    nav_html += f"""
+    <button onclick="document.getElementById('phase_{phase_id}').click()" 
+            style="background-color: {bg_color}; 
+                   color: {text_color}; 
+                   border: 2px solid #5D4037; 
+                   padding: 10px 20px; 
+                   font-size: 14px; 
+                   font-weight: {font_weight};
+                   cursor: pointer;
+                   transition: all 0.3s;">
+        {p}
+    </button>
+    """
+    
+    # Add arrow between phases (except after last phase)
+    if i < len(PHASES) - 1:
+        nav_html += "<span style='color: white; font-size: 24px; margin: 0 5px;'>→</span>"
+
+nav_html += "</div>"
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# Hidden buttons for actual navigation (triggered by HTML buttons)
+for p in PHASES:
+    phase_id = p.replace(" ", "_").replace("&", "and")
+    if st.button(p, key=f"phase_{phase_id}", type="secondary"):
+        st.session_state.current_phase_label = p
+        st.rerun()
 
 st.divider()
 
 # --- PHASE 1 ---
-if "Phase 1" in phase:
+if "Scoping" in phase:
     # 1. TRIGGER FUNCTIONS (Callbacks)
     def trigger_p1_draft():
         # Only trigger if both fields have text
@@ -1748,7 +1789,7 @@ if "Phase 1" in phase:
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.header("Phase 1: Scoping & Charter")
+    st.header("Scoping & Charter")
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
     col1, col2 = st.columns([1, 1])
@@ -1890,13 +1931,13 @@ if "Phase 1" in phase:
     st.stop()
 
 # --- PHASE 2 ---
-elif "Phase 2" in phase:
+elif "Evidence" in phase:
     st.markdown(
         "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.header("Phase 2: Evidence Appraisal")
+    st.header("Evidence Appraisal")
 
     # Build robust default query from Phase 1 if none saved
     # Format: "managing patients with [clinical condition] in [care setting]" using PubMed syntax
@@ -2227,13 +2268,13 @@ elif "Phase 2" in phase:
     st.stop()
 
 # --- PHASE 3 ---
-elif "Phase 3" in phase:
+elif "Decision" in phase:
     st.markdown(
         "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.header("Phase 3: Decision Science")
+    st.header("Decision Science")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
     
     # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
@@ -2497,13 +2538,13 @@ elif "Phase 3" in phase:
     st.stop()
 
 # --- PHASE 4 ---
-elif "Phase 4" in phase:
+elif "User Interface" in phase:
     st.markdown(
         "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.header("Phase 4: User Interface Design")
+    st.header("User Interface Design")
     styled_info("<b>Tip:</b> Evaluate your pathway against Nielsen's 10 Usability Heuristics. The AI agent can provide suggestions for each criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
@@ -2879,13 +2920,13 @@ elif "Phase 4" in phase:
     st.stop()
 
 # --- PHASE 5 ---
-elif "Phase 5" in phase:
+elif "Operationalize" in phase:
     st.markdown(
         "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
         unsafe_allow_html=True,
     )
     st.markdown("---")
-    st.header("Phase 5: Operationalize")
+    st.header("Operationalize")
     
     # Import Phase 5 helpers
     try:
@@ -2900,7 +2941,7 @@ elif "Phase 5" in phase:
         st.error("Phase 5 helpers not found. Please ensure phase5_helpers.py and education_template.py are in the workspace.")
         st.stop()
     
-    st.title("Phase 5: Operationalize")
+    st.title("Operationalize")
     st.markdown("""
     ### Download Shareable Files
     
