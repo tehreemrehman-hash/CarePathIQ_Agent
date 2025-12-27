@@ -2034,10 +2034,11 @@ if "Scope" in phase:
     styled_info("<b>Tip:</b> The AI agent will auto-draft sections <b>after you enter both the Clinical Condition and Care Setting</b>. You can then manually edit any generated text to refine the content.")
     
     col1, col2 = st.columns([1, 1])
-    with col1:
+                        with c1:
         st.subheader("1. Clinical Focus")
         # SPECIFIC TRIGGER ON CARE SETTING CHANGE via on_change
         cond_input = st.text_input("Clinical Condition", placeholder="e.g. Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
+                                        Open Preview ↗
         setting_input = st.text_input("Care Setting", placeholder="e.g. Emergency Department", key="p1_setting", on_change=sync_and_draft)
         
         st.subheader("2. Target Population")
@@ -2902,7 +2903,7 @@ elif "Interface" in phase or "UI" in phase:
                                 """
                                 components.html(open_html, height=52)
                         with c2:
-                                st.download_button("Download SVG (Editable)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+                            st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
         else:
             st.warning("Unable to render pathway visualization")
 
@@ -3106,15 +3107,26 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 st.session_state.data['phase5']['expert_html'] = expert_html
             st.success("Generated!")
         
-        # Download button
+        # Preview + Download (paired controls)
         if st.session_state.data['phase5'].get('expert_html'):
-            st.download_button(
-                "Download Form",
-                st.session_state.data['phase5']['expert_html'],
-                f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
-                "text/html",
-                use_container_width=True
-            )
+            exp_html = st.session_state.data['phase5']['expert_html']
+            exp_b64 = base64.b64encode(exp_html.encode('utf-8')).decode('utf-8')
+            dcol1, dcol2 = st.columns([1,1])
+                        with dcol1:
+                open_html = f"""
+                <div style='width:100%;'>
+                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{exp_b64}\" target=\"_blank\">Open Preview ↗</a>
+                </div>
+                """
+                components.html(open_html, height=52)
+            with dcol2:
+                st.download_button(
+                                        "Download (HTML)",
+                    exp_html,
+                    f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
+                    "text/html",
+                    use_container_width=True
+                )
         
         # Refine section
         col_file, col_text = st.columns([1, 2])
@@ -3181,15 +3193,26 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 st.session_state.data['phase5']['beta_html'] = beta_html
             st.success("Generated!")
         
-        # Download button
+        # Preview + Download (paired controls)
         if st.session_state.data['phase5'].get('beta_html'):
-            st.download_button(
-                "Download Guide",
-                st.session_state.data['phase5']['beta_html'],
-                f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
-                "text/html",
-                use_container_width=True
-            )
+            beta_html = st.session_state.data['phase5']['beta_html']
+            beta_b64 = base64.b64encode(beta_html.encode('utf-8')).decode('utf-8')
+            dcol1, dcol2 = st.columns([1,1])
+                        with dcol1:
+                open_html = f"""
+                <div style='width:100%;'>
+                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{beta_b64}\" target=\"_blank\">Open Preview ↗</a>
+                </div>
+                """
+                components.html(open_html, height=52)
+            with dcol2:
+                st.download_button(
+                                        "Download (HTML)",
+                    beta_html,
+                    f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
+                    "text/html",
+                    use_container_width=True
+                )
         
         # Refine section
         col_file, col_text = st.columns([1, 2])
@@ -3294,15 +3317,26 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 st.session_state.data['phase5']['edu_html'] = edu_html
             st.success("Generated!")
         
-        # Download button
+        # Preview + Download (paired controls)
         if st.session_state.data['phase5'].get('edu_html'):
-            st.download_button(
-                "Download Module",
-                st.session_state.data['phase5']['edu_html'],
-                f"EducationModule_{cond.replace(' ', '_')}.html",
-                "text/html",
-                use_container_width=True
-            )
+            edu_html = st.session_state.data['phase5']['edu_html']
+            edu_b64 = base64.b64encode(edu_html.encode('utf-8')).decode('utf-8')
+            dcol1, dcol2 = st.columns([1,1])
+                        with dcol1:
+                open_html = f"""
+                <div style='width:100%;'>
+                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{edu_b64}\" target=\"_blank\">Open Preview ↗</a>
+                </div>
+                """
+                components.html(open_html, height=52)
+            with dcol2:
+                st.download_button(
+                                        "Download (HTML)",
+                    edu_html,
+                    f"EducationModule_{cond.replace(' ', '_')}.html",
+                    "text/html",
+                    use_container_width=True
+                )
         
         # Refine section
         col_file, col_text = st.columns([1, 2])
@@ -3383,21 +3417,33 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 st.session_state.data['phase5']['exec_summary'] = exec_summary
             st.success("Generated!")
         
-        # Download button
+        # Preview + Download (paired controls)
         if st.session_state.data['phase5'].get('exec_summary'):
+            exec_text = st.session_state.data['phase5'].get('exec_summary', '')
+            preview_html = f"<html><head><title>Executive Summary</title></head><body style='font-family:Segoe UI,Arial,sans-serif;padding:24px;'><h2>Executive Summary</h2><p>{exec_text}</p></body></html>"
+            preview_b64 = base64.b64encode(preview_html.encode('utf-8')).decode('utf-8')
             docx_bytes = create_phase5_executive_summary_docx(
                 condition=cond,
                 setting=setting,
                 audience=st.session_state.get("p5_aud_exec", ""),
-                summary_text=st.session_state.data['phase5'].get('exec_summary', '')
+                summary_text=exec_text
             )
-            st.download_button(
-                "Download Summary",
-                docx_bytes,
-                f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
-            )
+            dcol1, dcol2 = st.columns([1,1])
+                        with dcol1:
+                open_html = f"""
+                <div style='width:100%;'>
+                                    <a class=\"cpq-link-button\" href=\"data:text/html;base64,{preview_b64}\" target=\"_blank\">Open Preview ↗</a>
+                </div>
+                """
+                components.html(open_html, height=52)
+            with dcol2:
+                st.download_button(
+                                        "Download (DOC)",
+                    docx_bytes,
+                    f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
         
         # Refine section
         col_file, col_text = st.columns([1, 2])
