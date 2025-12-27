@@ -2945,7 +2945,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
         # Download button
         if st.session_state.data['phase5'].get('expert_html'):
             st.download_button(
-                "nload Form",
+                "Download Form",
                 st.session_state.data['phase5']['expert_html'],
                 f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
                 "text/html",
@@ -2953,12 +2953,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (visibility, consistency, error prevention).")
         refine_expert = st.text_area(
-            "Refine content",
+            "Refine & Regenerate",
             placeholder="E.g., 'Add questions about implementation barriers'...",
             key="p5_refine_expert",
-            height=80,
-            label_visibility="collapsed"
+            height=90,
+            label_visibility="visible"
         )
         if refine_expert and st.button("Refine and Regenerate", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3009,12 +3010,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (recognition, minimalism, flexibility).")
         refine_beta = st.text_area(
-            "Refine content",
+            "Refine & Regenerate",
             placeholder="E.g., 'Add usability metrics'...",
             key="p5_refine_beta",
-            height=80,
-            label_visibility="collapsed"
+            height=90,
+            label_visibility="visible"
         )
         if refine_beta and st.button("Refine and Regenerate", key="regen_beta", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3104,12 +3106,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (match to real world, error prevention).")
         refine_edu = st.text_area(
-            "Refine content",
+            "Refine & Regenerate",
             placeholder="E.g., 'Add case studies'...",
             key="p5_refine_edu",
-            height=80,
-            label_visibility="collapsed"
+            height=90,
+            label_visibility="visible"
         )
         if refine_edu and st.button("Refine and Regenerate", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
@@ -3178,12 +3181,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             )
         
         # Refine section
+        st.caption("Refine & Regenerate: Describe changes; AI applies Nielsen heuristics (status visibility, help & documentation).")
         refine_exec = st.text_area(
-            "Refine content",
+            "Refine & Regenerate",
             placeholder="E.g., 'Focus on cost-benefit analysis'...",
             key="p5_refine_exec",
-            height=80,
-            label_visibility="collapsed"
+            height=90,
+            label_visibility="visible"
         )
         if refine_exec and st.button("Refine and Regenerate", key="regen_exec", use_container_width=True):
             with st.spinner("Refining..."):
