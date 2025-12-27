@@ -2391,7 +2391,7 @@ elif "Evidence" in phase or "Appraise" in phase:
                     pc1, pc2 = st.columns([1,1])
                     with pc1:
                         components.html(
-                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank">Open Preview ↗</a>',
+                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
                             height=52,
                         )
                     with pc2:
@@ -2408,7 +2408,7 @@ elif "Evidence" in phase or "Appraise" in phase:
                     dc1, dc2 = st.columns([1,1])
                     with dc1:
                         components.html(
-                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank">Open Preview ↗</a>',
+                            f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
                             height=52,
                         )
                     with dc2:
@@ -2835,7 +2835,7 @@ elif "Interface" in phase or "UI" in phase:
             with c1:
                 open_html = f"""
                 <div style='width:100%;'>
-                  <a class=\"cpq-link-button\" href=\"data:image/svg+xml;base64,{svg_b64}\" target=\"_blank\">Open Preview ↗</a>
+                  <a class=\"cpq-link-button\" href=\"data:image/svg+xml;base64,{svg_b64}\" target=\"_blank\" rel=\"noopener noreferrer\">Open Preview ↗</a>
                 </div>
                 """
                 components.html(open_html, height=52)
@@ -3051,7 +3051,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             dcol1, dcol2 = st.columns([1,1])
             with dcol1:
                 components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{exp_b64}" target="_blank">Open Preview ↗</a>',
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{exp_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
                     height=52,
                 )
             with dcol2:
@@ -3133,7 +3133,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             dcol1, dcol2 = st.columns([1,1])
             with dcol1:
                 components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{beta_b64}" target="_blank">Open Preview ↗</a>',
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{beta_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
                     height=52,
                 )
             with dcol2:
@@ -3255,7 +3255,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             dcol1, dcol2 = st.columns([1,1])
             with dcol1:
                 components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{edu_b64}" target="_blank">Open Preview ↗</a>',
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{edu_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
                     height=52,
                 )
             with dcol2:
@@ -3360,7 +3360,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             dcol1, dcol2 = st.columns([1,1])
             with dcol1:
                 components.html(
-                    f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank">Open Preview ↗</a>',
+                    f'<a class="cpq-link-button" href="data:text/html;base64,{preview_b64}" target="_blank" rel="noopener noreferrer">Open Preview ↗</a>',
                     height=52,
                 )
             with dcol2:
