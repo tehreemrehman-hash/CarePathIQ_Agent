@@ -2905,11 +2905,6 @@ elif "User Interface" in phase:
 
 # --- PHASE 5 ---
 elif "Operationalize" in phase:
-    st.markdown(
-        "<h2 style='color:#5D4037;font-style:italic;'>Intelligent Clinical Pathway Development</h2>",
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
     st.header("Operationalize")
     
     # Import Phase 5 helpers
@@ -2925,236 +2920,253 @@ elif "Operationalize" in phase:
         st.error("Phase 5 helpers not found. Please ensure phase5_helpers.py and education_template.py are in the workspace.")
         st.stop()
     
-    st.title("Operationalize")
-    st.markdown("""
-    ### Download Shareable Files
-    
-    Generate standalone HTML files and Word documents that users can download and share directly.
-    **No hosting required** — files work offline in any browser.
-    """)
+    st.markdown("Generate standalone deliverables. No hosting required — files work offline in any browser.")
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     setting = st.session_state.data['phase1'].get('setting', '') or ""
     nodes = st.session_state.data['phase3']['nodes'] or []
     
+    # Initialize session state for each deliverable
+    deliverables = {
+        "expert": {"title": "Expert Panel Feedback", "desc": "Clinical expert review form"},
+        "beta": {"title": "Beta Testing Guide", "desc": "End-user usability testing"},
+        "education": {"title": "Education Module", "desc": "Team training & certification"},
+        "executive": {"title": "Executive Summary", "desc": "Leadership overview document"}
+    }
+    
+    for key in deliverables:
+        if f"p5_aud_{key}" not in st.session_state:
+            st.session_state[f"p5_aud_{key}"] = ""
+    
+    # 2x2 GRID LAYOUT
+    col1, col2 = st.columns(2)
+    
+    # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
+    with col1:
+        st.markdown(f"### {deliverables['expert']['title']}")
+        st.caption(deliverables['expert']['desc'])
+        
+        aud_expert = st.text_input(
+            "Target Audience",
+            value=st.session_state.get("p5_aud_expert", ""),
+            placeholder="e.g., Clinical Experts (EM, Cardiology, Pharmacy)",
+            key="p5_aud_expert_input"
+        )
+        
+        # Auto-generate on input change
+        if aud_expert and aud_expert != st.session_state.get("p5_aud_expert_prev", ""):
+            st.session_state["p5_aud_expert"] = aud_expert
+            st.session_state["p5_aud_expert_prev"] = aud_expert
+            with st.spinner("Generating form..."):
+                expert_html = generate_expert_form_html(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=aud_expert,
+                    organization=cond,
+                    care_setting=setting
+                )
+                st.session_state.data['phase5']['expert_html'] = expert_html
+            st.success("✓ Generated!")
+        
+        # Download button
+        if st.session_state.data['phase5'].get('expert_html'):
+            st.download_button(
+                "📥 Download Form",
+                st.session_state.data['phase5']['expert_html'],
+                f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
+                "text/html",
+                use_container_width=True
+            )
+        
+        # Refine section
+        refine_expert = st.text_area(
+            "Refine content",
+            placeholder="E.g., 'Add questions about implementation barriers'...",
+            key="p5_refine_expert",
+            height=80,
+            label_visibility="collapsed"
+        )
+        if refine_expert and st.button("Regenerate", key="regen_expert", use_container_width=True):
+            with st.spinner("Refining..."):
+                prompt = f"Regenerate expert feedback form for {cond}. User refinement: {refine_expert}"
+                refined_html = generate_expert_form_html(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=st.session_state.get("p5_aud_expert", ""),
+                    organization=cond,
+                    care_setting=setting
+                )
+                st.session_state.data['phase5']['expert_html'] = refined_html
+            st.success("✓ Refined!")
+    
+    # ========== TOP RIGHT: BETA TESTING GUIDE ==========
+    with col2:
+        st.markdown(f"### {deliverables['beta']['title']}")
+        st.caption(deliverables['beta']['desc'])
+        
+        aud_beta = st.text_input(
+            "Target Audience",
+            value=st.session_state.get("p5_aud_beta", ""),
+            placeholder="e.g., ED Clinicians (Physicians, RNs), APPs",
+            key="p5_aud_beta_input"
+        )
+        
+        # Auto-generate on input change
+        if aud_beta and aud_beta != st.session_state.get("p5_aud_beta_prev", ""):
+            st.session_state["p5_aud_beta"] = aud_beta
+            st.session_state["p5_aud_beta_prev"] = aud_beta
+            with st.spinner("Generating guide..."):
+                beta_html = generate_beta_form_html(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=aud_beta,
+                    organization=cond
+                )
+                st.session_state.data['phase5']['beta_html'] = beta_html
+            st.success("✓ Generated!")
+        
+        # Download button
+        if st.session_state.data['phase5'].get('beta_html'):
+            st.download_button(
+                "📥 Download Guide",
+                st.session_state.data['phase5']['beta_html'],
+                f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
+                "text/html",
+                use_container_width=True
+            )
+        
+        # Refine section
+        refine_beta = st.text_area(
+            "Refine content",
+            placeholder="E.g., 'Add usability metrics'...",
+            key="p5_refine_beta",
+            height=80,
+            label_visibility="collapsed"
+        )
+        if refine_beta and st.button("Regenerate", key="regen_beta", use_container_width=True):
+            with st.spinner("Refining..."):
+                refined_html = generate_beta_form_html(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=st.session_state.get("p5_aud_beta", ""),
+                    organization=cond
+                )
+                st.session_state.data['phase5']['beta_html'] = refined_html
+            st.success("✓ Refined!")
+    
     st.divider()
     
-    # Organization (used by all deliverables)
-    st.subheader("Organization")
-    organization = st.text_input(
-        "Organization Name",
-        value=st.session_state.get("p5_organization", "CarePathIQ"),
-        placeholder="Your Hospital/Institution",
-        key="p5_organization"
-    )
-
-    # (Simplified) Target audiences are selected per deliverable below
+    col3, col4 = st.columns(2)
     
-    st.divider()
-
+    # ========== BOTTOM LEFT: EDUCATION MODULE ==========
+    with col3:
+        st.markdown(f"### {deliverables['education']['title']}")
+        st.caption(deliverables['education']['desc'])
+        
+        aud_edu = st.text_input(
+            "Target Audience",
+            value=st.session_state.get("p5_aud_edu", ""),
+            placeholder="e.g., Clinical Team (Residents, RNs, APPs)",
+            key="p5_aud_edu_input"
+        )
+        
+        # Auto-generate on input change
+        if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
+            st.session_state["p5_aud_edu"] = aud_edu
+            st.session_state["p5_aud_edu_prev"] = aud_edu
+            with st.spinner("Generating module..."):
+                edu_html = create_education_module_template(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=aud_edu,
+                    organization=cond
+                )
+                st.session_state.data['phase5']['edu_html'] = edu_html
+            st.success("✓ Generated!")
+        
+        # Download button
+        if st.session_state.data['phase5'].get('edu_html'):
+            st.download_button(
+                "📥 Download Module",
+                st.session_state.data['phase5']['edu_html'],
+                f"EducationModule_{cond.replace(' ', '_')}.html",
+                "text/html",
+                use_container_width=True
+            )
+        
+        # Refine section
+        refine_edu = st.text_area(
+            "Refine content",
+            placeholder="E.g., 'Add case studies'...",
+            key="p5_refine_edu",
+            height=80,
+            label_visibility="collapsed"
+        )
+        if refine_edu and st.button("Regenerate", key="regen_edu", use_container_width=True):
+            with st.spinner("Refining..."):
+                refined_html = create_education_module_template(
+                    condition=cond,
+                    nodes=nodes,
+                    audience=st.session_state.get("p5_aud_edu", ""),
+                    organization=cond
+                )
+                st.session_state.data['phase5']['edu_html'] = refined_html
+            st.success("✓ Refined!")
     
-    st.divider()
-    
-    # ============================================================
-    # 1. EXPERT PANEL FEEDBACK FORM
-    # ============================================================
-    st.subheader("1. Expert Panel Feedback Form")
-    st.caption("Share with clinical experts for pathway review")
-    
-    st.markdown("Collects structured feedback on each pathway node. Reviewers download responses as CSV and email back.")
-    aud_expert = st.text_input(
-        "Target Audience",
-        value=st.session_state.get("p5_aud_expert", ""),
-        placeholder="e.g., Clinical Experts (EM, Cardiology, Pharmacy)",
-        key="p5_aud_expert"
-    )
-    if st.button("Generate Form", key="gen_expert", use_container_width=True):
-        with ai_activity("Generating expert feedback form..."):
-            expert_html = generate_expert_form_html(
+    # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
+    with col4:
+        st.markdown(f"### {deliverables['executive']['title']}")
+        st.caption(deliverables['executive']['desc'])
+        
+        aud_exec = st.text_input(
+            "Target Audience",
+            value=st.session_state.get("p5_aud_exec", ""),
+            placeholder="e.g., Hospital Leadership, Board Members",
+            key="p5_aud_exec_input"
+        )
+        
+        # Auto-generate on input change
+        if aud_exec and aud_exec != st.session_state.get("p5_aud_exec_prev", ""):
+            st.session_state["p5_aud_exec"] = aud_exec
+            st.session_state["p5_aud_exec_prev"] = aud_exec
+            with st.spinner("Generating summary..."):
+                exec_summary = f"Executive Summary for {cond} - Prepared for {aud_exec}"
+                st.session_state.data['phase5']['exec_summary'] = exec_summary
+            st.success("✓ Generated!")
+        
+        # Download button
+        if st.session_state.data['phase5'].get('exec_summary'):
+            docx_bytes = create_phase5_executive_summary_docx(
                 condition=cond,
-                nodes=nodes,
-                audience=aud_expert,
-                organization=organization,
-                care_setting=setting
+                setting=setting,
+                audience=st.session_state.get("p5_aud_exec", ""),
+                summary_text=st.session_state.data['phase5'].get('exec_summary', '')
             )
-            st.session_state.data['phase5']['expert_html'] = expert_html
-            st.success("Form generated!")
-    
-    if st.session_state.data['phase5'].get('expert_html'):
-        st.download_button(
-            "Download HTML",
-            st.session_state.data['phase5']['expert_html'],
-            f"ExpertPanelFeedback_{cond.replace(' ', '_')}.html",
-            "text/html",
-            use_container_width=True
-        )
-    
-    st.divider()
-    
-    # ============================================================
-    # 2. BETA TESTING FEEDBACK FORM
-    # ============================================================
-    st.subheader("2. Beta Testing Feedback Form")
-    st.caption("Share with users testing the pathway in real-world settings")
-    
-    st.markdown("Usability testing form focused on clarity, workflow fit, and implementation barriers. Download responses as CSV.")
-    aud_beta = st.text_input(
-        "Target Audience",
-        value=st.session_state.get("p5_aud_beta", ""),
-        placeholder="e.g., ED Clinicians (Physicians, RNs), APPs, Pharmacists",
-        key="p5_aud_beta"
-    )
-    if st.button("Generate Form", key="gen_beta", use_container_width=True):
-        with ai_activity("Generating beta testing form..."):
-            beta_html = generate_beta_form_html(
-                condition=cond,
-                nodes=nodes,
-                audience=aud_beta,
-                organization=organization
+            st.download_button(
+                "📥 Download Summary",
+                docx_bytes,
+                f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True
             )
-            st.session_state.data['phase5']['beta_html'] = beta_html
-            st.success("Form generated!")
-    
-    if st.session_state.data['phase5'].get('beta_html'):
-        st.download_button(
-            "Download HTML",
-            st.session_state.data['phase5']['beta_html'],
-            f"BetaTestingFeedback_{cond.replace(' ', '_')}.html",
-            "text/html",
-            use_container_width=True
+        
+        # Refine section
+        refine_exec = st.text_area(
+            "Refine content",
+            placeholder="E.g., 'Focus on cost-benefit analysis'...",
+            key="p5_refine_exec",
+            height=80,
+            label_visibility="collapsed"
         )
+        if refine_exec and st.button("Regenerate", key="regen_exec", use_container_width=True):
+            with st.spinner("Refining..."):
+                refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_exec}"
+                st.session_state.data['phase5']['exec_summary'] = refined_summary
+            st.success("✓ Refined!")
     
-    st.divider()
-    
-    # ============================================================
-    # 3. EDUCATION MODULE
-    # ============================================================
-    st.subheader("3. Interactive Education Module")
-    st.caption("Share with clinical team for training. Users complete quizzes and download certificate.")
-    
-    st.markdown("Self-contained learning module with interactive quizzes and certificate of completion. Works offline in any browser.")
-    aud_edu = st.text_input(
-        "Target Audience",
-        value=st.session_state.get("p5_aud_edu", ""),
-        placeholder="e.g., Clinical Team (Residents, RNs, APPs)",
-        key="p5_aud_edu"
-    )
-    if st.button("Generate Module", key="gen_edu", use_container_width=True):
-        with ai_activity("Generating education module..."):
-            # Create default modules if none exist
-            edu_modules = [
-                    {
-                        "title": f"Module 1: {cond} Overview",
-                        "content": f"<p>This module introduces the clinical presentation and epidemiology of {cond}.</p><p><strong>Key Topics:</strong></p><ul><li>Definition and prevalence</li><li>Risk factors and pathophysiology</li><li>Clinical presentation</li><li>Initial assessment approach</li></ul>",
-                        "learning_objectives": [
-                            f"Define {cond} and describe its clinical relevance",
-                            "Identify key risk factors and pathophysiologic mechanisms",
-                            "Recognize presenting symptoms and clinical findings"
-                        ],
-                        "quiz": [
-                            {
-                                "question": f"Which of the following is a primary characteristic of {cond}?",
-                                "options": ["Clinical finding A", "Clinical finding B", "Clinical finding C", "Clinical finding D"],
-                                "correct": 0
-                            }
-                        ]
-                    },
-                    {
-                        "title": "Module 2: Diagnostic Approach",
-                        "content": "<p>Evidence-based diagnostic workup and interpretation.</p><p><strong>Diagnostic Strategy:</strong></p><ul><li>Initial testing</li><li>Advanced investigations</li><li>Diagnostic accuracy</li><li>When to treat vs. observe</li></ul>",
-                        "learning_objectives": [
-                            "Select appropriate diagnostic tests based on clinical presentation",
-                            "Interpret test results and understand their limitations",
-                            "Apply diagnostic criteria for confirmation"
-                        ],
-                        "quiz": [
-                            {
-                                "question": "Which diagnostic test has the highest sensitivity?",
-                                "options": ["Test A", "Test B", "Test C", "Test D"],
-                                "correct": 1
-                            }
-                        ]
-                    },
-                    {
-                        "title": "Module 3: Treatment & Management",
-                        "content": "<p>Evidence-based treatment strategies and clinical decision-making.</p><p><strong>Management Approach:</strong></p><ul><li>First-line treatments</li><li>Escalation protocols</li><li>Monitoring parameters</li><li>Adverse effect management</li></ul>",
-                        "learning_objectives": [
-                            "Apply evidence-based treatment recommendations",
-                            "Manage treatment-related complications",
-                            "Monitor therapeutic response"
-                        ],
-                        "quiz": [
-                            {
-                                "question": "What is the first-line intervention?",
-                                "options": ["Option A", "Option B", "Option C", "Option D"],
-                                "correct": 2
-                            }
-                        ]
-                    }
-                ]
-                
-            edu_html = create_education_module_template(
-                condition=cond,
-                topics=edu_modules,
-                organization=organization,
-                learning_objectives=[
-                    f"Understand the clinical presentation and epidemiology of {cond}",
-                    "Apply evidence-based diagnostic and treatment strategies",
-                    f"Recognize complications and implement safety measures for {cond}",
-                    "Communicate effectively with the interdisciplinary team"
-                ]
-            )
-            st.session_state.data['phase5']['edu_html'] = edu_html
-            st.success("Module generated!")
-    
-    if st.session_state.data['phase5'].get('edu_html'):
-        st.download_button(
-            "Download HTML",
-            st.session_state.data['phase5']['edu_html'],
-            f"EducationModule_{cond.replace(' ', '_')}.html",
-            "text/html",
-            use_container_width=True
-        )
-    
-    st.divider()
-    
-    # ============================================================
-    # 4. EXECUTIVE SUMMARY
-    # ============================================================
-    st.subheader("4. Executive Summary Document")
-    st.caption("Share with hospital leadership")
-    st.markdown("Word document with project overview, evidence summary, pathway design, and implementation roadmap.")
-    aud_exec = st.text_input(
-        "Target Audience",
-        value=st.session_state.get("p5_aud_exec", ""),
-        placeholder="e.g., Hospital Leadership",
-        key="p5_aud_exec"
-    )
-    if st.button("Generate Summary", key="gen_exec", use_container_width=True):
-        with ai_activity("Generating executive summary..."):
-            doc = create_phase5_executive_summary_docx(
-                st.session_state.data,
-                cond
-            )
-            if doc:
-                st.session_state.data['phase5']['exec_doc'] = doc
-                st.success("Summary generated!")
-            else:
-                st.error("python-docx not installed. Please install with: pip install python-docx")
-    
-    if st.session_state.data['phase5'].get('exec_doc'):
-        st.download_button(
-            "Download Word Document",
-            st.session_state.data['phase5']['exec_doc'],
-            f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True
-        )
-    
-    st.divider()
-    
-
     render_bottom_navigation()
+    st.stop()
+
     st.stop()
 
 st.markdown(COPYRIGHT_HTML_FOOTER, unsafe_allow_html=True)
