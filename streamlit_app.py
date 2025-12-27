@@ -1709,7 +1709,7 @@ with nav_container:
     nav_cols = st.columns(len(PHASES))
     for i, p in enumerate(PHASES):
         with nav_cols[i]:
-            if st.button(p, key=f"nav_button_{p.replace(' ', '_').replace('&', 'and')}", label_visibility="collapsed", use_container_width=True):
+            if st.button(p, key=f"nav_button_{p.replace(' ', '_').replace('&', 'and')}", use_container_width=True):
                 st.session_state.current_phase_label = p
                 st.rerun()
 
