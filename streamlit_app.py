@@ -259,9 +259,10 @@ st.markdown("""
     }
 
     /* IMPROVE BUTTON AND TEXT VERTICAL ALIGNMENT */
+    /* Top-align items in columns to keep headers aligned horizontally */
     div[data-testid="stColumn"] {
         display: flex !important;
-        align-items: center !important;
+        align-items: flex-start !important;
     }
     
     button, input, select, textarea, label {
@@ -278,6 +279,11 @@ st.markdown("""
     /* SUBHEADER AND SELECTBOX ALIGNMENT */
     div[data-testid="stColumn"] h3 {
         margin-bottom: 0 !important;
+        line-height: 1.2 !important;
+    }
+    /* Ensure Streamlit subheaders (h2) sit close to content for alignment */
+    div[data-testid="stColumn"] h2 {
+        margin-bottom: 0.35rem !important;
         line-height: 1.2 !important;
     }
     
@@ -320,6 +326,19 @@ st.markdown("""
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+    }
+
+    /* FILE UPLOADER & TEXTAREA — compact spacing */
+    div[data-testid="stFileUploader"] section {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] {
+        padding: 12px !important;
+        border-radius: 8px !important;
+    }
+    textarea {
+        line-height: 1.35 !important;
     }
 
     /* PHASE 2 — highlight rows marked as new via the first checkbox column */
@@ -2093,7 +2112,7 @@ if "Scope" in phase:
     
     # Determine button type and label
     p1_refine_button_type = "primary" if p1_refinement_applied else "secondary"
-    p1_refine_button_label = "Applied" if p1_refinement_applied else "Refine & Regenerate"
+    p1_refine_button_label = "Applied" if p1_refinement_applied else "Apply Refinements"
     
     if st.button(p1_refine_button_label, type=p1_refine_button_type, key="p1_apply_refine_btn"):
         if not p1_refinement_applied:
@@ -2686,8 +2705,13 @@ elif "Decision" in phase or "Tree" in phase:
     # File upload for Phase 3 refinement
     col_file, col_text = st.columns([1, 2])
     with col_file:
-        st.markdown("**📎 Supporting Document**")
-        p3_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p3_file_upload", accept_multiple_files=False)
+        st.caption("Supporting Document (optional)")
+        p3_uploaded = st.file_uploader(
+            "Drag & drop or browse",
+            key="p3_file_upload",
+            accept_multiple_files=False,
+            label_visibility="collapsed"
+        )
         if p3_uploaded:
             file_result = upload_and_review_file(p3_uploaded, "p3_refine", "decision tree pathway")
             if file_result:
@@ -2695,8 +2719,8 @@ elif "Decision" in phase or "Tree" in phase:
                     st.markdown(file_result["review"])
     
     st.text_area(
-        "Refine Decision Tree",
-        placeholder="E.g., 'Add a branch for patients with renal impairment', 'Include specific discharge medications for heart failure'...",
+        "Refinement Notes",
+        placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
         key="p3_refine_input",
         height=80
     )
@@ -2715,7 +2739,7 @@ elif "Decision" in phase or "Tree" in phase:
     
     # Determine button type and label
     refine_button_type = "primary" if p3_refinement_applied else "secondary"
-    refine_button_label = "Applied" if p3_refinement_applied else "Refine & Regenerate"
+    refine_button_label = "Applied" if p3_refinement_applied else "Apply Refinements"
     
     if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
         if not p3_refinement_applied:
@@ -2831,7 +2855,6 @@ elif "Interface" in phase or "UI" in phase:
 
     # FULLSCREEN-ONLY VISUALIZATION + RIGHT-SIDE HEURISTICS LAYOUT
     # Build or retrieve SVG for visualization (no inline preview)
-    st.subheader("Pathway Visualization")
     svg_bytes = cache.get(sig, {}).get("svg")
     if svg_bytes is None:
         g = build_graphviz_from_nodes(nodes_for_viz, "TD")
@@ -2848,6 +2871,7 @@ elif "Interface" in phase or "UI" in phase:
 
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
+        st.subheader("Pathway Visualization")
         if svg_b64:
             open_html = f"""
             <div style='display:flex;gap:12px;'>
@@ -2890,27 +2914,31 @@ elif "Interface" in phase or "UI" in phase:
         h_data = p4_state.get('heuristics_data', {})
         if h_data:
             st.subheader("Refine & Regenerate")
-            
-            # File upload for Phase 4 refinement
+
+            # File upload for Phase 4 refinement (compact, no emoji, minimal redundancy)
             col_file, col_text = st.columns([1, 2])
             with col_file:
-                st.markdown("**📎 Supporting Document**")
-                p4_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p4_file_upload", accept_multiple_files=False)
+                st.caption("Supporting Document (optional)")
+                p4_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p4_file_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed"
+                )
                 if p4_uploaded:
                     file_result = upload_and_review_file(p4_uploaded, "p4_refine", "user interface design")
                     if file_result:
-                        with st.expander("📄 File Review", expanded=True):
+                        with st.expander("File Review", expanded=True):
                             st.markdown(file_result["review"])
-            
+
             refine_all = st.text_area(
-                "Refine & Regenerate",
-                placeholder="E.g., 'Consolidate redundant steps', 'Add alerts for critical values', 'Use patient-friendly terminology'",
+                "Refinement Notes",
+                placeholder="Consolidate redundant steps; add alerts for critical values; use patient‑friendly terms",
                 key="p4_refine_all",
                 height=120,
-                label_visibility="visible",
-                help="Describe changes and regenerate the pathway."
+                label_visibility="visible"
             )
-            if st.button("Refine and Regenerate", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
+            if st.button("Apply Refinements", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
                 p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                 with ai_activity("Refining pathway with all heuristics and your custom request…"):
                     # Include file context
@@ -3067,8 +3095,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         # Refine section
         col_file, col_text = st.columns([1, 2])
         with col_file:
-            st.markdown("**📎 Supporting Document**")
-            p5e_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_expert_upload", accept_multiple_files=False)
+            st.caption("Supporting Document (optional)")
+            p5e_uploaded = st.file_uploader(
+                "Drag & drop or browse",
+                key="p5_expert_upload",
+                accept_multiple_files=False,
+                label_visibility="collapsed"
+            )
             if p5e_uploaded:
                 file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback")
                 if file_result:
@@ -3076,14 +3109,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         st.markdown(file_result["review"])
         
         refine_expert = st.text_area(
-            "Refine & Regenerate",
-            placeholder="E.g., 'Add questions about implementation barriers'...",
+            "Refinement Notes",
+            placeholder="Add implementation barriers; usability metrics; streamline sections",
             key="p5_refine_expert",
             height=90,
-            label_visibility="visible",
-            help="Describe changes and regenerate the form."
+            label_visibility="visible"
         )
-        if refine_expert and st.button("Refine and Regenerate", key="regen_expert", use_container_width=True):
+        if refine_expert and st.button("Apply Refinements", key="regen_expert", use_container_width=True):
             with st.spinner("Refining..."):
                 refine_with_file = refine_expert
                 if st.session_state.get("file_p5_expert_review"):
@@ -3137,8 +3169,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         # Refine section
         col_file, col_text = st.columns([1, 2])
         with col_file:
-            st.markdown("**📎 Supporting Document**")
-            p5b_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_beta_upload", accept_multiple_files=False)
+            st.caption("Supporting Document (optional)")
+            p5b_uploaded = st.file_uploader(
+                "Drag & drop or browse",
+                key="p5_beta_upload",
+                accept_multiple_files=False,
+                label_visibility="collapsed"
+            )
             if p5b_uploaded:
                 file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
                 if file_result:
@@ -3146,14 +3183,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         st.markdown(file_result["review"])
         
         refine_beta = st.text_area(
-            "Refine & Regenerate",
-            placeholder="E.g., 'Add usability metrics'...",
+            "Refinement Notes",
+            placeholder="Add usability metrics; clarify scenarios; shorten steps",
             key="p5_refine_beta",
             height=90,
-            label_visibility="visible",
-            help="Describe changes and regenerate the guide."
+            label_visibility="visible"
         )
-        if refine_beta and st.button("Refine and Regenerate", key="regen_beta", use_container_width=True):
+        if refine_beta and st.button("Apply Refinements", key="regen_beta", use_container_width=True):
             with st.spinner("Refining..."):
                 refine_with_file = refine_beta
                 if st.session_state.get("file_p5_beta_review"):
@@ -3246,8 +3282,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         # Refine section
         col_file, col_text = st.columns([1, 2])
         with col_file:
-            st.markdown("**📎 Supporting Document**")
-            p5ed_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_edu_upload", accept_multiple_files=False)
+            st.caption("Supporting Document (optional)")
+            p5ed_uploaded = st.file_uploader(
+                "Drag & drop or browse",
+                key="p5_edu_upload",
+                accept_multiple_files=False,
+                label_visibility="collapsed"
+            )
             if p5ed_uploaded:
                 file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
                 if file_result:
@@ -3256,14 +3297,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         # Refine section
         refine_edu = st.text_area(
-            "Refine & Regenerate",
-            placeholder="E.g., 'Add case studies'...",
+            "Refinement Notes",
+            placeholder="Add case studies; include quick checks; simplify objectives",
             key="p5_refine_edu",
             height=90,
-            label_visibility="visible",
-            help="Describe changes and regenerate the module."
+            label_visibility="visible"
         )
-        if refine_edu and st.button("Refine and Regenerate", key="regen_edu", use_container_width=True):
+        if refine_edu and st.button("Apply Refinements", key="regen_edu", use_container_width=True):
             with st.spinner("Refining..."):
                 # Include file context
                 refine_with_file = refine_edu
@@ -3336,8 +3376,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         # Refine section
         col_file, col_text = st.columns([1, 2])
         with col_file:
-            st.markdown("**📎 Supporting Document**")
-            p5ex_uploaded = st.file_uploader("Upload file (PDF, TXT, etc.)", key="p5_exec_upload", accept_multiple_files=False)
+            st.caption("Supporting Document (optional)")
+            p5ex_uploaded = st.file_uploader(
+                "Drag & drop or browse",
+                key="p5_exec_upload",
+                accept_multiple_files=False,
+                label_visibility="collapsed"
+            )
             if p5ex_uploaded:
                 file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
                 if file_result:
@@ -3346,14 +3391,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         # Refine section
         refine_exec = st.text_area(
-            "Refine & Regenerate",
-            placeholder="E.g., 'Focus on cost-benefit analysis'...",
+            "Refinement Notes",
+            placeholder="Focus on cost‑benefit; shorten narrative; highlight outcomes",
             key="p5_refine_exec",
             height=90,
-            label_visibility="visible",
-            help="Describe changes and regenerate the summary."
+            label_visibility="visible"
         )
-        if refine_exec and st.button("Refine and Regenerate", key="regen_exec", use_container_width=True):
+        if refine_exec and st.button("Apply Refinements", key="regen_exec", use_container_width=True):
             with st.spinner("Refining..."):
                 refine_with_file = refine_exec
                 if st.session_state.get("file_p5_exec_review"):
