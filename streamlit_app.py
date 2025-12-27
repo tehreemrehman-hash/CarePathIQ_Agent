@@ -415,6 +415,18 @@ st.markdown("""
         transform: none !important;
         display: inline !important;
     }
+
+    /* Responsive: stack columns and make paired controls full-width on narrow screens */
+    @media (max-width: 560px) {
+        /* Stack all Streamlit columns */
+        div[data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 0 0 100% !important;
+        }
+        /* Make link-button and download button fill width */
+        .cpq-link-button { width: 100% !important; }
+        div.stDownloadButton > button { width: 100% !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
