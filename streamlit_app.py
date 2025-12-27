@@ -1825,7 +1825,7 @@ phase_short_labels = [
     "Deploy"
 ]
 
-nav_cols = st.columns([1] * len(PHASES) + [0.1] * (len(PHASES) - 1))  # Allocate space for arrows
+nav_cols = st.columns(len(PHASES))  # Equal-width columns for each phase button
 
 col_idx = 0
 for i, p in enumerate(PHASES):
@@ -1844,12 +1844,6 @@ for i, p in enumerate(PHASES):
             st.rerun()
     
     col_idx += 1
-    
-    # Add arrow between phases
-    if i < len(PHASES) - 1:
-        with nav_cols[col_idx]:
-            st.markdown("<div style='text-align: center; color: #5D4037; font-size: 18px; margin-top: 6px;'>→</div>", unsafe_allow_html=True)
-        col_idx += 1
 
 st.markdown("---")
 
