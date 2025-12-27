@@ -1190,8 +1190,8 @@ def get_smart_model_cascade(requires_vision=False, requires_json=False):
     Model names per official docs: https://ai.google.dev/gemini-api/docs/models
     - gemini-2.5-flash: Fast, multimodal, 1M token context
     - gemini-2.5-pro: Most capable, best for complex tasks  
-    - gemini-1.5-flash: Stable fallback
-    - gemini-1.5-pro: Legacy pro model
+    - gemini-2.5-flash-lite: Lightweight fallback
+    - gemini-2.5-flash-tts: Multimodal with text-to-speech
     
     Strategy: Try high-performance models first, then fallback to stable versions.
     Vision tasks get models with multimodal support.
@@ -1201,12 +1201,12 @@ def get_smart_model_cascade(requires_vision=False, requires_json=False):
         if requires_vision:
             return [
                 "gemini-2.5-flash",      # Best for vision
-                "gemini-1.5-flash",      # Fallback for vision
+                "gemini-2.5-flash-lite",      # Fallback for vision
             ]
         else:
             return [
                 "gemini-2.5-flash",      # Best general performance
-                "gemini-1.5-flash",      # Stable fallback for simple tasks
+                "gemini-2.5-flash-lite",      # Lightweight fallback for simple tasks
             ]
     else:
         # Use user-selected model with fallback to gemini-2.5-flash
@@ -1555,7 +1555,7 @@ with st.sidebar:
     if gemini_api_key:
         available_models = get_available_models(gemini_api_key)
     
-    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"])
+    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"])
     model_choice = st.selectbox("Model", model_options, index=0)
     
     # Preview before activation
