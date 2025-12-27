@@ -2633,7 +2633,7 @@ elif "Decision" in phase or "Tree" in phase:
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
     st.header("Design User Interface")
-    styled_info("<b>Tip:</b> Evaluate your pathway against Nielsen's 10 Usability Heuristics. The AI agent can provide suggestions for each criterion.")
+    styled_info("<b>Tip:</b> Heuristic recommendations are auto-generated. Review, then apply or undo per criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
     p4_state = st.session_state.data.setdefault('phase4', {})
@@ -2695,201 +2695,164 @@ elif "Interface" in phase or "UI" in phase:
     cache = p4_state.setdefault('viz_cache', {})
     sig = hashlib.md5(json.dumps(nodes_for_viz, sort_keys=True).encode('utf-8')).hexdigest()
 
-    # FULLSCREEN VISUALIZATION AT TOP
+    # FULLSCREEN-ONLY VISUALIZATION + RIGHT-SIDE HEURISTICS LAYOUT
+    # Build or retrieve SVG for visualization (no inline preview)
     st.subheader("Pathway Visualization")
-    
-    # Render graphviz visualization
     svg_bytes = cache.get(sig, {}).get("svg")
-
     if svg_bytes is None:
         g = build_graphviz_from_nodes(nodes_for_viz, "TD")
         if g:
             new_svg = render_graphviz_bytes(g, "svg")
             cache[sig] = {"svg": new_svg}
             svg_bytes = new_svg
-    # Keep cache bounded to the latest signature only
     p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
-    # Display SVG inline at full width
-    if svg_bytes:
-        import base64
-        svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
-        svg_html = f'<div style="width:100%;overflow-x:auto;background:#e8f5e9;padding:20px;border:2px solid #5D4037;border-radius:8px;"><img src="data:image/svg+xml;base64,{svg_b64}" style="width:100%;height:auto;"/></div>'
-        components.html(svg_html, height=800, scrolling=True)
-    else:
-        st.warning("Unable to render pathway visualization")
+    import base64
+    svg_b64 = base64.b64encode(svg_bytes or b"").decode('utf-8') if svg_bytes else ""
 
-    # Download buttons (DOT and SVG formats)
-    col_dl_dot, col_dl_svg = st.columns(2)
-    dot_text = dot_from_nodes(nodes_for_viz, "TD")
-    with col_dl_dot:
-        st.download_button("Download DOT", dot_text, file_name="pathway.dot", mime="text/vnd.graphviz", use_container_width=True)
+    col_left, col_right = st.columns([3, 2])
 
-    with col_dl_svg:
-        if svg_bytes and isinstance(svg_bytes, bytes) and len(svg_bytes) > 0:
+    # LEFT: Fullscreen open + manual edit + refine/regenerate
+    with col_left:
+        if svg_b64:
+            open_html = f"""
+            <div style='display:flex;gap:12px;'>
+              <a href="data:image/svg+xml;base64,{svg_b64}" target="_blank" style="display:inline-block;padding:10px 14px;background:#5D4037;color:#fff;text-decoration:none;border-radius:6px;border:1px solid #3E2723;">Open Fullscreen Visualization</a>
+            </div>
+            """
+            components.html(open_html, height=60)
             st.download_button("Download SVG (Editable)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
         else:
-            st.button("Download SVG (Editable)", use_container_width=True, disabled=True)
-    
-    st.divider()
-    
-    # NIELSEN'S HEURISTICS SECTION
-    st.subheader("Nielsen's Heuristics Evaluation")
-    
-    # Manual trigger to generate or retry heuristics
-    h_data = p4_state.get('heuristics_data', {})
-    auto_done = p4_state.get('auto_heuristics_done', False)
-    btn_label = "Run Heuristics Analysis" if not auto_done else "Retry Heuristics Analysis"
+            st.warning("Unable to render pathway visualization")
 
-    if st.button(btn_label, use_container_width=True, key="p4_run_heuristics_btn"):
-        with ai_activity("Analyzing usability heuristics…"):
-            nodes_sample = nodes[:10] if len(nodes) > 10 else nodes
-            prompt = f"""
-            Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
-            For each heuristic (H1-H10), provide a specific, actionable critique and suggestion in 2-3 sentences.
-            
-            Pathway nodes: {json.dumps(nodes_sample)}
-            
-            Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
-            Each value should be a string with the recommendation.
-            
-            Example format: {{"H1": "The pathway lacks clear status indicators...", "H2": "Medical jargon should be..."}}
-            """
-            res = get_gemini_response(prompt, json_mode=True)
-            if res and isinstance(res, dict):
-                p4_state['heuristics_data'] = res
-                h_data = res
-                p4_state['auto_heuristics_done'] = True
-                st.success("Heuristics analyzed successfully!")
-                st.rerun()
+        st.divider()
+
+        # EDIT PATHWAY DATA SECTION (immediately below visualization controls)
+        st.subheader("Edit Pathway Manually")
+        with st.expander("Edit Pathway Data", expanded=False):
+            df_p4 = pd.DataFrame(nodes)
+            if 'node_id' not in df_p4.columns:
+                df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
             else:
-                st.error("Failed to generate heuristics. Please try again.")
-                p4_state['auto_heuristics_done'] = True
+                df_p4['node_id'] = range(1, len(df_p4) + 1)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            if not df_p4.equals(edited_p4):
+                if 'node_id' in edited_p4.columns:
+                    edited_p4 = edited_p4.drop('node_id', axis=1)
+                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                p4_state['viz_cache'] = {}
+                st.success("Nodes updated. Refresh page to see changes.")
+                st.rerun()
 
-    if not h_data:
-        styled_info("No heuristics yet. Click 'Run Heuristics Analysis' to evaluate this pathway.")
-    else:
-        # Display heuristics collapsed by default - showing only category names
-        st.caption("Click each heuristic to view definition and AI-generated recommendations")
-        for heuristic_key in sorted(h_data.keys()):
-            insight = h_data[heuristic_key]
-            definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
-            
-            # Extract short category name from definition
-            category_name = definition.split(':')[0] if ':' in definition else heuristic_key
+        st.divider()
 
-            # Collapsible expander with just the category name
-            with st.expander(f"**{heuristic_key}** - {category_name}", expanded=False):
-                # Show definition
-                st.markdown(f"**Definition:** {definition}")
-                st.markdown("---")
-                
-                # AI Recommendation based on existing pathway
-                st.markdown(f"**AI Recommendation for Your Pathway:**")
-                st.info(insight)
+        # REFINE AND REGENERATE SECTION
+        h_data = p4_state.get('heuristics_data', {})
+        if h_data:
+            st.subheader("Refine & Regenerate")
+            st.caption("Type natural‑language instructions (e.g., 'Add visual status indicators', 'Simplify branching logic'). The AI will regenerate the pathway using Nielsen heuristics + your input.")
+            refine_all = st.text_area(
+                "Describe how you'd like to refine the pathway",
+                placeholder="E.g., 'Consolidate redundant steps', 'Add alerts for critical values', 'Use patient-friendly terminology'",
+                key="p4_refine_all",
+                height=120,
+                label_visibility="collapsed",
+                help="Enter plain language. Your request is applied directly; AI blends it with heuristic recommendations."
+            )
+            if st.button("🔄 Refine and Regenerate Pathway", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
+                p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                with ai_activity("Refining pathway with all heuristics and your custom request…"):
+                    all_recommendations = "\n".join([f"{hkey}: {h_data[hkey]}" for hkey in sorted(h_data.keys())])
+                    prompt_refine_all = f"""
+                    Refine and improve the clinical pathway considering ALL Nielsen's heuristics and the user's specific request.
+                    User refinement request: {refine_all}
+                    
+                    All heuristic recommendations:
+                    {all_recommendations}
+                    
+                    Current pathway: {json.dumps(nodes)}
+                    
+                    Return ONLY the updated JSON array of nodes incorporating all recommendations and the user's refinement.
+                    """
+                    new_nodes = get_gemini_response(prompt_refine_all, json_mode=True)
+                    if new_nodes and isinstance(new_nodes, list):
+                        st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                        st.success("✓ Pathway refined and regenerated successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to refine pathway. Please try again.")
 
-                # Action buttons for this heuristic (side by side)
-                act_left, act_right = st.columns([1, 1])
+    # RIGHT: Nielsen's heuristics panel
+    with col_right:
+        st.subheader("Nielsen's Heuristics Evaluation")
+        h_data = p4_state.get('heuristics_data', {})
+        auto_done = p4_state.get('auto_heuristics_done', False)
+        btn_label = "Run Heuristics Analysis" if not auto_done else "Retry Heuristics Analysis"
+        if st.button(btn_label, use_container_width=True, key="p4_run_heuristics_btn"):
+            with ai_activity("Analyzing usability heuristics…"):
+                nodes_sample = nodes[:10] if len(nodes) > 10 else nodes
+                prompt = f"""
+                Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
+                For each heuristic (H1-H10), provide a specific, actionable critique and suggestion in 2-3 sentences.
                 
-                with act_left:
-                    if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}", use_container_width=True):
-                        # Snapshot current nodes for undo
-                        p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                        with ai_activity(f"Applying {heuristic_key} recommendation…"):
-                            prompt_apply = f"""
-                            Update the clinical pathway by applying this specific usability recommendation.
-                            Heuristic {heuristic_key} recommendation: {insight}
-                            Current pathway: {json.dumps(nodes)}
-                            Return ONLY the updated JSON array of nodes.
-                            """
-                            new_nodes = get_gemini_response(prompt_apply, json_mode=True)
-                            if new_nodes and isinstance(new_nodes, list):
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                st.success(f"Applied {heuristic_key} recommendation")
-                                st.rerun()
+                Pathway nodes: {json.dumps(nodes_sample)}
                 
-                with act_right:
-                    if st.button(f"↶ Undo", key=f"p4_undo_{heuristic_key}", use_container_width=True):
-                        # Undo last change
-                        if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
-                            prev_nodes = p4_state['nodes_history'].pop()
-                            st.session_state.data['phase3']['nodes'] = prev_nodes
-                            st.success(f"Undid last change")
-                            st.rerun()
-                        else:
-                            st.warning("No changes to undo")
-    
-    st.divider()
-    
-    # EDIT PATHWAY DATA SECTION
-    st.subheader("Edit Pathway Manually")
-    with st.expander("Edit Pathway Data", expanded=False):
-        df_p4 = pd.DataFrame(nodes)
-        # Add node ID column if not present
-        if 'node_id' not in df_p4.columns:
-            df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
-        else:
-            df_p4['node_id'] = range(1, len(df_p4) + 1)
-        
-        edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
-        if not df_p4.equals(edited_p4):
-            # Remove node_id before saving (it's display-only)
-            if 'node_id' in edited_p4.columns:
-                edited_p4 = edited_p4.drop('node_id', axis=1)
-            st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
-            p4_state['viz_cache'] = {}  # Clear visualization cache to force re-render with new node data
-            st.success("Nodes updated. Refresh page to see changes.")
-            st.rerun()
-    
-    st.divider()
-    
-    # REFINE AND REGENERATE SECTION AT BOTTOM
-    if h_data:
-        st.subheader("Refine & Regenerate")
-        st.caption("Type natural‑language instructions (e.g., 'Add visual status indicators', 'Simplify branching logic'). The AI will regenerate the pathway using Nielsen heuristics + your input.")
-        
-        refine_all = st.text_area(
-            "Describe how you'd like to refine the pathway",
-            placeholder="E.g., 'Consolidate redundant steps', 'Add alerts for critical values', 'Use patient-friendly terminology'",
-            key="p4_refine_all",
-            height=120,
-            label_visibility="collapsed",
-            help="Enter plain language. Your request is applied directly; AI blends it with heuristic recommendations."
-        )
-        
-        if st.button("🔄 Refine and Regenerate Pathway", use_container_width=True, key="p4_refine_regenerate", disabled=not refine_all):
-            # Snapshot for undo
-            p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-            
-            with ai_activity("Refining pathway with all heuristics and your custom request…"):
-                all_recommendations = "\n".join([
-                    f"{hkey}: {h_data[hkey]}" 
-                    for hkey in sorted(h_data.keys())
-                ])
+                Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
+                Each value should be a string with the recommendation.
                 
-                prompt_refine_all = f"""
-                Refine and improve the clinical pathway considering ALL Nielsen's heuristics and the user's specific request.
-                User refinement request: {refine_all}
-                
-                All heuristic recommendations:
-                {all_recommendations}
-                
-                Current pathway: {json.dumps(nodes)}
-                
-                Return ONLY the updated JSON array of nodes incorporating all recommendations and the user's refinement.
+                Example format: {{"H1": "The pathway lacks clear status indicators...", "H2": "Medical jargon should be..."}}
                 """
-                
-                new_nodes = get_gemini_response(prompt_refine_all, json_mode=True)
-                if new_nodes and isinstance(new_nodes, list):
-                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                    st.success("✓ Pathway refined and regenerated successfully!")
+                res = get_gemini_response(prompt, json_mode=True)
+                if res and isinstance(res, dict):
+                    p4_state['heuristics_data'] = res
+                    h_data = res
+                    p4_state['auto_heuristics_done'] = True
+                    st.success("Heuristics analyzed successfully!")
                     st.rerun()
                 else:
-                    st.error("Failed to refine pathway. Please try again.")
-    
-    render_bottom_navigation()
-    st.stop()
-    
+                    st.error("Failed to generate heuristics. Please try again.")
+                    p4_state['auto_heuristics_done'] = True
+
+        h_data = p4_state.get('heuristics_data', {})
+        if not h_data:
+            styled_info("No heuristics yet. Click 'Run Heuristics Analysis' to evaluate this pathway.")
+        else:
+            st.caption("Click each heuristic to view definition and AI-generated recommendations")
+            for heuristic_key in sorted(h_data.keys()):
+                insight = h_data[heuristic_key]
+                definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
+                category_name = definition.split(':')[0] if ':' in definition else heuristic_key
+                with st.expander(f"**{heuristic_key}** - {category_name}", expanded=False):
+                    st.markdown(f"**Definition:** {definition}")
+                    st.markdown("---")
+                    st.markdown(f"**AI Recommendation for Your Pathway:**")
+                    st.info(insight)
+                    act_left, act_right = st.columns([1, 1])
+                    with act_left:
+                        if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}", use_container_width=True):
+                            p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                            with ai_activity(f"Applying {heuristic_key} recommendation…"):
+                                prompt_apply = f"""
+                                Update the clinical pathway by applying this specific usability recommendation.
+                                Heuristic {heuristic_key} recommendation: {insight}
+                                Current pathway: {json.dumps(nodes)}
+                                Return ONLY the updated JSON array of nodes.
+                                """
+                                new_nodes = get_gemini_response(prompt_apply, json_mode=True)
+                                if new_nodes and isinstance(new_nodes, list):
+                                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
+                                    st.success(f"Applied {heuristic_key} recommendation")
+                                    st.rerun()
+                    with act_right:
+                        if st.button(f"↶ Undo", key=f"p4_undo_{heuristic_key}", use_container_width=True):
+                            if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
+                                prev_nodes = p4_state['nodes_history'].pop()
+                                st.session_state.data['phase3']['nodes'] = prev_nodes
+                                st.success(f"Undid last change")
+                                st.rerun()
+                            else:
+                                st.warning("No changes to undo")
+
     render_bottom_navigation()
     st.stop()
 
