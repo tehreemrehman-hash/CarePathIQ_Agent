@@ -3056,19 +3056,6 @@ elif "Decision" in phase or "Tree" in phase:
     # Display pathway metrics with evidence enrichment
     node_count = len(st.session_state.data['phase3']['nodes'])
 
-    # Flag problematic terminal nodes that include OR logic
-    problematic_ends = [
-        (idx + 1, n.get('label', ''))
-        for idx, n in enumerate(st.session_state.data['phase3']['nodes'])
-        if n.get('type') == 'End' and ' or ' in n.get('label', '').lower()
-    ]
-    if problematic_ends:
-        preview = "; ".join([f"{i}: {lbl[:80]}" for i, lbl in problematic_ends[:3]])
-        st.warning(
-            f"End nodes should be single outcomes. Found OR logic in: {preview}. "
-            "Convert these to Decision nodes with explicit branches (e.g., 'Discharge vs Admit')."
-        )
-    
     # Extract all PMIDs from Phase 3 nodes
     phase3_pmids = extract_pmids_from_nodes(st.session_state.data['phase3']['nodes'])
     phase2_pmids = set([e['id'] for e in evidence_list])
@@ -3244,6 +3231,8 @@ elif "Decision" in phase or "Tree" in phase:
                     """
                     nodes = get_gemini_response(prompt, json_mode=True)
                     if isinstance(nodes, list) and len(nodes) > 0:
+                        # Silently normalize OR logic in End nodes to proper Decision nodes
+                        nodes = normalize_or_logic(nodes)
                         st.session_state.data['phase3']['nodes'] = nodes
                         # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
                         st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
