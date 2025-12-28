@@ -17,3 +17,29 @@ A simple Streamlit app that shows how to build a chatbot using OpenAI's GPT-3.5.
    ```
    $ streamlit run streamlit_app.py
    ```
+
+### Version badge visibility
+
+The app hides the version badge from users by default and only shows it in admin mode.
+
+- Env flag (server-side):
+
+```
+$ CPQ_SHOW_VERSION=1 streamlit run streamlit_app.py
+```
+
+- Optional admin code: set `CPQ_ADMIN_CODE` (or `ADMIN_CODE` in `st.secrets`) and append `?admin=CODE` to the URL to enable admin mode on demand:
+
+```
+$ CPQ_ADMIN_CODE=abc123 streamlit run streamlit_app.py
+# Open http://localhost:8501/?admin=abc123
+```
+
+### Debug traces (optional)
+
+Enable lightweight debug messages in the sidebar during AI steps:
+
+```
+$ CPQ_DEBUG=1 streamlit run streamlit_app.py
+# Or open with: http://localhost:8501/?debug=1
+```

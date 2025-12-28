@@ -51,6 +51,15 @@ def debug_log(msg: str):
 def get_genai_client():
     return st.session_state.get("genai_client")
 
+# Column helper that prefers top alignment but gracefully falls back
+def columns_top(spec, **kwargs):
+    try:
+        # Streamlit >= 1.30 supports vertical_alignment
+        return st.columns(spec, vertical_alignment="top", **kwargs)
+    except TypeError:
+        # Older Streamlit versions without vertical_alignment
+        return st.columns(spec, **kwargs)
+
 def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     """Regenerate Phase 3 nodes based on user refinement notes and optional heuristics context."""
     refine_text = (refine_text or "").strip()
@@ -254,8 +263,8 @@ st.markdown("""
         color: #3E2723 !important;
     }
 
-    /* FLOATING CHAT LAUNCHER (BOTTOM-RIGHT) */
-    div[data-testid="stButton"] button[aria-label="chat_launcher"] {
+    /* FLOATING CHAT LAUNCHER LINK (BOTTOM-RIGHT) */
+    a#cpq-chat-launch {
         position: fixed;
         bottom: 20px;
         right: 20px;
@@ -267,8 +276,10 @@ st.markdown("""
         padding: 0.65rem 1.25rem !important;
         box-shadow: 0 6px 18px rgba(0,0,0,0.18);
         font-weight: 700 !important;
+        text-decoration: none !important;
+        display: inline-block;
     }
-    div[data-testid="stButton"] button[aria-label="chat_launcher"]:hover {
+    a#cpq-chat-launch:hover {
         background-color: #FF9BB8 !important;
         color: #3E2723 !important;
         box-shadow: 0 8px 22px rgba(0,0,0,0.22);
@@ -1839,7 +1850,9 @@ def initialize_chat_state():
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
     if "chat_expanded" not in st.session_state:
-        st.session_state["chat_expanded"] = False
+        # Auto-open if query param ?chat=1 is present
+        qp = _get_query_param("chat")
+        st.session_state["chat_expanded"] = str(qp).lower() in ("1", "true", "yes", "y")
 
 
 def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
@@ -1894,7 +1907,38 @@ Politely decline and redirect: "I'm specifically designed to help with CarePathI
 User question: {user_question}"""
 
     response = get_gemini_response(scope_constraint)
+    if not response:
+        # Fallback local answers for common FAQs
+        response = get_local_faq_answer(user_question)
     return response or "I'm not sure how to help with that. Please ask me about features in the CarePathIQ app!"
+
+
+def get_local_faq_answer(user_question: str) -> str:
+    """Provide lightweight built-in answers when AI is unavailable."""
+    q = (user_question or "").strip().lower()
+    if "5 phases" in q or "five phases" in q:
+        return (
+            "CarePathIQ has 5 phases: 1) Define Scope — clarify condition, context, and goals. "
+            "2) Appraise Evidence — gather and grade studies with structured PICO/MESH support. "
+            "3) Build Decision Tree — design pathway logic and branches. "
+            "4) Design Interface — preview how the pathway will be used. "
+            "5) Operationalize — export, share, and prepare for deployment."
+        )
+    if "decision tree" in q or "phase 3" in q:
+        return (
+            "In Phase 3, add nodes (decisions, actions, outcomes), connect them to form branches, "
+            "and iterate using evidence and heuristics. Use the refinement box to request changes, "
+            "then regenerate to update the pathway structure."
+        )
+    if "evidence" in q or "phase 2" in q:
+        return (
+            "Include study details (PMID/title), abstract or key findings, GRADE or quality assessment, "
+            "and how the evidence informs pathway decisions. Use MESH queries to discover relevant studies."
+        )
+    return (
+        "I'm designed to help with CarePathIQ features. Ask about the 5 phases, building the decision tree, "
+        "or what to include in the Evidence phase."
+    )
 
 
 def render_chat_drawer():
@@ -1921,9 +1965,7 @@ def render_chat_drawer():
             suggested_questions = [
                 "What are the 5 phases of CarePathIQ?",
                 "How do I build a decision tree in Phase 3?",
-                "What's the difference between heuristics and pathways?",
-                "How do I export my pathway?",
-                "What should I include in the Evidence phase?"
+                "What should I include in the Evidence phase?",
             ]
             
             for i, question in enumerate(suggested_questions):
@@ -2127,10 +2169,20 @@ with st.sidebar:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
 
-# Floating chat launcher shown to end users (styled to sit bottom-right)
-if st.button("CarePathIQ AI Agent", key="chat_launcher"):
-    st.session_state["chat_expanded"] = True
-    st.rerun()
+# Floating chat launcher link shown bottom-right on all views
+st.markdown(
+    """
+    <script>
+    function openCpqChat() {
+        const url = new URL(window.location.href);
+        url.searchParams.set('chat', '1');
+        window.location.href = url.toString();
+    }
+    </script>
+    <a id="cpq-chat-launch" href="#" target="_self" onclick="openCpqChat(); return false;">Question about CarePathIQ?</a>
+    """,
+    unsafe_allow_html=True,
+)
 
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
