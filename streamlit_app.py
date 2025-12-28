@@ -3,6 +3,7 @@ import streamlit as st
 import os
 import json
 import pandas as pd
+import altair as alt
 from datetime import date, timedelta
 from contextlib import contextmanager
 from google import genai
@@ -3399,7 +3400,7 @@ elif "Interface" in phase or "UI" in phase:
                 )
 
             apply_disabled = not refine_notes and not st.session_state.get("file_p4_refine_file")
-            if st.button("Regenerate", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled):
+            if st.button("Apply Refinements", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled):
                 with st.spinner("Applying refinements..."):
                     refine_with_file = refine_notes
                     if st.session_state.get("file_p4_refine_file"):

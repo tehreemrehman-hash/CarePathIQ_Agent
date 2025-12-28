@@ -7,3 +7,4 @@ python-pptx
 matplotlib
 requests
 Pillow
+altair

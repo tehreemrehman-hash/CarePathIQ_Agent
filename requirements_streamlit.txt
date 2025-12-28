@@ -1,10 +1,12 @@
 streamlit
-google-generativeai
+google-genai
 pandas
+graphviz
 python-docx
 python-pptx
 matplotlib
 altair
 msal
 google-auth-oauthlib
-graphviz
+requests
+Pillow
