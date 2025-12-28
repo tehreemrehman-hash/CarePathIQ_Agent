@@ -2376,27 +2376,19 @@ if "Scope" in phase:
     def trigger_p1_draft():
         c = st.session_state.get('p1_cond_input', '').strip()
         s = st.session_state.get('p1_setting', '').strip()
-        debug_log(f"trigger_p1_draft() inputs: cond='{c}', setting='{s}'")
         if not (c and s):
-            debug_log("Missing condition or setting; skipping draft.")
             return
         prompt = f"""
         Act as a Chief Medical Officer. For "{c}" in "{s}", return a JSON object with keys:
         inclusion, exclusion, problem, objectives. Make inclusion/exclusion numbered lists.
         """
-        data = None
-        with ai_activity("Drafting Phase 1 content…"):
+        with ai_activity("Generating pathway scope…"):
             data = get_gemini_response(prompt, json_mode=True)
-            debug_log(f"AI response received type={type(data).__name__}")
         if data and isinstance(data, dict):
             st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
             st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
             st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
             st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-            debug_log("Phase 1 fields populated from AI response.")
-        else:
-            st.warning("Drafting returned no structured result. Please confirm inputs and try again.")
-            debug_log("AI response was empty/invalid; showed warning to user.")
 
     # 2) Sync helpers
     def sync_p1_widgets():
@@ -2431,7 +2423,7 @@ if "Scope" in phase:
 
     # 4) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
-    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent drafts the rest automatically.")
+    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent generates the rest automatically.")
 
     col1, col2 = columns_top(2)
     with col1:
