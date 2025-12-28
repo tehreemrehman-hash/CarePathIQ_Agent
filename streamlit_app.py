@@ -2,6 +2,7 @@ import streamlit as st
 # Version info sidebar caption (admin-only)
 import os
 import json
+from google import genai
 
 def _get_query_param(name: str):
     try:
@@ -43,6 +44,12 @@ def debug_log(msg: str):
             st.sidebar.caption(str(msg))
     except Exception:
         pass
+
+
+# --- GOOGLE GENAI CLIENT HELPER ---
+# Using official google-genai SDK per https://ai.google.dev/gemini-api/docs/quickstart
+def get_genai_client():
+    return st.session_state.get("genai_client")
 
 def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     """Regenerate Phase 3 nodes based on user refinement notes and optional heuristics context."""
@@ -246,6 +253,26 @@ st.markdown("""
         background-color: #8FD9BC !important; 
         color: #3E2723 !important;
     }
+
+    /* FLOATING CHAT LAUNCHER (BOTTOM-RIGHT) */
+    div[data-testid="stButton"] button[aria-label="chat_launcher"] {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 9999;
+        background-color: #FFB0C9 !important;
+        color: black !important;
+        border: 1px solid black !important;
+        border-radius: 30px !important;
+        padding: 0.65rem 1.25rem !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+        font-weight: 700 !important;
+    }
+    div[data-testid="stButton"] button[aria-label="chat_launcher"]:hover {
+        background-color: #FF9BB8 !important;
+        color: #3E2723 !important;
+        box-shadow: 0 8px 22px rgba(0,0,0,0.22);
+    }
     
     /* RADIO BUTTONS */
     div[role="radiogroup"] label > div:first-child {
@@ -280,6 +307,22 @@ st.markdown("""
     }
     div[data-testid="stExpander"] details summary svg {
         color: white !important;
+    }
+
+    /* Sidebar chat expander matches landing banner */
+    section[data-testid="stSidebar"] div[data-testid="stExpander"]:first-of-type details summary {
+        background-color: #FFB0C9 !important;
+        color: black !important;
+        border: 1px solid black !important;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+        font-weight: 700 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stExpander"]:first-of-type details summary:hover {
+        background-color: #FF9BB8 !important;
+        color: #3E2723 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stExpander"]:first-of-type details summary svg {
+        color: black !important;
     }
 
     /* HEADERS */
@@ -1795,6 +1838,8 @@ def initialize_chat_state():
     """Initialize chat messages in session state if not exists."""
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
+    if "chat_expanded" not in st.session_state:
+        st.session_state["chat_expanded"] = False
 
 
 def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
@@ -1854,7 +1899,7 @@ User question: {user_question}"""
 
 def render_chat_drawer():
     """Render sidebar chat UI with message history, suggested questions, and app-scoped input."""
-    with st.expander("❓ Question about CarePathIQ?", expanded=False):
+    with st.expander("CarePathIQ AI Agent", expanded=st.session_state.get("chat_expanded", False)):
         # Initialize welcome message if this is the first load
         if not st.session_state.get("chat_initialized", False):
             st.session_state["chat_messages"] = [
@@ -2081,6 +2126,11 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
+
+# Floating chat launcher shown to end users (styled to sit bottom-right)
+if st.button("CarePathIQ AI Agent", key="chat_launcher"):
+    st.session_state["chat_expanded"] = True
+    st.rerun()
 
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
