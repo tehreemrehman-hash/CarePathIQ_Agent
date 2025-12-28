@@ -1333,6 +1333,85 @@ def harden_nodes(nodes_list):
         validated.append(node)
     return validated
 
+def normalize_or_logic(nodes_list):
+    """
+    Automatically detect and convert OR logic in End nodes to proper Decision nodes with branches.
+    This runs silently as backend auto-normalization with no user notification.
+    
+    Example: "Discharge or Admit to Cardiology" (End node)
+    Becomes: "Disposition decision?" (Decision) with branches to "Discharge" and "Admit to Cardiology" (End nodes)
+    """
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return nodes_list
+    
+    normalized = []
+    added_nodes = []
+    
+    for idx, node in enumerate(nodes_list):
+        if not isinstance(node, dict):
+            normalized.append(node)
+            continue
+        
+        # Check if this is an End node with OR logic
+        label = node.get('label', '').lower()
+        if node.get('type') == 'End' and ' or ' in label:
+            # Extract the original label for clarity
+            original_label = node.get('label', '')
+            
+            # Split by ' or ' to get individual outcomes
+            outcomes = [o.strip() for o in original_label.split(' or ')]
+            
+            if len(outcomes) > 1:
+                # Convert this End node to a Decision node
+                decision_label = f"{outcomes[0].split()[0]} vs {outcomes[1].split()[0] if len(outcomes[1].split()) > 0 else 'other'}?"
+                decision_node = {
+                    'type': 'Decision',
+                    'label': decision_label,
+                    'evidence': node.get('evidence', 'N/A'),
+                    'branches': []
+                }
+                
+                # Create End nodes for each outcome
+                end_node_targets = []
+                for outcome_idx, outcome in enumerate(outcomes):
+                    end_node = {
+                        'type': 'End',
+                        'label': outcome,
+                        'evidence': 'N/A'
+                    }
+                    added_nodes.append(end_node)
+                    # Calculate target index: current position + branches + previously added nodes
+                    target_idx = len(normalized) + 1 + outcome_idx
+                    end_node_targets.append(target_idx)
+                    
+                    # Add branch to decision node
+                    decision_node['branches'].append({
+                        'label': outcome.split()[0],  # First word of outcome as branch label
+                        'target': target_idx
+                    })
+                
+                normalized.append(decision_node)
+            else:
+                # No actual OR split possible, keep as-is
+                normalized.append(node)
+        else:
+            normalized.append(node)
+    
+    # Append all newly created End nodes at the end
+    result = normalized + added_nodes
+    
+    # Update all target indices to account for insertions
+    # Rebuild with proper sequential indexing
+    final_result = []
+    for node in result:
+        final_node = dict(node)
+        if final_node.get('type') == 'Decision' and 'branches' in final_node:
+            # Branches already set correctly during creation
+            pass
+        final_result.append(final_node)
+    
+    return final_result
+
 def generate_mermaid_code(nodes, orientation="TD"):
     """Legacy function - now redirects to DOT format for compatibility."""
     return dot_from_nodes(nodes, orientation)
@@ -2586,7 +2665,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
 
             spacer, submit_col = st.columns([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Apply Refinements", use_container_width=True)
+                submitted = st.form_submit_button("Apply Refinements", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -2599,14 +2678,16 @@ Return clean JSON ONLY. No markdown, no explanation."""
             Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
             Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
             """
-            with ai_activity("Applying refinements to Phase 1 content…"):
+            with ai_activity("Applying refinements and auto-generating charter…"):
                 data = get_gemini_response(prompt, json_mode=True)
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                st.success("Refinements applied. Click 'Generate Project Charter' above to refresh the document.")
+                # Auto-generate charter
+                generate_p1_charter()
+                st.success("Refinements applied and Project Charter auto-generated!")
             else:
                 st.error("Failed to apply refinements. Please try again.")
     render_bottom_navigation()
@@ -2926,6 +3007,8 @@ elif "Decision" in phase or "Tree" in phase:
         with ai_activity("Auto-generating decision tree from Phase 1 & 2 data..."):
             nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(nodes, list) and len(nodes) > 0:
+            # Silently normalize OR logic in End nodes to proper Decision nodes
+            nodes = normalize_or_logic(nodes)
             st.session_state.data['phase3']['nodes'] = nodes
             st.rerun()
         elif not isinstance(nodes, list):
@@ -4180,40 +4263,50 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     use_container_width=True
                 )
         
-        # Refine & Regenerate section (matching Expert Panel pattern)
-        with st.expander("Refine & Regenerate", expanded=False):
-            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
-            col_text, col_file = columns_top([2, 1])
-            with col_text:
-                refine_exec = st.text_area(
-                    "Refinement Notes",
-                    placeholder="Focus on cost‑benefit; shorten narrative; highlight outcomes",
-                    key="p5_refine_exec",
-                    height=90,
-                    label_visibility="visible"
-                )
-            with col_file:
-                st.caption("Supporting Document (optional)")
-                p5ex_uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p5_exec_upload",
-                    accept_multiple_files=False,
-                    label_visibility="collapsed"
-                )
-                if p5ex_uploaded:
-                    file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
-                    if file_result:
-                        with st.expander("File Review", expanded=True):
-                            st.markdown(file_result["review"])
-            regen_disabled = not refine_exec and not st.session_state.get("file_p5_exec_review")
-            if st.button("Regenerate", key="regen_exec", use_container_width=True, disabled=regen_disabled):
-                with st.spinner("Refining..."):
-                    refine_with_file = refine_exec
-                    if st.session_state.get("file_p5_exec_review"):
-                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_exec_review')}"
-                    refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_with_file}"
-                    st.session_state.data['phase5']['exec_summary'] = refined_summary
-                st.success("Refined!")
+        # Refine & Regenerate section for Executive Summary
+        with st.expander("Refine & Regenerate Executive Summary", expanded=False):
+            st.caption("Tip: Refine your Executive Summary using natural language. Optionally attach strategic planning documents. Click Apply to auto-regenerate.")
+            with st.form("p5_refine_exec_form"):
+                col_text, col_file = st.columns([2, 1])
+                with col_text:
+                    st.text_area(
+                        "Refinement Notes",
+                        placeholder="Emphasize ROI and cost-benefit; highlight key metrics and outcomes; focus on strategic alignment",
+                        key="p5_refine_exec",
+                        height=90,
+                        help="Describe improvements for the Executive Summary."
+                    )
+                with col_file:
+                    st.caption("Supporting Document (optional)")
+                    p5ex_uploaded = st.file_uploader(
+                        "Drag & drop or browse",
+                        key="p5_exec_upload",
+                        accept_multiple_files=False,
+                        label_visibility="collapsed",
+                        help="Attach strategic plans, budgets, or organizational goals."
+                    )
+                    if p5ex_uploaded:
+                        file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
+                        if file_result:
+                            with st.expander("File Review", expanded=False):
+                                st.markdown(file_result["review"])
+                spacer, submit_col = st.columns([5, 2])
+                with submit_col:
+                    submitted_exec = st.form_submit_button("Apply Refinements", type="secondary", use_container_width=True)
+
+            if submitted_exec:
+                refine_exec = st.session_state.get('p5_refine_exec', '').strip()
+                if refine_exec or st.session_state.get("file_p5_exec_review"):
+                    with ai_activity("Refining Executive Summary…"):
+                        refine_with_file = refine_exec
+                        if st.session_state.get("file_p5_exec_review"):
+                            refine_with_file += f"\n\n**Strategic Context:**\n{st.session_state.get('file_p5_exec_review')}"
+                        refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Strategic Updates: {refine_with_file}"
+                        st.session_state.data['phase5']['exec_summary'] = refined_summary
+                    st.success("Executive Summary auto-regenerated!")
+                    st.rerun()
+                else:
+                    st.warning("Please enter refinement notes or attach supporting documents.")
     
     render_bottom_navigation()
     st.stop()
