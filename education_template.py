@@ -14,10 +14,14 @@ def create_education_module_template(
     learning_objectives: list = None,
     target_audience: str = "Clinical Team",
     require_100_percent: bool = True,
-    care_setting: str = None
+    care_setting: str = None,
+    role_context: dict = None,
+    role_statement: str = None,
+    genai_client=None
 ) -> str:
     """
     Create a complete, customizable education module template with certificate generation.
+    Content and structure adapt based on LLM inference of target audience focus areas.
     
     Args:
         condition: Topic/condition name
@@ -29,16 +33,32 @@ def create_education_module_template(
                 - 'time_minutes': Estimated time to complete
         organization: Organization name for certificate
         learning_objectives: Overall course learning objectives
-        target_audience: Target audience for the module
+        target_audience: Target audience for the module (free-text) for LLM-based inference
         require_100_percent: If True, require 100% quiz completion for certificate
         care_setting: Care setting/environment for the condition (e.g., "Emergency Department")
+        role_context: Dict with role-specific metadata (role_type, depth_level, expectations, etc.)
+        role_statement: Explicit statement about learner role in pathway
+        genai_client: Optional Google Generative AI client for audience inference
         
     Returns:
-        Complete standalone HTML string
+        Complete standalone HTML string with audience-adapted content
     """
     
     if topics is None:
         topics = []
+
+    # Audience inference to tailor tone/detail; falls back gracefully if helper unavailable
+    try:
+        from phase5_helpers import infer_audience_from_description
+        audience_metadata = infer_audience_from_description(target_audience, genai_client)
+    except Exception:
+        audience_metadata = {
+            "detail_level": "moderate",
+            "emphasis_areas": ["workflow", "safety", "competency"],
+            "tone": "technical_detailed"
+        }
+    detail_level = audience_metadata.get("detail_level", "moderate")
+    emphasis_areas = audience_metadata.get("emphasis_areas", [])
     
     # Calculate total time from topics
     total_time_minutes = sum(topic.get('time_minutes', 5) for topic in topics) if topics else 15
@@ -48,11 +68,14 @@ def create_education_module_template(
     condition_display = condition_display.title()
     care_setting_display = care_setting.strip().title() if care_setting else ""
     
-    # Dynamic title based on Phase 1 inputs
+    # Dynamic title based on Phase 1 inputs and role context
     if care_setting_display:
         header_display = f"{condition_display} Pathway — {care_setting_display}"
     else:
         header_display = f"{condition_display} Pathway"
+    
+    # Use role statement for course intro if provided
+    course_intro_statement = role_statement if role_statement else f"This interactive course will guide you through evidence-based learning on {condition} in {care_setting if care_setting else 'clinical practice'}. Each module includes content, key takeaways, and a brief assessment. Designed specifically for {target_audience}."
 
     # Provide a minimal default module if none supplied (ensures Start works)
     if not topics:
@@ -93,6 +116,7 @@ def create_education_module_template(
     topics_json = json.dumps(topics)
     obj_json = json.dumps(learning_objectives)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -799,6 +823,9 @@ def create_education_module_template(
             <div class="header">
                 <h1>{header_display}</h1>
                 <div class="header-subtitle">Interactive Pathway-Based Learning Module</div>
+                <div class="header-subtitle" style="font-size:0.9em;color:#555;">
+                    Detail: {detail_level.title()} {(' | Emphasis: ' + emphasis_text) if emphasis_text else ''}
+                </div>
             </div>
 
             <!-- Progress Section -->
@@ -844,8 +871,7 @@ def create_education_module_template(
                         </div>
 
                         <p style="margin: 20px 0; font-size: 1.1em;">
-                            This interactive course will guide you through evidence-based learning on {condition} in {care_setting if care_setting else 'clinical practice'}.
-                            Each module includes content, key takeaways, and a brief assessment. Designed specifically for {target_audience}.
+                            {course_intro_statement}
                         </p>
 
                         <p style="margin: 20px 0; color: #666;">

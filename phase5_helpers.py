@@ -10,6 +10,138 @@ from io import BytesIO
 from datetime import datetime
 
 # ==========================================
+# LLM AUDIENCE INFERENCE
+# ==========================================
+
+def infer_audience_from_description(audience_text: str, genai_client=None):
+    """
+    Use LLM to infer audience focus areas from free-text target audience input.
+    
+    Args:
+        audience_text: Free-text description of target audience (e.g., "Hospital Leadership, CFO, Board Members")
+        genai_client: Optional Google Generative AI client. If None, creates a new one.
+    
+    Returns:
+        dict: Structured metadata with:
+            - audience_type: str (e.g., "executive", "clinical_leadership", "implementation_team", "clinical_staff")
+            - strategic_focus: bool (True for C-suite/executive focus)
+            - operational_focus: bool (True for implementation/clinical staff focus)
+            - clinical_focus: bool (True for clinician/clinical staff focus)
+            - detail_level: str ("summary" for executives, "moderate" for leadership, "detailed" for implementation)
+            - emphasis_areas: list of strings (e.g., ["ROI", "risk_mitigation", "patient_safety"])
+            - tone: str ("executive_brief" or "technical_detailed")
+    """
+    import os
+    
+    if not audience_text or not audience_text.strip():
+        # Default to implementation team if empty
+        return {
+            "audience_type": "implementation_team",
+            "strategic_focus": False,
+            "operational_focus": True,
+            "clinical_focus": True,
+            "detail_level": "detailed",
+            "emphasis_areas": ["workflow", "safety", "efficiency", "implementation"],
+            "tone": "technical_detailed"
+        }
+    
+    try:
+        # Create client if not provided
+        if genai_client is None:
+            from google import genai
+            api_key = os.environ.get("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("GOOGLE_API_KEY environment variable not set")
+            genai_client = genai.Client(api_key=api_key)
+        
+        # LLM prompt for audience inference
+        inference_prompt = f"""Analyze this target audience description and provide a JSON response with the following structure:
+{{
+  "audience_type": "one of: executive, clinical_leadership, implementation_team, clinical_staff, or other",
+  "strategic_focus": true/false (true if audience is C-suite/board/executive leadership),
+  "operational_focus": true/false (true if audience manages operations/implementation),
+  "clinical_focus": true/false (true if audience is clinical staff/practitioners),
+  "detail_level": "summary" for executives (1-2 page overview), "moderate" for leadership, or "detailed" for implementation/clinical,
+  "emphasis_areas": list of 3-5 areas to emphasize (e.g., ["ROI", "patient_safety", "efficiency", "compliance"] for executives; ["workflow", "safety", "implementation", "training"] for clinical staff),
+  "tone": "executive_brief" (formal, high-level) or "technical_detailed" (operational, step-by-step)
+}}
+
+Target Audience: {audience_text}
+
+Respond ONLY with valid JSON, no other text."""
+        
+        response = genai_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=inference_prompt
+        )
+        
+        # Parse JSON response
+        response_text = response.text.strip()
+        
+        # Try to extract JSON from response (in case LLM adds extra text)
+        import re
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        if json_match:
+            response_text = json_match.group(0)
+        
+        result = json.loads(response_text)
+        
+        # Validate response structure
+        required_fields = ["audience_type", "strategic_focus", "operational_focus", "clinical_focus", 
+                          "detail_level", "emphasis_areas", "tone"]
+        if all(field in result for field in required_fields):
+            return result
+        else:
+            raise ValueError("Missing required fields in LLM response")
+    
+    except Exception as e:
+        # Fallback to default inference if LLM fails
+        audience_lower = audience_text.lower()
+        
+        # Simple keyword-based fallback
+        if any(word in audience_lower for word in ["board", "executive", "ceo", "cfo", "leadership", "hospital", "administration"]):
+            return {
+                "audience_type": "executive",
+                "strategic_focus": True,
+                "operational_focus": False,
+                "clinical_focus": False,
+                "detail_level": "summary",
+                "emphasis_areas": ["ROI", "risk_mitigation", "compliance", "strategic_alignment"],
+                "tone": "executive_brief"
+            }
+        elif any(word in audience_lower for word in ["clinical leader", "physician", "director", "quality", "safety"]):
+            return {
+                "audience_type": "clinical_leadership",
+                "strategic_focus": False,
+                "operational_focus": True,
+                "clinical_focus": True,
+                "detail_level": "moderate",
+                "emphasis_areas": ["patient_safety", "efficiency", "quality", "outcomes"],
+                "tone": "technical_detailed"
+            }
+        elif any(word in audience_lower for word in ["staff", "nurse", "rn", "clinician", "practitioner", "team", "ed"]):
+            return {
+                "audience_type": "clinical_staff",
+                "strategic_focus": False,
+                "operational_focus": True,
+                "clinical_focus": True,
+                "detail_level": "detailed",
+                "emphasis_areas": ["workflow", "safety", "efficiency", "implementation"],
+                "tone": "technical_detailed"
+            }
+        else:
+            return {
+                "audience_type": "implementation_team",
+                "strategic_focus": False,
+                "operational_focus": True,
+                "clinical_focus": False,
+                "detail_level": "detailed",
+                "emphasis_areas": ["workflow", "deployment", "timeline", "resources"],
+                "tone": "technical_detailed"
+            }
+
+
+# ==========================================
 # SHARED STYLING & CONSTANTS
 # ==========================================
 
@@ -270,23 +402,31 @@ def generate_expert_form_html(
     nodes: list,
     audience: str = "Clinical Experts",
     organization: str = "CarePathIQ",
+    care_setting: str = "",
     pathway_svg_b64: str = None,
-    care_setting: str = ""
+    genai_client=None
 ) -> str:
     """
     Generate standalone expert panel feedback form with CSV download capability.
+    Content and structure adapt based on LLM inference of target audience focus areas.
     
     Args:
         condition: Clinical condition being reviewed
         nodes: List of pathway nodes (dicts with 'type', 'label', 'evidence')
-        audience: Target audience description
+        audience: Target audience description (free-text) for LLM-based inference
         organization: Organization name
         care_setting: Care setting/environment (e.g., "Emergency Department")
-        pathway_svg_b64: Base64-encoded SVG of pathway visualization (optional)
+        genai_client: Optional Google Generative AI client for audience inference
         
     Returns:
-        Complete standalone HTML string
+        Complete standalone HTML string with audience-adapted content
     """
+    # Infer audience focus to tailor form structure and questions
+    audience_metadata = infer_audience_from_description(audience, genai_client)
+    detail_level = audience_metadata.get('detail_level', 'moderate')
+    emphasis_areas = audience_metadata.get('emphasis_areas', [])
+    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
+    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes)
     condition_clean = (condition or "Pathway").strip()
@@ -298,30 +438,9 @@ def generate_expert_form_html(
         pathway_title = f"Pathway: Managing {condition_clean}"
         page_title = f"Expert Panel Feedback: {condition_clean}"
     
-    # Prepare pathway view button if SVG is provided
+    # Pathway visualization removed
     pathway_button_html = ""
     pathway_script = ""
-    if pathway_svg_b64:
-        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">View Pathway</button>'
-        pathway_script = f'''
-        <script>
-        function openPathway() {{
-            var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
-            if (w) {{
-                w.document.write('<html><head><title>Pathway Visualization</title>');
-                w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:20px auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
-                w.document.write('</head><body>');
-                w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
-                w.document.write('<p style="color:#666;">Reference this visualization while providing feedback</p>');
-                w.document.write('<img src="data:image/svg+xml;base64,{pathway_svg_b64}" alt="Pathway" />');
-                w.document.write('</body></html>');
-                w.document.close();
-            }} else {{
-                alert('Popup blocked. Please allow popups to view the pathway.');
-            }}
-        }}
-        </script>
-        '''
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -351,6 +470,7 @@ def generate_expert_form_html(
             <h1>Expert Panel Feedback</h1>
             <p style="font-size: 1.05em; color: var(--brown-dark); margin-bottom: 8px; line-height: 1.6;">{pathway_title}</p>
             <p style="font-size:0.9em;margin-top:5px;color:#666;">Target Audience: {audience} | {organization}</p>
+            <p style="font-size:0.85em;margin-top:2px;color:#777;">Detail: {detail_level.title()} {(' | Emphasis: ' + emphasis_text) if emphasis_text else ''}</p>
             {pathway_button_html}
         </div>
 
@@ -536,8 +656,8 @@ def generate_beta_form_html(
     nodes: list,
     audience: str = "Clinical Team",
     organization: str = "CarePathIQ",
-    pathway_svg_b64: str = None,
-    care_setting: str = ""
+    care_setting: str = "",
+    genai_client=None
 ) -> str:
     """
     Generate simplified beta testing form focused on:
@@ -545,18 +665,23 @@ def generate_beta_form_html(
     - Nielsen's 10 heuristics evaluation
     - Overall usability feedback
     - CSV export of results
+    Content and structure adapt based on LLM inference of target audience focus areas.
     
     Args:
         condition: Clinical condition being tested
         nodes: List of pathway nodes (for reference)
-        audience: Target audience description
+        audience: Target audience description (free-text) for LLM-based inference
         organization: Organization name
-        pathway_svg_b64: Base64-encoded SVG of pathway visualization (optional)
         care_setting: Care setting/environment (e.g., "Emergency Department")
+        genai_client: Optional Google Generative AI client for audience inference
         
     Returns:
-        Complete standalone HTML string
+        Complete standalone HTML string with audience-adapted content
     """
+    # Infer audience focus to tailor form structure and scenarios
+    audience_metadata = infer_audience_from_description(audience, genai_client)
+    detail_level = audience_metadata.get('detail_level', 'moderate')
+    emphasis_areas = audience_metadata.get('emphasis_areas', [])
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
     condition_clean = (condition or "Pathway").strip()
@@ -568,30 +693,9 @@ def generate_beta_form_html(
         pathway_title = f"Pathway: Managing {condition_clean}"
         page_title = f"Beta Testing Guide: {condition_clean}"
     
-    # Prepare pathway view button if SVG is provided
+    # Pathway visualization removed
     pathway_button_html = ""
     pathway_script = ""
-    if pathway_svg_b64:
-        pathway_button_html = '<button type="button" onclick="openPathway()" style="background:#5D4037;color:white;padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:1em;margin:15px 0">View Pathway</button>'
-        pathway_script = f'''
-<script>
-function openPathway() {{
-    var w = window.open('', '_blank', 'width=1200,height=900,resizable=yes,scrollbars=yes');
-    if (w) {{
-        w.document.write('<html><head><title>Pathway Visualization</title>');
-        w.document.write('<style>body{{margin:0;padding:20px;background:#e8f5e9;text-align:center;}}img{{max-width:100%;height:auto;display:block;margin:20px auto;border:2px solid #5D4037;border-radius:8px;}}</style>');
-        w.document.write('</head><body>');
-        w.document.write('<h2 style="color:#5D4037;">Clinical Pathway Visualization</h2>');
-        w.document.write('<p style="color:#666;">Use this pathway for testing scenarios</p>');
-        w.document.write('<img src="data:image/svg+xml;base64,{pathway_svg_b64}" alt="Pathway" />');
-        w.document.write('</body></html>');
-        w.document.close();
-    }} else {{
-        alert('Popup blocked. Please allow popups to view the pathway.');
-    }}
-}}
-</script>
-'''
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -638,6 +742,7 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <h1>Beta Testing Guide</h1>
 <p style="margin-top:8px;font-size:1.1em">{pathway_title}</p>
 <p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
+<p style="font-size:0.85em;margin-top:2px;color:#777;">Detail: {detail_level.title()} {(' | Emphasis: ' + emphasis_text) if emphasis_text else ''}</p>
 {pathway_button_html}
 </div>
 
@@ -1365,14 +1470,16 @@ def generate_education_module_html(
 # HELPER FOR EXECUTIVE SUMMARY (using python-docx)
 # ==========================================
 
-def create_phase5_executive_summary_docx(data: dict, condition: str):
+def create_phase5_executive_summary_docx(data: dict, condition: str, target_audience: str = "", genai_client=None):
     """
-    Create a Word document executive summary for Phase 5.
+    Create a Word document executive summary for Phase 5 with audience-adaptive content.
     Requires python-docx to be installed.
     
     Args:
         data: Session data with phase1, phase2, phase3 info
         condition: Clinical condition name
+        target_audience: Free-text target audience description for LLM-based inference
+        genai_client: Optional Google Generative AI client for audience inference
         
     Returns:
         BytesIO buffer with .docx content, or None if python-docx unavailable
@@ -1390,6 +1497,13 @@ def create_phase5_executive_summary_docx(data: dict, condition: str):
         p3_data = data.get('phase3', {})
         p4_data = data.get('phase4', {})
         p5_data = data.get('phase5', {})
+        
+        # Infer audience focus from target audience text
+        audience_metadata = infer_audience_from_description(target_audience, genai_client)
+        is_executive = audience_metadata.get('strategic_focus', False)
+        is_operational = audience_metadata.get('operational_focus', False)
+        detail_level = audience_metadata.get('detail_level', 'moderate')
+        emphasis_areas = audience_metadata.get('emphasis_areas', [])
 
         setting_text = p1_data.get('setting', '')
         population = p1_data.get('population', 'N/A') or 'N/A'
@@ -1402,127 +1516,209 @@ def create_phase5_executive_summary_docx(data: dict, condition: str):
         title_format = title.paragraph_format
         title_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # Scope and goals
-        doc.add_heading("Project Scope", level=1)
-        doc.add_paragraph(
-            f"Clinical pathway for {condition or 'N/A'} in {setting_text or 'care setting not specified'}, focused on {population}."
-        )
-        doc.add_paragraph(f"Problem statement: {problem_text}", style='List Bullet')
-        inclusion = p1_data.get('inclusion', '')
-        exclusion = p1_data.get('exclusion', '')
-        if inclusion:
-            doc.add_paragraph(f"Inclusion criteria defined: {inclusion}", style='List Bullet 2')
-        if exclusion:
-            doc.add_paragraph(f"Exclusion criteria defined: {exclusion}", style='List Bullet 2')
+        # Add subtitle with audience and detail level
+        subtitle = doc.add_paragraph(f"Prepared for: {target_audience or 'Stakeholders'}")
+        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        subtitle.runs[0].font.size = Pt(11)
+        subtitle.runs[0].font.italic = True
+        
+        # AUDIENCE-ADAPTIVE CONTENT STRUCTURE
+        
+        if is_executive:
+            # === EXECUTIVE SUMMARY (C-SUITE FOCUS) ===
+            doc.add_heading("Strategic Overview", level=1)
+            doc.add_paragraph(
+                f"This {condition} clinical pathway addresses a critical gap in {setting_text or 'clinical'} practice, "
+                f"enabling standardized, evidence-based care delivery that improves patient outcomes while optimizing resource utilization."
+            )
+            
+            doc.add_heading("Business Case & Value Proposition", level=1)
+            doc.add_paragraph(
+                f"Problem: {problem_text}"
+            )
+            
+            # Extract ROI/impact-related metrics from objectives
+            doc.add_paragraph("Key Benefits:", style='List Bullet')
+            doc.add_paragraph("Improved patient safety and outcomes through evidence-based decision-making", style='List Bullet 2')
+            doc.add_paragraph("Reduced variation in care practices across providers and shifts", style='List Bullet 2')
+            doc.add_paragraph("Optimized resource utilization and reduced unnecessary testing/admissions", style='List Bullet 2')
+            doc.add_paragraph("Enhanced staff competency through standardized education and onboarding", style='List Bullet 2')
+            doc.add_paragraph("Improved patient experience and satisfaction", style='List Bullet 2')
+            
+            # Evidence Summary (executive brief - counts only)
+            doc.add_heading("Evidence Foundation", level=1)
+            evidence = p2_data.get('evidence', [])
+            if evidence:
+                doc.add_paragraph(f"This pathway is built on {len(evidence)} peer-reviewed evidence items.")
+                
+                # Grade breakdown
+                grades = {}
+                for e in evidence:
+                    grade = e.get('grade', 'Un-graded')
+                    grades[grade] = grades.get(grade, 0) + 1
+                
+                high_quality = sum(count for grade, count in grades.items() if grade in ['A', 'High', 'Level 1'])
+                doc.add_paragraph(f"Quality distribution: {high_quality} high-quality articles provide strong evidence base", style='List Bullet')
+            
+            # Implementation Scope (summary only)
+            doc.add_heading("Implementation Scope", level=1)
+            nodes = p3_data.get('nodes', [])
+            doc.add_paragraph(f"Pathway includes {len(nodes)} care decision points and clinical actions") if nodes else doc.add_paragraph("Pathway design in progress")
+            doc.add_paragraph(f"Target population: {population}", style='List Bullet')
+            doc.add_paragraph(f"Clinical setting: {setting_text}", style='List Bullet')
+            
+            # Readiness Assessment
+            doc.add_heading("Readiness for Implementation", level=1)
+            doc.add_paragraph("Design and Validation:", style='List Bullet')
+            doc.add_paragraph("Clinical pathway design completed and reviewed for feasibility", style='List Bullet 2')
+            doc.add_paragraph("Usability testing conducted with target users" if p4_data.get('heuristics_data') else "Usability testing planned", style='List Bullet 2')
+            
+            doc.add_paragraph("Stakeholder Engagement:", style='List Bullet')
+            doc.add_paragraph("Expert panel feedback: " + ("Completed and integrated" if p5_data.get('expert_html') else "Scheduled"), style='List Bullet 2')
+            doc.add_paragraph("Beta testing: " + ("Completed" if p5_data.get('beta_html') else "Planned"), style='List Bullet 2')
+            
+            # Next Steps (Executive Focused)
+            doc.add_heading("Executive Action Items", level=1)
+            doc.add_paragraph(
+                "Approve final pathway design and authorize stakeholder engagement activities",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Allocate resources for implementation (staff education, system integration, monitoring)",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Establish governance structure for ongoing pathway monitoring and improvement",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Schedule go-live and define success metrics (safety, efficiency, quality outcomes)",
+                style='List Number'
+            )
+            
+        else:
+            # === OPERATIONAL/CLINICAL FOCUS ===
+            doc.add_heading("Project Scope", level=1)
+            doc.add_paragraph(
+                f"Clinical pathway for {condition or 'N/A'} in {setting_text or 'care setting not specified'}, focused on {population}."
+            )
+            doc.add_paragraph(f"Problem statement: {problem_text}", style='List Bullet')
+            inclusion = p1_data.get('inclusion', '')
+            exclusion = p1_data.get('exclusion', '')
+            if inclusion:
+                doc.add_paragraph(f"Inclusion criteria: {inclusion}", style='List Bullet 2')
+            if exclusion:
+                doc.add_paragraph(f"Exclusion criteria: {exclusion}", style='List Bullet 2')
 
-        doc.add_heading("Project Goals & Success Measures", level=1)
-        doc.add_paragraph(objectives_text)
-        doc.add_paragraph(
-            "Outcome focus: safer, faster care delivery with clear resource stewardship in the specified care setting.",
-            style='List Bullet'
-        )
-        
-        # Evidence Summary
-        doc.add_heading("Evidence Summary", level=1)
-        evidence = p2_data.get('evidence', [])
-        if evidence:
-            doc.add_paragraph(f"Total evidence items reviewed: {len(evidence)}")
+            doc.add_heading("Project Goals & Success Measures", level=1)
+            doc.add_paragraph(objectives_text)
+            doc.add_paragraph(
+                "Outcome focus: safer, faster care delivery with clear resource stewardship in the specified care setting.",
+                style='List Bullet'
+            )
             
-            # Grade breakdown
-            grades = {}
-            for e in evidence:
-                grade = e.get('grade', 'Un-graded')
-                grades[grade] = grades.get(grade, 0) + 1
+            # Evidence Summary (operational - detail level determines depth)
+            doc.add_heading("Evidence Summary", level=1)
+            evidence = p2_data.get('evidence', [])
+            if evidence:
+                doc.add_paragraph(f"Total evidence items reviewed: {len(evidence)}")
+                
+                # Grade breakdown
+                grades = {}
+                for e in evidence:
+                    grade = e.get('grade', 'Un-graded')
+                    grades[grade] = grades.get(grade, 0) + 1
+                
+                doc.add_paragraph("Evidence Quality Distribution:", style='List Bullet')
+                for grade, count in sorted(grades.items()):
+                    doc.add_paragraph(f"{grade}: {count} articles", style='List Bullet 2')
+            else:
+                doc.add_paragraph("No evidence reviewed yet")
             
-            doc.add_paragraph("Evidence Quality Distribution:", style='List Bullet')
-            for grade, count in sorted(grades.items()):
-                doc.add_paragraph(f"{grade}: {count} articles", style='List Bullet 2')
-        else:
-            doc.add_paragraph("No evidence reviewed yet")
-        
-        # Pathway Overview
-        doc.add_heading("Pathway Design", level=1)
-        nodes = p3_data.get('nodes', [])
-        
-        if nodes:
-            doc.add_paragraph(f"Total pathway nodes: {len(nodes)}")
+            # Pathway Overview
+            doc.add_heading("Pathway Design", level=1)
+            nodes = p3_data.get('nodes', [])
             
-            node_types = {}
-            for node in nodes:
-                node_type = node.get('type', 'Process')
-                node_types[node_type] = node_types.get(node_type, 0) + 1
+            if nodes:
+                doc.add_paragraph(f"Total pathway nodes: {len(nodes)}")
+                
+                node_types = {}
+                for node in nodes:
+                    node_type = node.get('type', 'Process')
+                    node_types[node_type] = node_types.get(node_type, 0) + 1
+                
+                doc.add_paragraph("Pathway Node Distribution:", style='List Bullet')
+                for node_type, count in sorted(node_types.items()):
+                    doc.add_paragraph(f"{node_type}: {count}", style='List Bullet 2')
+                
+                # Add node list (always for operational summaries)
+                if detail_level == "detailed":
+                    doc.add_heading("Pathway Nodes", level=2)
+                    table = doc.add_table(rows=1, cols=3)
+                    table.style = 'Table Grid'
+                    hdr_cells = table.rows[0].cells
+                    hdr_cells[0].text = 'ID'
+                    hdr_cells[1].text = 'Node'
+                    hdr_cells[2].text = 'Type'
+                    
+                    for idx, node in enumerate(nodes):
+                        row_cells = table.add_row().cells
+                        row_cells[0].text = f"N{idx + 1}"
+                        row_cells[1].text = node.get('label', 'N/A')
+                        row_cells[2].text = node.get('type', 'N/A')
+            else:
+                doc.add_paragraph("Pathway not yet designed")
             
-            doc.add_paragraph("Pathway Node Distribution:", style='List Bullet')
-            for node_type, count in sorted(node_types.items()):
-                doc.add_paragraph(f"{node_type}: {count}", style='List Bullet 2')
+            # Usability Assessment
+            doc.add_heading("Usability Assessment", level=1)
+            heuristics = p4_data.get('heuristics_data', {})
             
-            # Add node list
-            doc.add_heading("Pathway Nodes", level=2)
-            table = doc.add_table(rows=1, cols=3)
-            table.style = 'Table Grid'
-            hdr_cells = table.rows[0].cells
-            hdr_cells[0].text = 'ID'
-            hdr_cells[1].text = 'Node'
-            hdr_cells[2].text = 'Type'
-            
-            for idx, node in enumerate(nodes):
-                row_cells = table.add_row().cells
-                row_cells[0].text = f"N{idx + 1}"
-                row_cells[1].text = node.get('label', 'N/A')
-                row_cells[2].text = node.get('type', 'N/A')
-        else:
-            doc.add_paragraph("Pathway not yet designed")
-        
-        # Usability Assessment
-        doc.add_heading("Usability Assessment", level=1)
-        heuristics = p4_data.get('heuristics_data', {})
-        
-        if heuristics:
-            doc.add_paragraph("Nielsen Heuristics Review Completed", style='List Bullet')
-            doc.add_paragraph(f"Total heuristics evaluated: {len(heuristics)}", style='List Bullet 2')
-        else:
-            doc.add_paragraph("Usability assessment pending")
+            if heuristics:
+                doc.add_paragraph("Nielsen Heuristics Review Completed", style='List Bullet')
+                doc.add_paragraph(f"Total heuristics evaluated: {len(heuristics)}", style='List Bullet 2')
+            else:
+                doc.add_paragraph("Usability assessment pending")
 
-        # Co-design, validation, and education
-        doc.add_heading("Co-Design, Testing, and Education", level=1)
-        expert_status = (
-            "Expert panel feedback captured via structured review and integrated into the pathway." if p5_data.get('expert_html')
-            else "Expert panel review planned using structured feedback form; integrate findings into the pathway."
-        )
-        beta_status = (
-            "Beta testing completed with target users; updates folded into the current pathway version." if p5_data.get('beta_html')
-            else "Beta testing planned in the target setting; incorporate usability findings into the pathway."
-        )
-        edu_status = (
-            "Custom interactive education module prepared for staff onboarding (HTML, offline-capable)." if p5_data.get('edu_html')
-            else "Interactive education module planned to support staff onboarding and competency validation."
-        )
-        doc.add_paragraph(expert_status, style='List Bullet')
-        doc.add_paragraph(beta_status, style='List Bullet')
-        doc.add_paragraph(edu_status, style='List Bullet')
-        
-        # Implementation Next Steps
-        doc.add_heading("Implementation Next Steps", level=1)
-        doc.add_paragraph(
-            "Finalize and sign off the pathway after incorporating expert and beta feedback for the specified care setting.",
-            style='List Number'
-        )
-        doc.add_paragraph(
-            "Deploy the interactive education module; track staff completion and competency.",
-            style='List Number'
-        )
-        doc.add_paragraph(
-            "Go-live with monitoring for safety, throughput, and resource stewardship in the care setting.",
-            style='List Number'
-        )
-        doc.add_paragraph(
-            "Report performance to leadership and iterate monthly based on outcomes and user feedback.",
-            style='List Number'
-        )
-        doc.add_paragraph(
-            "Maintain continuous improvement cycles with refreshed education content as the pathway evolves.",
-            style='List Number'
-        )
+            # Co-design, validation, and education
+            doc.add_heading("Co-Design, Testing, and Education", level=1)
+            expert_status = (
+                "Expert panel feedback captured via structured review and integrated into the pathway." if p5_data.get('expert_html')
+                else "Expert panel review planned using structured feedback form; integrate findings into the pathway."
+            )
+            beta_status = (
+                "Beta testing completed with target users; updates folded into the current pathway version." if p5_data.get('beta_html')
+                else "Beta testing planned in the target setting; incorporate usability findings into the pathway."
+            )
+            edu_status = (
+                "Custom interactive education module prepared for staff onboarding (HTML, offline-capable)." if p5_data.get('edu_html')
+                else "Interactive education module planned to support staff onboarding and competency validation."
+            )
+            doc.add_paragraph(expert_status, style='List Bullet')
+            doc.add_paragraph(beta_status, style='List Bullet')
+            doc.add_paragraph(edu_status, style='List Bullet')
+            
+            # Implementation Next Steps
+            doc.add_heading("Implementation Next Steps", level=1)
+            doc.add_paragraph(
+                "Finalize and sign off the pathway after incorporating expert and beta feedback for the specified care setting.",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Deploy the interactive education module; track staff completion and competency.",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Go-live with monitoring for safety, throughput, and resource stewardship in the care setting.",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Report performance to leadership and iterate monthly based on outcomes and user feedback.",
+                style='List Number'
+            )
+            doc.add_paragraph(
+                "Maintain continuous improvement cycles with refreshed education content as the pathway evolves.",
+                style='List Number'
+            )
         
         # Footer
         section = doc.sections[0]
@@ -1553,3 +1749,338 @@ def ensure_carepathiq_branding(html: str) -> str:
         else:
             html += CAREPATHIQ_FOOTER
     return html
+
+
+# ==========================================
+# ROLE-SPECIFIC EDUCATION MODULE FUNCTIONS
+# ==========================================
+
+def get_role_depth_mapping(target_audience: str) -> dict:
+    """
+    Map clinical roles to content depth, node types, and expectations.
+    Returns configuration for role-specific education module customization.
+    
+    Args:
+        target_audience: Free-text role description (e.g., "Emergency Medicine Residents")
+    
+    Returns:
+        Dict with:
+        - 'role_type': Simplified role (Resident, Attending, Nurse, APP, Student, etc.)
+        - 'depth_level': 'deep', 'moderate', or 'focused'
+        - 'node_types': List of pathway node types to include
+        - 'role_statement': Explicit role statement for headers/content
+        - 'expectations': Key expectations for this role in the pathway
+    """
+    audience_lower = (target_audience or "").lower()
+    
+    # Resident/Fellow/Trainee (deep clinical reasoning)
+    if any(word in audience_lower for word in ['resident', 'fellow', 'trainee', 'junior', 'pgy']):
+        return {
+            'role_type': 'Resident',
+            'depth_level': 'deep',
+            'node_types': ['Start', 'Decision', 'Process', 'Action', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you are responsible for clinical decision-making and pathway execution.',
+            'expectations': [
+                'Understand the clinical reasoning behind each decision point',
+                'Know when to escalate to attending staff',
+                'Apply evidence-based protocols independently',
+                'Recognize complications and deviations from pathway'
+            ]
+        }
+    
+    # Attending/Senior Physician (oversight, decision validation)
+    elif any(word in audience_lower for word in ['attending', 'physician', 'doctor', 'consultant', 'provider', 'senior']):
+        return {
+            'role_type': 'Attending',
+            'depth_level': 'deep',
+            'node_types': ['Start', 'Decision', 'Process', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you provide clinical oversight and validate key care decisions.',
+            'expectations': [
+                'Supervise resident implementation of pathway',
+                'Make final decisions at critical junctures',
+                'Ensure adherence to evidence-based protocols',
+                'Address complex or unusual presentations'
+            ]
+        }
+    
+    # Nurse/RN (assessment, monitoring, communication)
+    elif any(word in audience_lower for word in ['nurse', 'rn', 'lpn', 'nursing', 'cna']):
+        return {
+            'role_type': 'Nurse',
+            'depth_level': 'moderate',
+            'node_types': ['Start', 'Process', 'Action', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you execute clinical assessments, monitoring, and care coordination.',
+            'expectations': [
+                'Perform initial and ongoing patient assessment',
+                'Monitor for changes requiring escalation',
+                'Execute orders and document findings',
+                'Communicate status changes to medical team'
+            ]
+        }
+    
+    # APP/NP/PA (independent to semi-independent decision-making)
+    elif any(word in audience_lower for word in ['app', 'np', 'nurse practitioner', 'pa', 'physician assistant', 'practitioner']):
+        return {
+            'role_type': 'APP',
+            'depth_level': 'deep',
+            'node_types': ['Start', 'Decision', 'Process', 'Action', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you make independent decisions within scope and collaborate with physicians.',
+            'expectations': [
+                'Make autonomous clinical decisions per scope of practice',
+                'Know when to consult physician colleagues',
+                'Order and interpret diagnostic tests',
+                'Implement therapeutic interventions'
+            ]
+        }
+    
+    # Student/Learner (foundational understanding)
+    elif any(word in audience_lower for word in ['student', 'learner', 'medical student', 'nursing student', 'clerk']):
+        return {
+            'role_type': 'Student',
+            'depth_level': 'focused',
+            'node_types': ['Start', 'Decision', 'Process', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you are learning the clinical pathway and evidence-based practice.',
+            'expectations': [
+                'Understand clinical presentation and initial assessment',
+                'Learn how clinical decisions are made',
+                'Recognize key decision points in care',
+                'Ask questions and build clinical knowledge'
+            ]
+        }
+    
+    # Allied Health (specific clinical roles)
+    elif any(word in audience_lower for word in ['therapist', 'tech', 'assistant', 'specialist', 'coordinator']):
+        return {
+            'role_type': 'Allied Health',
+            'depth_level': 'focused',
+            'node_types': ['Process', 'Action', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you support core clinical care through specialized skills.',
+            'expectations': [
+                'Understand your role in the pathway',
+                'Know when your intervention is needed',
+                'Communicate findings to clinical team',
+                'Document activities accurately'
+            ]
+        }
+    
+    # Default/unknown
+    else:
+        return {
+            'role_type': 'Clinical Team Member',
+            'depth_level': 'moderate',
+            'node_types': ['Start', 'Decision', 'Process', 'Action', 'End'],
+            'role_statement': f'As a {target_audience.strip()}, you are part of the clinical team implementing this evidence-based pathway.',
+            'expectations': [
+                'Understand the pathway and your role within it',
+                'Follow evidence-based protocols',
+                'Communicate effectively with team members',
+                'Contribute to quality improvement'
+            ]
+        }
+
+
+def generate_role_specific_module_header(
+    target_audience: str,
+    condition: str,
+    care_setting: str,
+    node: dict = None
+) -> str:
+    """
+    Generate role-specific module header with explicit role clarity.
+    
+    Args:
+        target_audience: Target learner role
+        condition: Clinical condition
+        care_setting: Care environment (e.g., Emergency Department)
+        node: Optional pathway node for context
+    
+    Returns:
+        String with role-specific header statement
+    """
+    role_mapping = get_role_depth_mapping(target_audience)
+    role_statement = role_mapping['role_statement']
+    
+    if node:
+        node_label = node.get('label', 'Clinical Decision Point')
+        return f"{role_statement} In this module, you will learn your specific role when managing: {node_label}"
+    else:
+        return f"{role_statement} This module covers the {condition} pathway in {care_setting or 'your clinical setting'}."
+
+
+def generate_role_specific_learning_objectives(
+    target_audience: str,
+    condition: str,
+    nodes: list = None,
+    module_idx: int = 0
+) -> list:
+    """
+    Generate role-specific learning objectives based on audience and pathway nodes.
+    
+    Args:
+        target_audience: Target learner role
+        condition: Clinical condition
+        nodes: List of pathway nodes for this module
+        module_idx: Module number (0-indexed)
+    
+    Returns:
+        List of 3-4 role-specific learning objectives
+    """
+    role_mapping = get_role_depth_mapping(target_audience)
+    role_type = role_mapping['role_type']
+    expectations = role_mapping['expectations']
+    
+    objectives = []
+    
+    if nodes and len(nodes) > 0:
+        # Extract key actions from nodes
+        key_actions = [n.get('label', '') for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label')]
+        
+        if key_actions:
+            first_action = key_actions[0]
+            if role_type == 'Resident':
+                objectives.append(f"Explain the clinical reasoning behind {first_action.lower()}")
+                objectives.append(f"Determine when to escalate {condition} cases to senior staff")
+                objectives.append(f"Implement {condition} pathway protocols independently")
+            elif role_type == 'Attending':
+                objectives.append(f"Supervise resident execution of {first_action.lower()}")
+                objectives.append(f"Validate clinical decisions at critical junctures")
+                objectives.append(f"Address complex {condition} presentations")
+            elif role_type == 'Nurse':
+                objectives.append(f"Perform assessment for {condition}")
+                objectives.append(f"Recognize findings that require escalation")
+                objectives.append(f"Execute care orders and monitor patient status")
+            elif role_type == 'APP':
+                objectives.append(f"Make autonomous decisions regarding {first_action.lower()}")
+                objectives.append(f"Know when to consult physician colleagues")
+                objectives.append(f"Order and interpret tests within scope of practice")
+            else:
+                objectives.append(f"Understand the approach to {condition}")
+                objectives.append(f"Recognize your role in pathway implementation")
+                objectives.append(f"Know when to escalate or ask for help")
+    
+    # Add expectation-based objectives
+    if not objectives and expectations:
+        objectives = expectations[:3]
+    
+    # Fallback
+    if not objectives:
+        objectives = [
+            f"Understand evidence-based management of {condition}",
+            f"Recognize key decision points in the pathway",
+            "Implement pathway protocols appropriately"
+        ]
+    
+    return objectives[:4]  # Return max 4 objectives
+
+
+def generate_role_specific_quiz_scenario(
+    question_idx: int,
+    node: dict,
+    target_audience: str,
+    evidence_citations: list = None
+) -> dict:
+    """
+    Generate a realistic, role-specific quiz scenario based on pathway node.
+    
+    Args:
+        question_idx: Question number
+        node: Pathway node (Decision or Process)
+        target_audience: Target learner role
+        evidence_citations: List of dicts with 'pmid', 'title', 'grade' from Phase 2
+    
+    Returns:
+        Dict with 'question', 'options', 'correct', 'explanation', 'evidence'
+    """
+    role_mapping = get_role_depth_mapping(target_audience)
+    role_type = role_mapping['role_type']
+    node_label = node.get('label', 'Clinical decision point')
+    node_evidence = node.get('evidence', '')
+    
+    # Build role-specific scenario framing
+    if role_type == 'Resident':
+        scenario_stem = f"You are the resident caring for a patient with findings suggesting {node_label.lower()}. "
+    elif role_type == 'Attending':
+        scenario_stem = f"The resident presents a case where {node_label.lower()} is being considered. You need to "
+    elif role_type == 'Nurse':
+        scenario_stem = f"During your assessment, you observe {node_label.lower()}. "
+    elif role_type == 'APP':
+        scenario_stem = f"You are evaluating a patient and need to decide on {node_label.lower()}. "
+    else:
+        scenario_stem = f"When managing a patient with this presentation, you should consider {node_label.lower()}. "
+    
+    # Create role-appropriate answer options
+    if role_type == 'Resident':
+        options = [
+            f"Follow the pathway protocol and prepare to discuss with attending",
+            "Make a decision independently without consulting",
+            "Wait for attending without taking any action",
+            "Refer to another service immediately"
+        ]
+    elif role_type == 'Attending':
+        options = [
+            "Validate the pathway decision and provide oversight",
+            "Overrule the resident without explanation",
+            "Defer entirely to the resident without review",
+            "Order additional tests that contradict pathway"
+        ]
+    elif role_type == 'Nurse':
+        options = [
+            "Alert the clinical team and monitor per protocol",
+            "Document and wait without escalating",
+            "Perform the intervention yourself",
+            "Assume it will resolve without intervention"
+        ]
+    elif role_type == 'APP':
+        options = [
+            "Implement per scope of practice and document decision",
+            "Always refer to physician regardless of scope",
+            "Proceed without consulting any guidelines",
+            "Delay care until physician is available"
+        ]
+    else:
+        options = [
+            f"Recognize {node_label.lower()} and alert appropriate staff",
+            "Ignore the finding",
+            "Handle independently without telling anyone",
+            "Wait to see if it resolves"
+        ]
+    
+    # Build evidence-backed explanation
+    explanation = f"The pathway recommends {node_label.lower()}. "
+    if node_evidence and node_evidence != 'N/A':
+        explanation += f"(Evidence: {node_evidence}) "
+    
+    # Add evidence citation if available
+    evidence_note = ""
+    if evidence_citations:
+        for cite in evidence_citations[:1]:  # Use first citation
+            if cite.get('pmid'):
+                grade = cite.get('grade', 'Grade unknown')
+                evidence_note = f" [PMID: {cite.get('pmid')}, {grade}]"
+                explanation += evidence_note
+                break
+    
+    return {
+        'question': scenario_stem + f"What should you do?",
+        'options': options,
+        'correct': 0,  # First option is always correct
+        'explanation': explanation,
+        'evidence': evidence_note
+    }
+
+
+def filter_nodes_by_role(nodes: list, target_audience: str) -> list:
+    """
+    Filter pathway nodes based on role depth and responsibilities.
+    
+    Args:
+        nodes: Full list of pathway nodes
+        target_audience: Target learner role
+    
+    Returns:
+        Filtered list of nodes appropriate for the role
+    """
+    role_mapping = get_role_depth_mapping(target_audience)
+    allowed_types = role_mapping['node_types']
+    
+    return [n for n in nodes if n.get('type') in allowed_types]

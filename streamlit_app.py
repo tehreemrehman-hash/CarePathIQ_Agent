@@ -3318,92 +3318,86 @@ elif "Decision" in phase or "Tree" in phase:
 
     st.divider()
 
-    # Natural Language Refinement Interface (placed below the table)
-    # File upload for Phase 3 refinement
-    col_file, col_text = columns_top([1, 2])
-    with col_file:
-        st.caption("Supporting Document (optional)")
-        p3_uploaded = st.file_uploader(
-            "Drag & drop or browse",
-            key="p3_file_upload",
-            accept_multiple_files=False,
-            label_visibility="collapsed"
-        )
-        if p3_uploaded:
-            file_result = upload_and_review_file(p3_uploaded, "p3_refine", "decision tree pathway")
-            if file_result:
-                with st.expander("File Review", expanded=True):
-                    st.markdown(file_result["review"])
+    # Refine & Regenerate (placed below the table)
+    st.divider()
+    submitted = False
+    with st.expander("Refine & Regenerate", expanded=False):
+        st.caption("Tip: Use natural language for micro‑refinements and optionally attach a supporting document. Click Apply to update, then re‑generate the pathway above.")
+        with st.form("p3_refine_form"):
+            col_text, col_file = st.columns([2, 1])
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p3_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p3_file_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed",
+                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
+                )
+                if p3_uploaded:
+                    file_result = upload_and_review_file(p3_uploaded, "p3_refine", "decision tree pathway")
+                    if file_result:
+                        with st.expander("File Review", expanded=False):
+                            st.markdown(file_result["review"])
 
-    with col_text:
-        st.text_area(
-            "Refinement Notes",
-            placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
-            key="p3_refine_input",
-            height=80
-        )
-    
-    # Reset refinement applied flag if text area content changes
-    if 'p3_last_refine_input' not in st.session_state:
-        st.session_state['p3_last_refine_input'] = ""
-    
-    current_refine_input = st.session_state.get('p3_refine_input', '').strip()
-    if current_refine_input != st.session_state['p3_last_refine_input']:
-        st.session_state['p3_refinement_applied'] = False
-        st.session_state['p3_last_refine_input'] = current_refine_input
-    
-    # Check if refinements were just applied
-    p3_refinement_applied = st.session_state.get('p3_refinement_applied', False)
-    
-    # Determine button type and label
-    refine_button_type = "primary" if p3_refinement_applied else "secondary"
-    refine_button_label = "Applied" if p3_refinement_applied else "Apply Refinements"
-    
-    if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
-        if not p3_refinement_applied:
-            refinement_request = st.session_state.get('p3_refine_input', '').strip()
-            # Include uploaded file context
-            if st.session_state.get("file_p3_refine_review"):
-                refinement_request += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p3_refine_review')}"
-            if refinement_request and st.session_state.data['phase3']['nodes']:
-                with ai_activity("Applying refinements to decision tree..."):
-                    current_nodes = st.session_state.data['phase3']['nodes']
-                    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
-                    prompt = f"""
-                    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
+            with col_text:
+                st.text_area(
+                    "Refinement Notes",
+                    key="p3_refine_input",
+                    placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
+                    height=90,
+                    help="Describe what to change. After applying, the pathway will regenerate above."
+                )
 
-                    Current pathway for {cond} in {setting}:
-                    {json.dumps(current_nodes, indent=2)}
+            spacer, submit_col = st.columns([5, 2])
+            with submit_col:
+                submitted = st.form_submit_button("Apply Refinements", type="secondary", use_container_width=True)
 
-                    Available Evidence:
-                    {ev_context}
+    if submitted:
+        refinement_request = st.session_state.get('p3_refine_input', '').strip()
+        # Include uploaded file context
+        if st.session_state.get("file_p3_refine_review"):
+            refinement_request += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p3_refine_review')}"
+        if refinement_request and st.session_state.data['phase3']['nodes']:
+            with ai_activity("Applying refinements to decision tree..."):
+                current_nodes = st.session_state.data['phase3']['nodes']
+                ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+                prompt = f"""
+                Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
 
-                    User's refinement request: "{refinement_request}"
+                Current pathway for {cond} in {setting}:
+                {json.dumps(current_nodes, indent=2)}
 
-                    Apply the requested changes while maintaining:
-                    - CGT/Ad/it principles and Medical Decision Analysis best practices
-                    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
-                    - Actionable steps with medical acronyms for brevity
-                    - Specific discharge details (prescriptions with dose/route, referrals)
-                    - Evidence citations (PMIDs where applicable)
+                Available Evidence:
+                {ev_context}
 
-                    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
-                    Rules:
-                    - type in [Start, Decision, Process, End]
-                    - First node: type "Start", label "patient present to {setting} with {cond}"
-                    - NO node count limit - build complete clinical flow
-                    - If >20 nodes, organize into sections or sub-pathways
-                    """
-                    nodes = get_gemini_response(prompt, json_mode=True)
-                    if isinstance(nodes, list) and len(nodes) > 0:
-                        # Silently normalize OR logic in End nodes to proper Decision nodes
-                        nodes = normalize_or_logic(nodes)
-                        st.session_state.data['phase3']['nodes'] = nodes
-                        # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
-                        st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
-                        st.session_state['p3_refinement_applied'] = True
-                        st.success("Refinements applied")
-                        st.rerun()
+                User's refinement request: "{refinement_request}"
+
+                Apply the requested changes while maintaining:
+                - CGT/Ad/it principles and Medical Decision Analysis best practices
+                - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+                - Actionable steps with medical acronyms for brevity
+                - Specific discharge details (prescriptions with dose/route, referrals)
+                - Evidence citations (PMIDs where applicable)
+
+                Output: Complete revised JSON array of nodes with fields: type, label, evidence.
+                Rules:
+                - type in [Start, Decision, Process, End]
+                - First node: type "Start", label "patient present to {setting} with {cond}"
+                - NO node count limit - build complete clinical flow
+                - If >20 nodes, organize into sections or sub-pathways
+                """
+                nodes = get_gemini_response(prompt, json_mode=True)
+                if isinstance(nodes, list) and len(nodes) > 0:
+                    # Silently normalize OR logic in End nodes to proper Decision nodes
+                    nodes = normalize_or_logic(nodes)
+                    st.session_state.data['phase3']['nodes'] = nodes
+                    # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
+                    st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
+                    st.success("Refinements applied and pathway regenerated!")
+                    st.rerun()
+                else:
+                    st.error("Failed to apply refinements. Please try again.")
     
     render_bottom_navigation()
     st.stop()
@@ -3683,7 +3677,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
             generate_expert_form_html,
             generate_beta_form_html,
             create_phase5_executive_summary_docx,
-            ensure_carepathiq_branding
+            ensure_carepathiq_branding,
+            get_role_depth_mapping,
+            generate_role_specific_module_header,
+            generate_role_specific_learning_objectives,
+            generate_role_specific_quiz_scenario,
+            filter_nodes_by_role
         )
         from education_template import create_education_module_template
     except ImportError:
@@ -3739,7 +3738,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     audience=aud_expert,
                     organization=cond,
                     care_setting=setting,
-                    pathway_svg_b64=svg_b64
+                    pathway_svg_b64=svg_b64,
+                    genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
                 st.success("Generated!")
@@ -3839,18 +3839,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     if st.session_state.get("file_p5_expert_review"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
                     
-                    # Generate SVG for pathway visualization in downloaded form
-                    g = build_graphviz_from_nodes(nodes, "TD")
-                    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-                    svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
-                    
                     refined_html = generate_expert_form_html(
                         condition=cond,
                         nodes=nodes,
                         audience=st.session_state.get("p5_aud_expert", ""),
                         organization=cond,
                         care_setting=setting,
-                        pathway_svg_b64=svg_b64
+                        genai_client=get_genai_client()
                     )
                     st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
                 st.success("Refined!")
@@ -3871,18 +3866,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
             st.session_state["p5_aud_beta"] = aud_beta
             st.session_state["p5_aud_beta_prev"] = aud_beta
             with st.spinner("Generating guide..."):
-                # Generate SVG for pathway visualization in downloaded form
-                g = build_graphviz_from_nodes(nodes, "TD")
-                svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
-                
                 beta_html = generate_beta_form_html(
                     condition=cond,
                     nodes=nodes,
                     audience=aud_beta,
                     organization=cond,
                     care_setting=setting,
-                    pathway_svg_b64=svg_b64
+                    genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
             st.success("Generated!")
@@ -3983,18 +3973,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     if st.session_state.get("file_p5_beta_review"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
                     
-                    # Generate SVG for pathway visualization in downloaded form
-                    g = build_graphviz_from_nodes(nodes, "TD")
-                    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-                    svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
-                    
                     refined_html = generate_beta_form_html(
                         condition=cond,
                         nodes=nodes,
                         audience=st.session_state.get("p5_aud_beta", ""),
                         organization=cond,
                         care_setting=setting,
-                        pathway_svg_b64=svg_b64
+                        genai_client=get_genai_client()
                     )
                     st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
                 st.success("Refined!")
@@ -4041,9 +4026,21 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         "Implement standardized protocols effectively"
                     ]
 
-                # Create educational modules from pathway nodes
+                # Get role-specific configuration
+                role_mapping = get_role_depth_mapping(aud_edu)
+                role_type = role_mapping.get('role_type', 'Clinical Team Member')
+                depth_level = role_mapping.get('depth_level', 'moderate')
+                role_statement = role_mapping.get('role_statement', '')
+                
+                # Filter nodes by role
+                filtered_nodes = filter_nodes_by_role(nodes, aud_edu)
+                
+                # Get evidence citations from Phase 2 for quiz explanations
+                evidence_data = st.session_state.data['phase2'].get('evidence', [])
+                
+                # Create educational modules from filtered pathway nodes
                 edu_topics = []
-                if nodes and len(nodes) > 1:
+                if filtered_nodes and len(filtered_nodes) > 1:
                     decision_nodes = [n for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label', '').strip()]
                     nodes_per_module = max(1, len(decision_nodes) // 3)
                     module_groups = [decision_nodes[i:i + nodes_per_module] for i in range(0, len(decision_nodes), nodes_per_module)][:4]
@@ -4052,11 +4049,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         if not module_nodes:
                             continue
 
-                        module_title = module_nodes[0].get('label', f'Module {mod_idx + 1}')
-                        if len(module_title) > 60:
-                            module_title = module_title[:60] + '...'
+                        # Generate role-specific module header
+                        module_title = generate_role_specific_module_header(
+                            target_audience=aud_edu,
+                            condition=cond,
+                            care_setting=setting,
+                            node=module_nodes[0] if module_nodes else None
+                        )
+                        
+                        if len(module_title) > 100:
+                            module_title = module_title[:100] + '...'
 
-                        content_html = f"<h4>Pathway Steps</h4>"
+                        content_html = f"<h4>Your Role in This Section</h4><p>{role_statement}</p><h4>Pathway Steps</h4>"
                         quiz_questions = []
 
                         for node in module_nodes:
@@ -4071,17 +4075,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
                             content_html += "</div>"
 
                             if node_type == 'Decision' and len(quiz_questions) < 3:
-                                quiz_questions.append({
-                                    "question": f"What is the recommended approach when: {node_label[:80]}?",
-                                    "options": [
-                                        "Follow the evidence-based pathway protocol",
-                                        "Skip assessment and proceed to treatment",
-                                        "Wait for additional consultation before acting",
-                                        "Defer decision-making to ancillary services"
-                                    ],
-                                    "correct": 0,
-                                    "explanation": f"The pathway recommends following evidence-based protocols. {node_evidence if node_evidence != 'N/A' else ''}"
-                                })
+                                # Generate role-specific scenario for this node
+                                scenario = generate_role_specific_quiz_scenario(
+                                    question_idx=len(quiz_questions),
+                                    node=node,
+                                    target_audience=aud_edu,
+                                    evidence_citations=evidence_data
+                                )
+                                quiz_questions.append(scenario)
 
                         content_html += "<h4>Key Clinical Pearls</h4><ul>"
                         content_html += f"<li>Early recognition and assessment improves outcomes</li>"
@@ -4091,7 +4092,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
 
                         if not quiz_questions:
                             quiz_questions.append({
-                                "question": f"What is a key principle in this module?",
+                                "question": f"What is a key principle in {role_type} management of this pathway?",
                                 "options": [
                                     "Follow evidence-based protocols",
                                     "Skip documentation steps",
@@ -4102,14 +4103,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 "explanation": "Evidence-based protocols improve patient outcomes and standardize care."
                             })
 
+                        # Generate role-specific learning objectives
+                        module_objectives = generate_role_specific_learning_objectives(
+                            target_audience=aud_edu,
+                            condition=cond,
+                            nodes=module_nodes,
+                            module_idx=mod_idx
+                        )
+
                         edu_topics.append({
                             "title": f"Module {mod_idx + 1}: {module_title}",
                             "content": content_html,
-                            "learning_objectives": [
-                                f"Understand decision points in {module_title.lower()}",
-                                "Apply evidence-based clinical reasoning",
-                                "Recognize appropriate care pathway steps"
-                            ],
+                            "learning_objectives": module_objectives,
                             "quiz": quiz_questions,
                             "time_minutes": 5
                         })
@@ -4156,7 +4161,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     organization=cond,
                     care_setting=setting,
                     require_100_percent=True,
-                    learning_objectives=overall_objectives[:4]
+                    learning_objectives=overall_objectives[:4],
+                    role_context=role_mapping,
+                    role_statement=role_statement,
+                    genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
             st.success("Generated!")
@@ -4399,7 +4407,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                             organization=cond,
                             care_setting=setting,
                             require_100_percent=True,
-                            learning_objectives=overall_objectives[:4]
+                            learning_objectives=overall_objectives[:4],
+                            genai_client=get_genai_client()
                         )
                         st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
                     else:
@@ -4428,10 +4437,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         # Download centered
         if st.session_state.data['phase5'].get('exec_summary'):
-            # Pass session data and condition per function signature
+            # Pass session data, condition, and target audience per function signature
             docx_bytes = create_phase5_executive_summary_docx(
                 data=st.session_state.data,
-                condition=cond
+                condition=cond,
+                target_audience=aud_exec,
+                genai_client=get_genai_client()
             )
             dl_l, dl_c, dl_r = st.columns([1,2,1])
             with dl_c:
