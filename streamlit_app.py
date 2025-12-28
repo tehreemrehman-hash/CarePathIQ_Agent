@@ -1788,7 +1788,239 @@ def compute_textarea_height(text: str, min_rows: int = 10, max_rows: int = 100, 
     return lines * line_px + padding_px
 
 # ==========================================
-# 3. SIDEBAR & SESSION INITIALIZATION
+# 3A. CHAT & FEEDBACK HELPER FUNCTIONS
+# ==========================================
+
+def initialize_chat_state():
+    """Initialize chat messages in session state if not exists."""
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []
+
+
+def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
+    """Save feedback response as JSON to data/feedback/ folder."""
+    import datetime
+    os.makedirs("data/feedback", exist_ok=True)
+    
+    feedback_data = {
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "rating": rating,
+        "feedback_text": feedback_text,
+        "phase": phase,
+        "pathway_condition": st.session_state.data.get("phase1", {}).get("condition", "")
+    }
+    
+    timestamp_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
+    filename = f"data/feedback/feedback_{timestamp_ms}.json"
+    with open(filename, "w") as f:
+        json.dump(feedback_data, f, indent=2)
+
+
+def get_carepathiq_scoped_response(user_question: str) -> str:
+    """
+    Get a response from Gemini scoped strictly to CarePathIQ app questions.
+    Refuses external searches, clinical research, or non-app-related queries.
+    """
+    scope_constraint = """You are the CarePathIQ AI Agent - a helpful assistant who answers questions ONLY about the CarePathIQ app itself.
+
+**Your scope includes:**
+- Explaining how to use each of the 5 phases (Define Scope, Appraise Evidence, Build Decision Tree, Design Interface, Operationalize)
+- Guiding users on features like evidence grading, pathway visualization, heuristics analysis, expert panel feedback
+- Explaining what data to input and how to interpret outputs
+- Clarifying how to export pathways, download evidence, or generate reports
+- Providing tips on best practices for using CarePathIQ
+
+**Your scope DOES NOT include:**
+- External web searches or general knowledge questions
+- Clinical decision-making or medical advice
+- Literature searches or PubMed queries (those are built into the app's Evidence phase)
+- Questions unrelated to the CarePathIQ app
+- Administrative or billing questions
+
+**If a question is out of scope:**
+Politely decline and redirect: "I'm specifically designed to help with CarePathIQ app features. Your question seems to be outside my scope. Let me help you with something about the app instead!"
+
+**Response style:**
+- Keep answers concise (2-3 sentences)
+- Use conversational, helpful tone
+- Reference specific app phases or features when relevant
+- Suggest they explore the app's built-in features for clinical/research tasks
+
+User question: {user_question}"""
+
+    response = get_gemini_response(scope_constraint)
+    return response or "I'm not sure how to help with that. Please ask me about features in the CarePathIQ app!"
+
+
+def render_chat_drawer():
+    """Render sidebar chat UI with message history, suggested questions, and app-scoped input."""
+    with st.expander("❓ Question about CarePathIQ?", expanded=False):
+        # Initialize welcome message if this is the first load
+        if not st.session_state.get("chat_initialized", False):
+            st.session_state["chat_messages"] = [
+                {
+                    "role": "assistant",
+                    "content": "👋 Hi! I'm the **CarePathIQ AI Agent**. I'm here to help you understand and navigate the CarePathIQ app. Ask me anything about how to use the features, what each phase does, or how to build clinical pathways!\n\n**Suggested questions:**"
+                }
+            ]
+            st.session_state["chat_initialized"] = True
+        
+        # Display chat messages
+        for message in st.session_state.get("chat_messages", []):
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+        
+        # Show suggested questions buttons (only if chat just started)
+        if len(st.session_state.get("chat_messages", [])) <= 1:
+            st.markdown("---")
+            suggested_questions = [
+                "What are the 5 phases of CarePathIQ?",
+                "How do I build a decision tree in Phase 3?",
+                "What's the difference between heuristics and pathways?",
+                "How do I export my pathway?",
+                "What should I include in the Evidence phase?"
+            ]
+            
+            for i, question in enumerate(suggested_questions):
+                if st.button(question, key=f"suggested_q_{i}", use_container_width=True):
+                    # Append suggested question as user message
+                    st.session_state["chat_messages"].append({
+                        "role": "user",
+                        "content": question
+                    })
+                    # Generate response
+                    response = get_carepathiq_scoped_response(question)
+                    st.session_state["chat_messages"].append({
+                        "role": "assistant",
+                        "content": response
+                    })
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # Chat input for user questions
+        if user_input := st.chat_input("Ask about CarePathIQ..."):
+            st.session_state["chat_messages"].append({
+                "role": "user",
+                "content": user_input
+            })
+            
+            # Generate scoped response
+            response = get_carepathiq_scoped_response(user_input)
+            st.session_state["chat_messages"].append({
+                "role": "assistant",
+                "content": response
+            })
+            
+            st.rerun()
+
+
+def render_satisfaction_survey():
+    """Render satisfaction survey with rating slider and feedback textarea."""
+    with st.expander("📋 Feedback & Satisfaction Survey", expanded=False):
+        st.markdown("### How satisfied are you with this app?")
+        
+        rating = st.slider(
+            "Rating (10=Very Satisfied, 0=Not Satisfied)",
+            min_value=0,
+            max_value=10,
+            value=5,
+            step=1
+        )
+        
+        feedback_text = st.text_area(
+            "Additional feedback (optional)",
+            placeholder="Tell us what you think...",
+            height=100
+        )
+        
+        if st.button("Submit Feedback"):
+            phase = "Phase 3"
+            save_feedback_response(rating, feedback_text, phase)
+            st.success("✅ Thank you for your feedback!")
+
+
+def load_admin_feedback_dashboard():
+    """Admin-only dashboard to view and export feedback responses."""
+    if not is_admin():
+        return
+    
+    with st.expander("🔧 Admin: Feedback Dashboard", expanded=False):
+        feedback_dir = "data/feedback"
+        
+        if not os.path.exists(feedback_dir):
+            st.info("No feedback collected yet.")
+            return
+        
+        feedback_files = [f for f in os.listdir(feedback_dir) if f.endswith(".json")]
+        
+        if not feedback_files:
+            st.info("No feedback collected yet.")
+            return
+        
+        st.markdown(f"**Total Responses:** {len(feedback_files)}")
+        
+        all_ratings = []
+        for filename in feedback_files:
+            try:
+                with open(os.path.join(feedback_dir, filename)) as f:
+                    data = json.load(f)
+                    all_ratings.append(data.get("rating", 0))
+            except Exception:
+                continue
+        
+        if all_ratings:
+            avg_rating = sum(all_ratings) / len(all_ratings)
+            st.metric("Average Rating", f"{avg_rating:.1f}/10")
+        
+        st.markdown("### Feedback Responses")
+        
+        selected_file = st.selectbox(
+            "View feedback:",
+            feedback_files,
+            format_func=lambda x: x.replace("feedback_", "").replace(".json", "")
+        )
+        
+        if selected_file:
+            try:
+                with open(os.path.join(feedback_dir, selected_file)) as f:
+                    feedback = json.load(f)
+                    st.json(feedback)
+            except Exception as e:
+                st.error(f"Error loading feedback: {e}")
+        
+        if st.button("Export All Feedback as CSV"):
+            import csv
+            import io
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["timestamp", "rating", "feedback", "phase", "pathway_condition"])
+            
+            for filename in feedback_files:
+                try:
+                    with open(os.path.join(feedback_dir, filename)) as f:
+                        data = json.load(f)
+                        writer.writerow([
+                            data.get("timestamp", ""),
+                            data.get("rating", ""),
+                            data.get("feedback_text", ""),
+                            data.get("phase", ""),
+                            data.get("pathway_condition", "")
+                        ])
+                except Exception:
+                    continue
+            
+            csv_data = output.getvalue()
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name="feedback_export.csv",
+                mime="text/csv"
+            )
+
+# ==========================================
+# 3B. SIDEBAR & SESSION INITIALIZATION
 # ==========================================
 with st.sidebar:
     try:
@@ -1799,6 +2031,11 @@ with st.sidebar:
     except Exception: pass
 
     st.title("AI Agent")
+    st.divider()
+    initialize_chat_state()
+    render_chat_drawer()
+    load_admin_feedback_dashboard()
+    
     st.divider()
     # Do not prefill from secrets so landing shows on first load
     gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
@@ -2530,6 +2767,13 @@ elif "Evidence" in phase or "Appraise" in phase:
 elif "Decision" in phase or "Tree" in phase:
     st.header(f"Phase 3. {PHASES[2]}")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
+    
+    # Show satisfaction survey once per session when entering Phase 3
+    if not st.session_state.get("phase3_survey_shown", False):
+        render_satisfaction_survey()
+        st.session_state["phase3_survey_shown"] = True
+    
+    st.divider()
     
     # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
     # This is a safety mechanism to detect changes from previous session
