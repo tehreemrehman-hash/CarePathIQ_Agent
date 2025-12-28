@@ -2443,43 +2443,57 @@ if "Scope" in phase:
         st.text_area("Project Goals", key="p1_obj", height=compute_textarea_height(st.session_state.get('p1_obj',''), 14), on_change=sync_p1_widgets, label_visibility="collapsed")
 
     st.divider()
-    with st.expander("Project Timeline (Gantt Chart)", expanded=False):
-        styled_info("<b>Tip:</b> Hover over the top right of the chart to download the image or table. You can also directly edit the timeline table below to adjust start/end dates and task owners.")
-        if not st.session_state.data['phase1']['schedule']:
-            today = date.today()
-            def add_weeks(start, w): return start + timedelta(weeks=w)
-            d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
-            d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
-            st.session_state.data['phase1']['schedule'] = [
-                {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
-                {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
-                {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
-                {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
-                {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-                {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
-                {"Stage": "7. Deployment", "Owner": "IT", "Start": d6, "End": d7},
-                {"Stage": "8. Monitoring & Updates", "Owner": "Quality", "Start": d7, "End": d8},
-            ]
-        owner_colors = {
-            'PM': '#ffe0b2', 'Clinical Lead': '#b2dfdb', 'Expert Panel': '#b0c4de',
-            'IT': '#dcedc8', 'Quality': '#f8bbd0'
-        }
-        df_schedule = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-        df_schedule['Start'] = pd.to_datetime(df_schedule['Start'])
-        df_schedule['End'] = pd.to_datetime(df_schedule['End'])
-        chart = alt.Chart(df_schedule).mark_bar(color='#8D6E63').encode(
-            x=alt.X('Start:T', title='Start Date'),
-            x2='End:T',
-            y=alt.Y('Stage:N', sort=None),
-            color=alt.Color('Owner:N', scale=alt.Scale(
-                domain=list(owner_colors.keys()),
-                range=list(owner_colors.values())
-            ),
-            legend=alt.Legend(title='Owner')
-        ),
-        tooltip=['Stage', 'Start', 'End', 'Owner']
-        ).properties(height=300).interactive()
-        st.altair_chart(chart, width="stretch")
+    st.subheader("5. Project Timeline (Gantt Chart)")
+    styled_info("<b>Tip:</b> Hover over the top right of the chart to download the image or table. You can also directly edit the timeline table below to adjust start/end dates and task owners.")
+    if not st.session_state.data['phase1']['schedule']:
+        today = date.today()
+        def add_weeks(start, w): return start + timedelta(weeks=w)
+        d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
+        d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
+        st.session_state.data['phase1']['schedule'] = [
+            {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
+            {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
+            {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
+            {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
+            {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
+            {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
+            {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
+            {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
+            {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
+        ]
+    df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
+    if not edited_sched.empty:
+        st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
+        chart_data = edited_sched.copy()
+        chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
+        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
+        chart_data['End'] = pd.to_datetime(chart_data['End'])
+        if not chart_data.empty:
+            # Define consistent color scheme for all owners
+            owner_colors = {
+                'PM': '#5f9ea0',           # Cadet blue
+                'Clinical Lead': '#4169e1',  # Royal blue
+                'Expert Panel': '#b0c4de',   # Light steel blue
+                'IT': '#dc143c',             # Crimson
+                'Ops': '#ffb6c1',            # Light pink
+                'Quality': '#5D4037'         # Brown (consistent with brand)
+            }
+            
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X('Start', title='Date'),
+                x2='End',
+                y=alt.Y('Stage', sort=None),
+                color=alt.Color('Owner', 
+                    scale=alt.Scale(
+                        domain=list(owner_colors.keys()),
+                        range=list(owner_colors.values())
+                    ),
+                    legend=alt.Legend(title='Owner')
+                ),
+                tooltip=['Stage', 'Start', 'End', 'Owner']
+            ).properties(height=300).interactive()
+            st.altair_chart(chart, width="stretch")
 
     
     if st.button("Generate Project Charter", type="secondary", use_container_width=True):
