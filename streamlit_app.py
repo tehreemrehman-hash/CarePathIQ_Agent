@@ -3726,43 +3726,46 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     """
                     components.html(preview_html, height=520)
         
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5b_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_beta_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed"
-            )
-            if p5b_uploaded:
-                file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
-                if file_result:
-                    with st.expander("📄 File Review", expanded=True):
-                        st.markdown(file_result["review"])
-        
-        refine_beta = st.text_area(
-            "Refinement Notes",
-            placeholder="Add usability metrics; clarify scenarios; shorten steps",
-            key="p5_refine_beta",
-            height=90,
-            label_visibility="visible"
-        )
-        if refine_beta and st.button("Apply Refinements", key="regen_beta", use_container_width=True):
-            with st.spinner("Refining..."):
-                refine_with_file = refine_beta
-                if st.session_state.get("file_p5_beta_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
-                refined_html = generate_beta_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    audience=st.session_state.get("p5_aud_beta", ""),
-                    organization=cond,
-                    care_setting=setting
+        # Refine & Regenerate section (matching Expert Panel pattern)
+        with st.expander("Refine & Regenerate", expanded=False):
+            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                refine_beta = st.text_area(
+                    "Refinement Notes",
+                    placeholder="Add usability metrics; clarify scenarios; shorten steps",
+                    key="p5_refine_beta",
+                    height=90,
+                    label_visibility="visible"
                 )
-                st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
-            st.success("Refined!")
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p5b_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p5_beta_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed"
+                )
+                if p5b_uploaded:
+                    file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
+                    if file_result:
+                        with st.expander("File Review", expanded=True):
+                            st.markdown(file_result["review"])
+            regen_disabled = not refine_beta and not st.session_state.get("file_p5_beta_review")
+            if st.button("Regenerate", key="regen_beta", use_container_width=True, disabled=regen_disabled):
+                with st.spinner("Refining..."):
+                    refine_with_file = refine_beta
+                    if st.session_state.get("file_p5_beta_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
+                    refined_html = generate_beta_form_html(
+                        condition=cond,
+                        nodes=nodes,
+                        audience=st.session_state.get("p5_aud_beta", ""),
+                        organization=cond,
+                        care_setting=setting
+                    )
+                    st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
+                st.success("Refined!")
     
     st.divider()
     
@@ -3990,38 +3993,39 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     """
                     components.html(preview_html, height=520)
         
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5ed_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_edu_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed"
-            )
-            if p5ed_uploaded:
-                file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
-                if file_result:
-                    with st.expander("File Review", expanded=True):
-                        st.markdown(file_result["review"])        
-        
-        # Refine section
-        with col_text:
-            refine_edu = st.text_area(
-                "Refinement Notes",
-                placeholder="Add case studies; include quick checks; simplify objectives",
-                key="p5_refine_edu",
-                height=90,
-                label_visibility="visible"
-            )
-        if refine_edu and st.button("Apply Refinements", key="regen_edu", use_container_width=True):
-            with st.spinner("Refining..."):
-                # Include file context
-                refine_with_file = refine_edu
-                if st.session_state.get("file_p5_edu_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
-                
+        # Refine & Regenerate section (matching Expert Panel pattern)
+        with st.expander("Refine & Regenerate", expanded=False):
+            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                refine_edu = st.text_area(
+                    "Refinement Notes",
+                    placeholder="Add case studies; include quick checks; simplify objectives",
+                    key="p5_refine_edu",
+                    height=90,
+                    label_visibility="visible"
+                )
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p5ed_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p5_edu_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed"
+                )
+                if p5ed_uploaded:
+                    file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
+                    if file_result:
+                        with st.expander("File Review", expanded=True):
+                            st.markdown(file_result["review"])
+            regen_disabled = not refine_edu and not st.session_state.get("file_p5_edu_review")
+            if st.button("Regenerate", key="regen_edu", use_container_width=True, disabled=regen_disabled):
+                with st.spinner("Refining..."):
+                    # Include file context
+                    refine_with_file = refine_edu
+                    if st.session_state.get("file_p5_edu_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
+                    
                     # Get existing modules and add refinement notes
                     existing_html = st.session_state.data['phase5'].get('edu_html', '')
                     if existing_html:
@@ -4207,39 +4211,40 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     use_container_width=True
                 )
         
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5ex_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_exec_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed"
-            )
-            if p5ex_uploaded:
-                file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
-                if file_result:
-                    with st.expander("File Review", expanded=True):
-                        st.markdown(file_result["review"])        
-        
-        # Refine section
-        with col_text:
-            refine_exec = st.text_area(
-                "Refinement Notes",
-                placeholder="Focus on cost‑benefit; shorten narrative; highlight outcomes",
-                key="p5_refine_exec",
-                height=90,
-                label_visibility="visible"
-            )
-        if refine_exec and st.button("Apply Refinements", key="regen_exec", use_container_width=True):
-            with st.spinner("Refining..."):
-                refine_with_file = refine_exec
-                if st.session_state.get("file_p5_exec_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_exec_review')}"
-                refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_with_file}"
-                st.session_state.data['phase5']['exec_summary'] = refined_summary
-            st.success("Refined!")
+        # Refine & Regenerate section (matching Expert Panel pattern)
+        with st.expander("Refine & Regenerate", expanded=False):
+            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                refine_exec = st.text_area(
+                    "Refinement Notes",
+                    placeholder="Focus on cost‑benefit; shorten narrative; highlight outcomes",
+                    key="p5_refine_exec",
+                    height=90,
+                    label_visibility="visible"
+                )
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p5ex_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p5_exec_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed"
+                )
+                if p5ex_uploaded:
+                    file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
+                    if file_result:
+                        with st.expander("File Review", expanded=True):
+                            st.markdown(file_result["review"])
+            regen_disabled = not refine_exec and not st.session_state.get("file_p5_exec_review")
+            if st.button("Regenerate", key="regen_exec", use_container_width=True, disabled=regen_disabled):
+                with st.spinner("Refining..."):
+                    refine_with_file = refine_exec
+                    if st.session_state.get("file_p5_exec_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_exec_review')}"
+                    refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_with_file}"
+                    st.session_state.data['phase5']['exec_summary'] = refined_summary
+                st.success("Refined!")
     
     render_bottom_navigation()
     st.stop()
