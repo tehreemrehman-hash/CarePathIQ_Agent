@@ -2136,6 +2136,37 @@ with st.sidebar:
     st.divider()
     initialize_chat_state()
     render_chat_drawer()
+    
+    st.divider()
+    
+    # Help us improve - Feedback Survey
+    with st.expander("💬 Help us improve!", expanded=False):
+        st.markdown("**How satisfied are you with this app?**")
+        
+        rating = st.slider(
+            "Rating",
+            min_value=0,
+            max_value=10,
+            value=5,
+            step=1,
+            help="0=Not Satisfied, 10=Very Satisfied",
+            key="sidebar_feedback_rating"
+        )
+        
+        feedback_text = st.text_area(
+            "Additional feedback (optional)",
+            placeholder="Tell us what you think...",
+            height=80,
+            key="sidebar_feedback_text"
+        )
+        
+        if st.button("Submit Feedback", key="sidebar_submit_feedback", use_container_width=True):
+            if rating or feedback_text.strip():
+                save_feedback_response(rating, feedback_text, "sidebar")
+                st.success("✅ Thank you for your feedback!")
+            else:
+                st.info("Please provide a rating or feedback")
+    
     load_admin_feedback_dashboard()
     
     st.divider()
@@ -2884,11 +2915,6 @@ elif "Evidence" in phase or "Appraise" in phase:
 elif "Decision" in phase or "Tree" in phase:
     st.header(f"Phase 3. {PHASES[2]}")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
-    
-    # Show satisfaction survey once per session when entering Phase 3
-    if not st.session_state.get("phase3_survey_shown", False):
-        render_satisfaction_survey()
-        st.session_state["phase3_survey_shown"] = True
     
     st.divider()
     
