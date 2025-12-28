@@ -786,6 +786,52 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
         return None
 
 
+def review_document(file_uri: str, context: str = "") -> str:
+    """
+    Review an uploaded file using Gemini API and return a markdown summary.
+    
+    Args:
+        file_uri: URI of the file uploaded to Gemini Files API
+        context: Optional context about what the file is for (e.g., 'clinical pathway')
+    
+    Returns:
+        str: Markdown-formatted review summary
+    """
+    client = get_genai_client()
+    if not client:
+        return "⚠️ API connection unavailable. Could not review file."
+    
+    try:
+        context_phrase = f" for {context}" if context else ""
+        prompt = f"""Review this document{context_phrase}. Provide a concise summary in markdown format including:
+        
+- **Purpose**: Main topic and intent
+- **Key Points**: 3-5 most important takeaways
+- **Relevance**: How this relates to clinical pathway development{context_phrase}
+
+Keep the summary brief (3-5 sentences per section)."""
+        
+        # Use the file URI in the content
+        contents = [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {"file_data": {"file_uri": file_uri}}
+                ]
+            }
+        ]
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents
+        )
+        
+        return response.text if response and response.text else "✓ File uploaded successfully. Content available for AI analysis."
+    
+    except Exception as e:
+        return f"✓ File uploaded. *(Auto-review unavailable: {str(e)})*"
+
+
 def create_formsubmit_html(form_html: str) -> str:
     """
     Ensure FormSubmit.co compatibility in generated HTML.
@@ -1271,6 +1317,62 @@ def create_word_docx(data):
         st.error(f"Error generating document: {str(e)}")
         return None
 
+def generate_p1_charter():
+    """
+    Auto-generate Phase 1 Project Charter using IHI Model for Improvement.
+    Updates st.session_state.data['phase1']['ihi_content'] and triggers download.
+    """
+    d = st.session_state.data['phase1']
+    if not d.get('condition') or not d.get('problem'):
+        st.warning("Please fill in Condition and Problem before generating charter.")
+        return
+    
+    with st.status("Generating Project Charter...", expanded=True) as status:
+        st.write("Building project charter based on IHI Quality Improvement framework...")
+        
+        p_ihi = f"""You are a Quality Improvement Advisor using IHI's Model for Improvement.
+
+Build a project charter for managing "{d['condition']}" in "{d.get('setting', '') or 'care setting'}".
+
+**Phase 1 Context:**
+Problem: {d['problem']}
+Inclusion: {d.get('inclusion', '')}
+Exclusion: {d.get('exclusion', '')}
+Objectives: {d.get('objectives', '')}
+
+Return JSON with keys:
+- project_description (string)
+- rationale (string)
+- expected_outcomes (string)
+- aim_statement (string)
+- outcome_measures (string)
+- process_measures (string)
+- balancing_measures (string)
+- initial_activities (string)
+- change_ideas (array of strings)
+- stakeholders (string)
+- barriers (string)
+- boundaries: object with in_scope (string) and out_of_scope (string)
+
+Return clean JSON ONLY. No markdown, no explanation."""
+        
+        res = get_gemini_response(p_ihi, json_mode=True)
+        if res:
+            st.session_state.data['phase1']['ihi_content'] = res
+            doc = create_word_docx(st.session_state.data['phase1'])
+            if doc:
+                status.update(label="Ready!", state="complete")
+                st.download_button(
+                    "Download Project Charter (.docx)",
+                    doc,
+                    f"Project_Charter_{d['condition']}.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            else:
+                status.update(label="Word export unavailable. Please ensure python-docx is installed.", state="error")
+        else:
+            status.update(label="Failed to generate charter.", state="error")
+
 def create_exec_summary_docx(summary_text, condition):
     if Document is None: return None
     doc = Document()
@@ -1285,6 +1387,54 @@ def create_exec_summary_docx(summary_text, condition):
     p.text = "CarePathIQ © 2024 by Tehreem Rehman is licensed under CC BY-SA 4.0"; p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
+
+def auto_grade_evidence_list(evidence_list: list):
+    """
+    Auto-grade a list of evidence items using GRADE criteria via Gemini API.
+    Updates each item in the list with 'grade' and 'rationale' fields.
+    
+    Args:
+        evidence_list: List of evidence dictionaries with at least 'id' and 'title' keys
+    """
+    if not evidence_list:
+        return
+    
+    try:
+        prompt = (
+            "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
+            "and provide a brief Rationale (1-2 sentences) for each article. "
+            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in evidence_list])}. "
+            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+            '{"12345678": {"grade": "High (A)", "rationale": "text here"}}'
+        )
+        
+        grades = get_gemini_response(prompt, json_mode=True)
+        
+        if grades and isinstance(grades, dict):
+            for e in evidence_list:
+                pmid_str = str(e.get('id', ''))
+                if pmid_str in grades:
+                    grade_data = grades[pmid_str]
+                    if isinstance(grade_data, dict):
+                        e['grade'] = grade_data.get('grade', 'Un-graded')
+                        e['rationale'] = grade_data.get('rationale', 'Not provided.')
+                    else:
+                        e['grade'] = 'Un-graded'
+                        e['rationale'] = 'Not provided.'
+                else:
+                    e.setdefault('grade', 'Un-graded')
+                    e.setdefault('rationale', 'Not yet evaluated.')
+        else:
+            # If API call fails, set defaults
+            for e in evidence_list:
+                e.setdefault('grade', 'Un-graded')
+                e.setdefault('rationale', 'Auto-grading unavailable.')
+    
+    except Exception as ex:
+        # On error, set defaults and log
+        for e in evidence_list:
+            e.setdefault('grade', 'Un-graded')
+            e.setdefault('rationale', f'Auto-grading error: {str(ex)}')
 
 def format_citation_line(entry, style="APA"):
     """Lightweight formatter for citation strings based on available PubMed fields."""
@@ -3563,12 +3713,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
             st.session_state["p5_aud_expert"] = aud_expert
             st.session_state["p5_aud_expert_prev"] = aud_expert
             with st.spinner("Generating expert feedback form..."):
+                # Generate SVG for pathway visualization in downloaded form
+                g = build_graphviz_from_nodes(nodes, "TD")
+                svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
+                
                 expert_html = generate_expert_form_html(
                     condition=cond,
                     nodes=nodes,
                     audience=aud_expert,
                     organization=cond,
-                    care_setting=setting
+                    care_setting=setting,
+                    pathway_svg_b64=svg_b64
                 )
                 st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
                 st.success("Generated!")
@@ -3667,12 +3823,19 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     refine_with_file = refine_expert
                     if st.session_state.get("file_p5_expert_review"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
+                    
+                    # Generate SVG for pathway visualization in downloaded form
+                    g = build_graphviz_from_nodes(nodes, "TD")
+                    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                    svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
+                    
                     refined_html = generate_expert_form_html(
                         condition=cond,
                         nodes=nodes,
                         audience=st.session_state.get("p5_aud_expert", ""),
                         organization=cond,
-                        care_setting=setting
+                        care_setting=setting,
+                        pathway_svg_b64=svg_b64
                     )
                     st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
                 st.success("Refined!")
@@ -3693,12 +3856,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
             st.session_state["p5_aud_beta"] = aud_beta
             st.session_state["p5_aud_beta_prev"] = aud_beta
             with st.spinner("Generating guide..."):
+                # Generate SVG for pathway visualization in downloaded form
+                g = build_graphviz_from_nodes(nodes, "TD")
+                svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
+                
                 beta_html = generate_beta_form_html(
                     condition=cond,
                     nodes=nodes,
                     audience=aud_beta,
                     organization=cond,
-                    care_setting=setting
+                    care_setting=setting,
+                    pathway_svg_b64=svg_b64
                 )
                 st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
             st.success("Generated!")
@@ -3798,12 +3967,19 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     refine_with_file = refine_beta
                     if st.session_state.get("file_p5_beta_review"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
+                    
+                    # Generate SVG for pathway visualization in downloaded form
+                    g = build_graphviz_from_nodes(nodes, "TD")
+                    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                    svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
+                    
                     refined_html = generate_beta_form_html(
                         condition=cond,
                         nodes=nodes,
                         audience=st.session_state.get("p5_aud_beta", ""),
                         organization=cond,
-                        care_setting=setting
+                        care_setting=setting,
+                        pathway_svg_b64=svg_b64
                     )
                     st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
                 st.success("Refined!")
