@@ -2,6 +2,8 @@ import streamlit as st
 # Version info sidebar caption (admin-only)
 import os
 import json
+from datetime import date, timedelta
+from contextlib import contextmanager
 from google import genai
 
 def _get_query_param(name: str):
@@ -59,6 +61,18 @@ def columns_top(spec, **kwargs):
     except TypeError:
         # Older Streamlit versions without vertical_alignment
         return st.columns(spec, **kwargs)
+
+# Unified status UI for AI tasks
+@contextmanager
+def ai_activity(label="Working with the AI agent…"):
+    with st.status(label, expanded=False) as status:
+        try:
+            yield status
+            status.update(label="Ready!", state="complete")
+        except Exception:
+            status.update(label="There was a problem completing this step.", state="error")
+            st.error("Please try again or adjust your input.")
+            return
 
 def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     """Regenerate Phase 3 nodes based on user refinement notes and optional heuristics context."""
@@ -1943,7 +1957,9 @@ def get_local_faq_answer(user_question: str) -> str:
 
 def render_chat_drawer():
     """Render sidebar chat UI with message history, suggested questions, and app-scoped input."""
-    with st.expander("CarePathIQ AI Agent", expanded=st.session_state.get("chat_expanded", False)):
+    # Check for chat=1 query param to auto-open
+    should_expand = st.session_state.get("chat_expanded", False) or _get_query_param("chat") == "1"
+    with st.expander("CarePathIQ AI Agent", expanded=should_expand):
         # Initialize welcome message if this is the first load
         if not st.session_state.get("chat_initialized", False):
             st.session_state["chat_messages"] = [
@@ -2117,7 +2133,6 @@ with st.sidebar:
             st.markdown(f"""<div style="text-align: center; margin-bottom: 20px;"><a href="https://carepathiq.org/" target="_blank"><img src="data:image/png;base64,{logo_data}" width="200" style="max-width: 100%;"></a></div>""", unsafe_allow_html=True)
     except Exception: pass
 
-    st.title("AI Agent")
     st.divider()
     initialize_chat_state()
     render_chat_drawer()
