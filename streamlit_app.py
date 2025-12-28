@@ -276,28 +276,6 @@ st.markdown("""
         background-color: #8FD9BC !important; 
         color: #3E2723 !important;
     }
-
-    /* FLOATING CHAT LAUNCHER LINK (BOTTOM-RIGHT) */
-    a#cpq-chat-launch {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 9999;
-        background-color: #FFB0C9 !important;
-        color: black !important;
-        border: 1px solid black !important;
-        border-radius: 30px !important;
-        padding: 0.65rem 1.25rem !important;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.18);
-        font-weight: 700 !important;
-        text-decoration: none !important;
-        display: inline-block;
-    }
-    a#cpq-chat-launch:hover {
-        background-color: #FF9BB8 !important;
-        color: #3E2723 !important;
-        box-shadow: 0 8px 22px rgba(0,0,0,0.22);
-    }
     
     /* RADIO BUTTONS */
     div[role="radiogroup"] label > div:first-child {
@@ -1874,12 +1852,17 @@ def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
     import datetime
     os.makedirs("data/feedback", exist_ok=True)
     
+    # Safely get pathway condition from session state
+    pathway_condition = ""
+    if hasattr(st.session_state, 'data') and isinstance(st.session_state.data, dict):
+        pathway_condition = st.session_state.data.get("phase1", {}).get("condition", "")
+    
     feedback_data = {
         "timestamp": datetime.datetime.utcnow().isoformat(),
         "rating": rating,
         "feedback_text": feedback_text,
         "phase": phase,
-        "pathway_condition": st.session_state.data.get("phase1", {}).get("condition", "")
+        "pathway_condition": pathway_condition
     }
     
     timestamp_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
@@ -1891,34 +1874,93 @@ def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
 def get_carepathiq_scoped_response(user_question: str) -> str:
     """
     Get a response from Gemini scoped strictly to CarePathIQ app questions.
-    Refuses external searches, clinical research, or non-app-related queries.
+    Enhanced with comprehensive knowledge of app structure, files, and capabilities.
     """
-    scope_constraint = """You are the CarePathIQ AI Agent - a helpful assistant who answers questions ONLY about the CarePathIQ app itself.
+    scope_constraint = """You are the CarePathIQ AI Agent - an expert assistant with complete knowledge of the CarePathIQ clinical pathway development application.
 
-**Your scope includes:**
-- Explaining how to use each of the 5 phases (Define Scope, Appraise Evidence, Build Decision Tree, Design Interface, Operationalize)
-- Guiding users on features like evidence grading, pathway visualization, heuristics analysis, expert panel feedback
-- Explaining what data to input and how to interpret outputs
-- Clarifying how to export pathways, download evidence, or generate reports
-- Providing tips on best practices for using CarePathIQ
+**COMPREHENSIVE APP KNOWLEDGE:**
 
-**Your scope DOES NOT include:**
-- External web searches or general knowledge questions
-- Clinical decision-making or medical advice
-- Literature searches or PubMed queries (those are built into the app's Evidence phase)
-- Questions unrelated to the CarePathIQ app
-- Administrative or billing questions
+**App Structure & Files:**
+- streamlit_app.py: Main application with 5-phase workflow
+- phase5_helpers.py: HTML generation for expert forms, beta testing, education modules
+- education_template.py: Interactive education module with quizzes and certificates
+- README.md: Setup, installation, and environment configuration
+- API_ALIGNMENT.md: Google Gemini API implementation details
+- PHASE5_GUIDE.md: Complete Phase 5 operationalization documentation
 
-**If a question is out of scope:**
-Politely decline and redirect: "I'm specifically designed to help with CarePathIQ app features. Your question seems to be outside my scope. Let me help you with something about the app instead!"
+**The 5 Phases in Detail:**
 
-**Response style:**
-- Keep answers concise (2-3 sentences)
-- Use conversational, helpful tone
-- Reference specific app phases or features when relevant
-- Suggest they explore the app's built-in features for clinical/research tasks
+1. **Phase 1: Define Scope & Charter**
+   - Input clinical condition and care setting
+   - AI auto-drafts: inclusion/exclusion criteria, problem statement, objectives, population, schedule
+   - Fields: condition, setting, inclusion, exclusion, problem, objectives, schedule, population
+   
+2. **Phase 2: Appraise Evidence**
+   - PubMed/MESH query integration for literature search
+   - Evidence table with PMID, title, abstract, GRADE quality assessment
+   - Structured PICO framework support (Population, Intervention, Comparison, Outcome)
+   - Export to CSV capability
+   
+3. **Phase 3: Build Decision Tree**
+   - Node-based pathway construction (decision nodes, action nodes, outcome nodes)
+   - Visual flowchart with Graphviz rendering
+   - AI-powered regeneration with user refinement notes
+   - History tracking with undo/redo functionality
+   - Evidence integration into pathway logic
+   
+4. **Phase 4: Design Interface**
+   - Nielsen's 10 Usability Heuristics analysis
+   - AI-generated recommendations for each heuristic
+   - Apply/reject interface for pathway improvements
+   - Visual preview of pathway interface
+   - Heuristics: Visibility, Match with real world, User control, Consistency, Error prevention, Recognition, Flexibility, Minimalist design, Error recovery, Documentation
+   
+5. **Phase 5: Operationalize**
+   - Expert Panel Feedback Form (HTML with CSV download)
+   - Beta Testing Form (usability assessment with downloadable results)
+   - Interactive Education Module (quizzes, progress tracking, printable certificates)
+   - Executive Summary (Word document for leadership)
+   - All outputs are standalone HTML or DOCX files - no backend needed
 
-User question: {user_question}"""
+**Key Features:**
+- Google Gemini API integration (gemini-2.5-flash, gemini-2.5-flash-lite, gemini-3-flash)
+- Admin mode with query params (?admin=CODE) or CPQ_SHOW_VERSION env variable
+- Debug mode (?debug=1 or CPQ_DEBUG env) for development
+- Feedback collection system (sidebar ratings + text feedback)
+- Export capabilities: CSV, DOCX, HTML, SVG, PNG, DOT (Graphviz)
+- Responsive design with pink/brown/teal branding
+- Session state persistence throughout workflow
+
+**Technical Stack:**
+- Streamlit 1.52.2
+- google-genai 1.56.0
+- Graphviz for pathway visualization
+- python-docx for Word exports
+- Pandas for data tables
+
+**YOUR CAPABILITIES:**
+✅ Explain how to use any phase or feature
+✅ Guide through workflow from start to finish
+✅ Troubleshoot common issues (API key, model selection, exports)
+✅ Clarify what data to input and how outputs are generated
+✅ Explain Phase 5 deliverables and distribution workflows
+✅ Describe technical architecture and file structure
+✅ Provide tips for evidence grading, heuristics analysis, node design
+
+**OUT OF SCOPE (Politely decline):**
+❌ External web searches or general knowledge
+❌ Clinical decision-making or medical advice
+❌ Literature searches (built into Phase 2)
+❌ Administrative/billing questions
+❌ Non-CarePathIQ topics
+
+**Response Style:**
+- Concise, helpful answers (2-4 sentences)
+- Reference specific phases, files, or features when relevant
+- Use conversational, expert tone
+- Suggest exploring built-in features for clinical tasks
+
+**User Question:** {user_question}"""
 
     response = get_gemini_response(scope_constraint)
     if not response:
@@ -1930,28 +1972,53 @@ User question: {user_question}"""
 def get_local_faq_answer(user_question: str) -> str:
     """Provide lightweight built-in answers when AI is unavailable."""
     q = (user_question or "").strip().lower()
-    if "5 phases" in q or "five phases" in q:
+    if "5 phases" in q or "five phases" in q or "phases" in q:
         return (
-            "CarePathIQ has 5 phases: 1) Define Scope — clarify condition, context, and goals. "
-            "2) Appraise Evidence — gather and grade studies with structured PICO/MESH support. "
-            "3) Build Decision Tree — design pathway logic and branches. "
-            "4) Design Interface — preview how the pathway will be used. "
-            "5) Operationalize — export, share, and prepare for deployment."
+            "CarePathIQ has 5 phases: 1) **Define Scope** — clarify condition, context, and goals. "
+            "2) **Appraise Evidence** — gather and grade studies with structured PICO/MESH support. "
+            "3) **Build Decision Tree** — design pathway logic and branches. "
+            "4) **Design Interface** — preview and optimize using Nielsen's usability heuristics. "
+            "5) **Operationalize** — export expert forms, beta testing, education modules, and executive summary."
         )
-    if "decision tree" in q or "phase 3" in q:
+    if "decision tree" in q or "phase 3" in q or "nodes" in q or "pathway" in q:
         return (
             "In Phase 3, add nodes (decisions, actions, outcomes), connect them to form branches, "
             "and iterate using evidence and heuristics. Use the refinement box to request changes, "
-            "then regenerate to update the pathway structure."
+            "then regenerate to update the pathway structure. The AI uses Phase 1 & 2 context to build logical flows."
         )
-    if "evidence" in q or "phase 2" in q:
+    if "evidence" in q or "phase 2" in q or "pubmed" in q or "mesh" in q:
         return (
-            "Include study details (PMID/title), abstract or key findings, GRADE or quality assessment, "
-            "and how the evidence informs pathway decisions. Use MESH queries to discover relevant studies."
+            "Phase 2 enables PubMed searches with MESH term suggestions. Include study PMID, title, abstract, "
+            "GRADE quality assessment, and relevance notes. Structured PICO framework helps organize evidence systematically. "
+            "Export to CSV for documentation."
+        )
+    if "phase 5" in q or "operationalize" in q or "export" in q or "expert" in q or "beta" in q:
+        return (
+            "Phase 5 generates 4 deliverables: Expert Panel Feedback Form (HTML), Beta Testing Form (HTML), "
+            "Interactive Education Module (HTML with quizzes & certificates), and Executive Summary (Word doc). "
+            "All are standalone files with no backend—users download, share, and collect responses via CSV."
+        )
+    if "heuristics" in q or "phase 4" in q or "usability" in q or "nielsen" in q:
+        return (
+            "Phase 4 applies Nielsen's 10 Usability Heuristics to your pathway. The AI analyzes each heuristic "
+            "(visibility, error prevention, consistency, etc.) and suggests improvements. You can apply or reject "
+            "each recommendation to optimize the user experience."
+        )
+    if "api" in q or "key" in q or "gemini" in q or "model" in q:
+        return (
+            "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
+            "Supports gemini-2.5-flash, gemini-2.5-flash-lite, and gemini-3-flash models. Enter your API key "
+            "in the sidebar to activate all AI features."
+        )
+    if "files" in q or "structure" in q or "code" in q:
+        return (
+            "Main files: streamlit_app.py (4200+ lines, 5-phase workflow), phase5_helpers.py (HTML generators), "
+            "education_template.py (quiz system). Documentation: PHASE5_GUIDE.md, API_ALIGNMENT.md, README.md. "
+            "Uses Streamlit, google-genai, Graphviz, python-docx."
         )
     return (
-        "I'm designed to help with CarePathIQ features. Ask about the 5 phases, building the decision tree, "
-        "or what to include in the Evidence phase."
+        "I can help with: the 5 phases workflow, building decision trees, evidence appraisal, "
+        "usability heuristics, Phase 5 exports, API setup, or technical structure. What would you like to know?"
     )
 
 
@@ -1959,13 +2026,13 @@ def render_chat_drawer():
     """Render sidebar chat UI with message history, suggested questions, and app-scoped input."""
     # Check for chat=1 query param to auto-open
     should_expand = st.session_state.get("chat_expanded", False) or _get_query_param("chat") == "1"
-    with st.expander("CarePathIQ AI Agent", expanded=should_expand):
+    with st.expander("💬 Question about CarePathIQ?", expanded=should_expand):
         # Initialize welcome message if this is the first load
         if not st.session_state.get("chat_initialized", False):
             st.session_state["chat_messages"] = [
                 {
                     "role": "assistant",
-                    "content": "👋 Hi! I'm the **CarePathIQ AI Agent**. I'm here to help you understand and navigate the CarePathIQ app. Ask me anything about how to use the features, what each phase does, or how to build clinical pathways!\n\n**Suggested questions:**"
+                    "content": "👋 Hi! I'm the **CarePathIQ AI Agent**. I can answer any questions about this app, its features, workflows, and how to build clinical pathways. I have access to all the code and documentation to provide comprehensive answers!\n\n**Suggested questions:**"
                 }
             ]
             st.session_state["chat_initialized"] = True
@@ -2215,21 +2282,6 @@ with st.sidebar:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
 
-# Floating chat launcher link shown bottom-right on all views
-st.markdown(
-    """
-    <script>
-    function openCpqChat() {
-        const url = new URL(window.location.href);
-        url.searchParams.set('chat', '1');
-        window.location.href = url.toString();
-    }
-    </script>
-    <a id="cpq-chat-launch" href="#" target="_self" onclick="openCpqChat(); return false;">Question about CarePathIQ?</a>
-    """,
-    unsafe_allow_html=True,
-)
-
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
     st.markdown(
@@ -2397,6 +2449,7 @@ if "Scope" in phase:
         Act as a Chief Medical Officer. For "{c}" in "{s}", return a JSON object with keys:
         inclusion, exclusion, problem, objectives. Make inclusion/exclusion numbered lists.
         """
+        data = None
         with ai_activity("Drafting Phase 1 content…"):
             data = get_gemini_response(prompt, json_mode=True)
             debug_log(f"AI response received type={type(data).__name__}")
