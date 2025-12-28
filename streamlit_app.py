@@ -1,11 +1,24 @@
 import streamlit as st
 # Version info sidebar caption (admin-only)
+import streamlit.components.v1 as components
 import os
 import json
 import pandas as pd
 import altair as alt
+import urllib.request
+import urllib.parse
+import re
+import time
+import base64
+from io import BytesIO
+import datetime
 from datetime import date, timedelta
+import copy
+import xml.etree.ElementTree as ET
 from contextlib import contextmanager
+import requests
+import hashlib
+import textwrap
 from google import genai
 
 def _get_query_param(name: str):
@@ -3441,7 +3454,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
         st.stop()
     
     # Single info box at top
-    styled_info("<b>Tip:</b> Download HTML files and share with anyone. They can open in any browser, provide feedback, and download results as CSV to share back with you.")
+    styled_info("<b>Tip:</b> Enter a target audience below, and each deliverable will be auto-generated immediately. Download the HTML file to share—it opens in any browser and allows feedback export as CSV.")
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     setting = st.session_state.data['phase1'].get('setting', '') or ""
