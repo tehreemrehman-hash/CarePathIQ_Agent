@@ -1968,69 +1968,6 @@ def get_local_faq_answer(user_question: str) -> str:
     )
 
 
-def render_chat_drawer():
-    """Render sidebar chat UI with message history, suggested questions, and app-scoped input."""
-    # Check for chat=1 query param to auto-open
-    should_expand = st.session_state.get("chat_expanded", False) or _get_query_param("chat") == "1"
-    with st.expander("💬 Question about CarePathIQ?", expanded=should_expand):
-        # Initialize welcome message if this is the first load
-        if not st.session_state.get("chat_initialized", False):
-            st.session_state["chat_messages"] = [
-                {
-                    "role": "assistant",
-                    "content": "Hi! Ask me anything about using CarePathIQ — the 5 phases, building pathways, using evidence, designing interfaces, or deploying your pathway."
-                }
-            ]
-            st.session_state["chat_initialized"] = True
-        
-        # Display chat messages
-        for message in st.session_state.get("chat_messages", []):
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-        
-        # Show suggested questions buttons (only if chat just started)
-        if len(st.session_state.get("chat_messages", [])) <= 1:
-            st.markdown("---")
-            suggested_questions = [
-                "What are the 5 phases?",
-                "How do I add evidence in Phase 2?",
-                "How do I create a decision tree in Phase 3?",
-            ]
-            
-            for i, question in enumerate(suggested_questions):
-                if st.button(question, key=f"suggested_q_{i}", use_container_width=True):
-                    # Append suggested question as user message
-                    st.session_state["chat_messages"].append({
-                        "role": "user",
-                        "content": question
-                    })
-                    # Generate response
-                    response = get_carepathiq_scoped_response(question)
-                    st.session_state["chat_messages"].append({
-                        "role": "assistant",
-                        "content": response
-                    })
-                    st.rerun()
-        
-        st.markdown("---")
-        
-        # Chat input for user questions
-        if user_input := st.chat_input("Ask about CarePathIQ..."):
-            st.session_state["chat_messages"].append({
-                "role": "user",
-                "content": user_input
-            })
-            
-            # Generate scoped response
-            response = get_carepathiq_scoped_response(user_input)
-            st.session_state["chat_messages"].append({
-                "role": "assistant",
-                "content": response
-            })
-            
-            st.rerun()
-
-
 def render_satisfaction_survey():
     """Render satisfaction survey with rating slider and feedback textarea."""
     with st.expander("📋 Feedback & Satisfaction Survey", expanded=False):
@@ -2147,14 +2084,84 @@ with st.sidebar:
     except Exception: pass
 
     st.divider()
-    initialize_chat_state()
-    render_chat_drawer()
+    
+    # API Key and Model - at top for easy access
+    # Do not prefill from secrets so landing shows on first load
+    gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
+    
+    # Dynamically fetch available models from API
+    available_models = []
+    if gemini_api_key:
+        available_models = get_available_models(gemini_api_key)
+    
+    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"])
+    model_choice = st.selectbox("Model", model_options, index=0)
     
     st.divider()
     
-    # Help us improve - Feedback Survey
-    with st.expander("💬 Help us improve!", expanded=False):
-        st.markdown("**How satisfied are you with this app?**")
+    # Chat expander - plain text, no icon
+    initialize_chat_state()
+    with st.expander("Question about CarePathIQ?", expanded=False):
+        # Initialize welcome message if this is the first load
+        if not st.session_state.get("chat_initialized", False):
+            st.session_state["chat_messages"] = [
+                {
+                    "role": "assistant",
+                    "content": "Hi! Ask me anything about using CarePathIQ — the 5 phases, building pathways, using evidence, designing interfaces, or deploying your pathway."
+                }
+            ]
+            st.session_state["chat_initialized"] = True
+        
+        # Display chat messages
+        for message in st.session_state.get("chat_messages", []):
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+        
+        # Show suggested questions buttons (only if chat just started)
+        if len(st.session_state.get("chat_messages", [])) <= 1:
+            st.markdown("---")
+            suggested_questions = [
+                "What are the 5 phases?",
+                "How do I add evidence in Phase 2?",
+                "How do I create a decision tree in Phase 3?",
+            ]
+            
+            for i, question in enumerate(suggested_questions):
+                if st.button(question, key=f"suggested_q_{i}", use_container_width=True):
+                    # Append suggested question as user message
+                    st.session_state["chat_messages"].append({
+                        "role": "user",
+                        "content": question
+                    })
+                    # Generate response
+                    response = get_carepathiq_scoped_response(question)
+                    st.session_state["chat_messages"].append({
+                        "role": "assistant",
+                        "content": response
+                    })
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # Chat input for user questions
+        if user_input := st.chat_input("Ask about CarePathIQ..."):
+            st.session_state["chat_messages"].append({
+                "role": "user",
+                "content": user_input
+            })
+            
+            # Generate scoped response
+            response = get_carepathiq_scoped_response(user_input)
+            st.session_state["chat_messages"].append({
+                "role": "assistant",
+                "content": response
+            })
+            
+            st.rerun()
+    
+    # Help us improve - plain text, no icon
+    with st.expander("Help us improve!", expanded=False):
+        st.markdown("How satisfied are you with this app?")
         
         rating = st.slider(
             "Rating",
@@ -2181,25 +2188,6 @@ with st.sidebar:
                 st.info("Please provide a rating or feedback")
     
     load_admin_feedback_dashboard()
-    
-    st.divider()
-    # Do not prefill from secrets so landing shows on first load
-    gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
-    
-    # Dynamically fetch available models from API
-    available_models = []
-    if gemini_api_key:
-        available_models = get_available_models(gemini_api_key)
-    
-    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"])
-    model_choice = st.selectbox("Model", model_options, index=0)
-    
-    # Preview before activation
-    if not gemini_api_key:
-        st.divider()
-        st.caption("Preview of AI agent")
-        for p in PHASES:
-            st.markdown(f"- {p}")
 
     if gemini_api_key:
         try:
