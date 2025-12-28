@@ -1437,7 +1437,8 @@ def auto_grade_evidence_list(evidence_list: list):
             e.setdefault('rationale', f'Auto-grading error: {str(ex)}')
 
 def format_citation_line(entry, style="APA"):
-    """Lightweight formatter for citation strings based on available PubMed fields."""
+    """Lightweight formatter for citation strings based on available PubMed fields.
+    Supports preset styles (APA, MLA, Vancouver) and custom style names."""
     authors = (entry.get("authors") or "Unknown").rstrip(".")
     title = (entry.get("title") or "Untitled").rstrip(".")
     journal = (entry.get("journal") or "Journal").rstrip(".")
@@ -1447,14 +1448,17 @@ def format_citation_line(entry, style="APA"):
         return f"{authors}. \"{title}.\" {journal}, {year}. PMID {pmid}."
     if style == "Vancouver":
         return f"{authors}. {title}. {journal}. {year}. PMID:{pmid}."
-    # Default APA
+    # Default APA (also used for custom style names)
     return f"{authors} ({year}). {title}. {journal}. PMID: {pmid}."
 
 def create_references_docx(citations, style="APA"):
+    """Create Word document with citations. Supports preset styles and custom style names."""
     if Document is None or not citations:
         return None
     doc = Document()
-    doc.add_heading(f"References ({style})", 0)
+    # Use the style name (preset or custom) in the heading
+    heading_text = f"References ({style})" if style else "References"
+    doc.add_heading(heading_text, 0)
     for idx, entry in enumerate(citations, start=1):
         line = format_citation_line(entry, style)
         doc.add_paragraph(f"{idx}. {line}")
@@ -2647,6 +2651,7 @@ if "Scope" in phase:
         # AI draft, keeping the callback snappy and avoiding rerun warnings.
         sync_p1_widgets()
         st.session_state['p1_should_draft'] = True
+        st.rerun()
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
@@ -3077,14 +3082,24 @@ elif "Evidence" in phase or "Appraise" in phase:
                 if show_citations:
                     hdr_l, hdr_r = columns_top([3, 1])
                     with hdr_l:
-                        st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
+                        st.subheader("Formatted Citations", help="Generate Word citations in your preferred style. Select a preset style or enter a custom name.")
                     with hdr_r:
                         citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
+                    # Custom citation style name input
+                    custom_style = st.text_input(
+                        "Or enter custom style name",
+                        value="",
+                        placeholder="e.g., Harvard, Chicago",
+                        max_chars=30,
+                        key="p2_custom_citation_style"
+                    )
+                    # Use custom style if provided, otherwise use selected preset
+                    final_citation_style = custom_style if custom_style.strip() else citation_style
                     references_source = display_data if display_data else evidence_data
                     # Build citation lines and centered download
                     citations = references_source or []
-                    lines = [format_citation_line(entry, citation_style) for entry in citations]
-                    docx_bytes = create_references_docx(citations, style=citation_style)
+                    lines = [format_citation_line(entry, final_citation_style) for entry in citations]
+                    docx_bytes = create_references_docx(citations, style=final_citation_style)
                     dl2_l, dl2_c, dl2_r = st.columns([1,2,1])
                     with dl2_c:
                         if docx_bytes:
