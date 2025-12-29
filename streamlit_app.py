@@ -658,7 +658,7 @@ def render_bottom_navigation():
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", use_container_width=True, type="secondary"):
+                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", type="secondary"):
                     st.session_state.current_phase_label = prev_phase
                     st.rerun()
         else:
@@ -675,7 +675,7 @@ def render_bottom_navigation():
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", use_container_width=True, type="primary"):
+                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", type="primary"):
                     st.session_state.current_phase_label = next_phase
                     st.rerun()
         # Always render brand/licensing footer before any phase stop()
@@ -2374,7 +2374,7 @@ with st.sidebar:
             ]
             
             for i, question in enumerate(suggested_questions):
-                if st.button(question, key=f"suggested_q_{i}", use_container_width=True):
+                if st.button(question, key=f"suggested_q_{i}"):
                     # Append suggested question as user message
                     st.session_state["chat_messages"].append({
                         "role": "user",
@@ -2427,7 +2427,7 @@ with st.sidebar:
             key="sidebar_feedback_text"
         )
         
-        if st.button("Submit Feedback", key="sidebar_submit_feedback", use_container_width=True):
+        if st.button("Submit Feedback", key="sidebar_submit_feedback"):
             if rating or feedback_text.strip():
                 save_feedback_response(rating, feedback_text, "sidebar")
                 st.success("✅ Thank you for your feedback!")
@@ -2590,7 +2590,7 @@ with st.sidebar:
         short_label = phase_short_labels[i]
         button_label = f"{i + 1}. {short_label}"
         button_type = "primary" if is_active else "secondary"
-        if st.button(button_label, key=f"side_nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
+        if st.button(button_label, key=f"side_nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type):
             st.session_state.current_phase_label = p
             st.rerun()
 
@@ -2608,7 +2608,7 @@ for i, p in enumerate(PHASES):
     button_label = f"{phase_num}. {short_label}"
     
     with nav_cols[col_idx]:
-        if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
+        if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type):
             st.session_state.current_phase_label = p
             st.rerun()
     
@@ -3118,7 +3118,7 @@ elif "Evidence" in phase or "Appraise" in phase:
                     # Centered download button beneath the section
                     dl_l, dl_c, dl_r = st.columns([1,2,1])
                     with dl_c:
-                        st.download_button("Download (.csv)", csv_data_full, file_name="evidence_table.csv", mime="text/csv", use_container_width=True)
+                        st.download_button("Download (.csv)", csv_data_full, file_name="evidence_table.csv", mime="text/csv")
 
             with c2:
                 if show_citations:
@@ -3145,7 +3145,7 @@ elif "Evidence" in phase or "Appraise" in phase:
                     dl2_l, dl2_c, dl2_r = st.columns([1,2,1])
                     with dl2_c:
                         if docx_bytes:
-                            st.download_button("Download (.docx)", docx_bytes, file_name="citations.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                            st.download_button("Download (.docx)", docx_bytes, file_name="citations.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                         else:
                             st.info("Word export unavailable (python-docx not installed)")
 
@@ -3393,7 +3393,7 @@ elif "Decision" in phase or "Tree" in phase:
 
             spacer, submit_col = st.columns([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+                submitted = st.form_submit_button("Regenerate", type="secondary")
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -3578,7 +3578,7 @@ elif "Interface" in phase or "UI" in phase:
 
             c1, c2 = columns_top([1, 1])
             with c1:
-                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
+                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
             with c2:
                 st.caption("Preview opens inline with zoom controls; SVG download remains available.")
         else:
@@ -3594,7 +3594,7 @@ elif "Interface" in phase or "UI" in phase:
                 df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
             else:
                 df_p4['node_id'] = range(1, len(df_p4) + 1)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor")
             manual_changed = not df_p4.equals(edited_p4)
             if manual_changed:
                 if 'node_id' in edited_p4.columns:
@@ -3604,7 +3604,7 @@ elif "Interface" in phase or "UI" in phase:
                 st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
 
             regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
-            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", use_container_width=True, disabled=regen_disabled):
+            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", disabled=regen_disabled):
                 p4_state['viz_cache'] = {}
                 st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
                 st.rerun()
@@ -3641,7 +3641,7 @@ elif "Interface" in phase or "UI" in phase:
                 )
 
             apply_disabled = not refine_notes and not st.session_state.get("file_p4_refine_file")
-            if st.button("Apply Refinements", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled):
+            if st.button("Apply Refinements", key="p4_apply_refine", disabled=apply_disabled):
                 with st.spinner("Applying refinements..."):
                     refine_with_file = refine_notes
                     if st.session_state.get("file_p4_refine_file"):
@@ -3681,7 +3681,7 @@ elif "Interface" in phase or "UI" in phase:
                     )
                     act_left, act_right = st.columns([1, 1])
                     with act_left:
-                        if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}", use_container_width=True):
+                        if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}"):
                             p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                             with ai_activity(f"Applying {heuristic_key} recommendation…"):
                                 prompt_apply = f"""
@@ -3697,7 +3697,7 @@ elif "Interface" in phase or "UI" in phase:
                                     st.success(f"Applied {heuristic_key} recommendation")
                                     st.rerun()
                     with act_right:
-                        if st.button(f"↶ Undo", key=f"p4_undo_{heuristic_key}", use_container_width=True):
+                        if st.button(f"↶ Undo", key=f"p4_undo_{heuristic_key}"):
                             if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
                                 prev_nodes = p4_state['nodes_history'].pop()
                                 st.session_state.data['phase3']['nodes'] = prev_nodes
@@ -3795,7 +3795,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                         exp_html,
                                         f"ExpertFeedback_{cond.replace(' ', '_')}.html",
                                         "text/html",
-                                        use_container_width=True
+                                        
                                 )
 
                         # Inline pathway preview (similar to Phase 4) for expert panel context
@@ -3875,7 +3875,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         with st.expander("File Review", expanded=True):
                             st.markdown(file_result["review"])
             regen_disabled = not refine_expert and not st.session_state.get("file_p5_expert_review")
-            if st.button("Regenerate", key="regen_expert", use_container_width=True, disabled=regen_disabled):
+            if st.button("Regenerate", key="regen_expert", disabled=regen_disabled):
                 with st.spinner("Refining..."):
                     refine_with_file = refine_expert
                     if st.session_state.get("file_p5_expert_review"):
@@ -3929,7 +3929,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     beta_html,
                     f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
                     "text/html",
-                    use_container_width=True
+                    
                 )
 
             # Inline pathway preview for beta testing context
@@ -4009,7 +4009,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         with st.expander("File Review", expanded=True):
                             st.markdown(file_result["review"])
             regen_disabled = not refine_beta and not st.session_state.get("file_p5_beta_review")
-            if st.button("Regenerate", key="regen_beta", use_container_width=True, disabled=regen_disabled):
+            if st.button("Regenerate", key="regen_beta", disabled=regen_disabled):
                 with st.spinner("Refining..."):
                     refine_with_file = refine_beta
                     if st.session_state.get("file_p5_beta_review"):
@@ -4221,7 +4221,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     edu_html,
                     f"EducationModule_{cond.replace(' ', '_')}.html",
                     "text/html",
-                    use_container_width=True
+                    
                 )
 
             # Inline pathway preview for education context
@@ -4301,7 +4301,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         with st.expander("File Review", expanded=True):
                             st.markdown(file_result["review"])
             regen_disabled = not refine_edu and not st.session_state.get("file_p5_edu_review")
-            if st.button("Regenerate", key="regen_edu", use_container_width=True, disabled=regen_disabled):
+            if st.button("Regenerate", key="regen_edu", disabled=regen_disabled):
                 with st.spinner("Refining..."):
                     # Include file context
                     refine_with_file = refine_edu
@@ -4493,7 +4493,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     docx_bytes,
                     f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True
+                    
                 )
         
         # Refine & Regenerate section for Executive Summary
@@ -4525,7 +4525,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 st.markdown(file_result["review"])
                 spacer, submit_col = st.columns([5, 2])
                 with submit_col:
-                    submitted_exec = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+                    submitted_exec = st.form_submit_button("Regenerate", type="secondary")
 
             if submitted_exec:
                 refine_exec = st.session_state.get('p5_refine_exec', '').strip()
