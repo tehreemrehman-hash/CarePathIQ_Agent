@@ -3146,32 +3146,47 @@ elif "Evidence" in phase or "Appraise" in phase:
 
             with c2:
                 if show_citations:
-                    hdr_l, hdr_r = columns_top([3, 1])
-                    with hdr_l:
-                        st.subheader("Formatted Citations", help="Generate Word citations in your preferred style. Select a preset style or enter a custom name.")
-                    with hdr_r:
-                        citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
-                    # Custom citation style name input
-                    custom_style = st.text_input(
-                        "Or enter custom style name",
-                        value="",
-                        placeholder="e.g., Harvard, Chicago",
-                        max_chars=30,
-                        key="p2_custom_citation_style"
-                    )
+                    st.subheader("Formatted Citations", help="Generate Word citations in your preferred style. Pick a preset or type your own below.")
+                    style_col, custom_col = columns_top([1, 2])
+                    with style_col:
+                        citation_style = st.selectbox(
+                            "Citation style",
+                            ["APA", "MLA", "Vancouver"],
+                            key="p2_citation_style"
+                        )
+                        st.caption("Pick a preset or type your own below.")
+                    with custom_col:
+                        custom_style = st.text_input(
+                            "Or enter custom style name",
+                            value="",
+                            placeholder="Harvard, Chicago",
+                            max_chars=30,
+                            key="p2_custom_citation_style"
+                        )
+                        st.caption("Leave blank to use the preset above.")
+
                     # Use custom style if provided, otherwise use selected preset
                     final_citation_style = custom_style if custom_style.strip() else citation_style
                     references_source = display_data if display_data else evidence_data
-                    # Build citation lines and centered download
                     citations = references_source or []
                     lines = [format_citation_line(entry, final_citation_style) for entry in citations]
                     docx_bytes = create_references_docx(citations, style=final_citation_style)
+
+                    no_citations = len(citations) == 0
                     dl2_l, dl2_c, dl2_r = st.columns([1,2,1])
                     with dl2_c:
                         if docx_bytes:
-                            st.download_button("Download (.docx)", docx_bytes, file_name="citations.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                            st.download_button(
+                                "Download (.docx)",
+                                docx_bytes,
+                                file_name="citations.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                disabled=no_citations
+                            )
                         else:
                             st.info("Word export unavailable (python-docx not installed)")
+                        if no_citations:
+                            st.info("Add evidence to enable download.")
 
     else:
         # If nothing to show, provide a helpful prompt
