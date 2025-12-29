@@ -232,6 +232,23 @@ st.markdown("""
         border-color: #3E2723 !important;
         color: white !important;
     }
+
+    /* FORM SUBMIT BUTTONS (e.g., "Regenerate" inside forms) */
+    /* Streamlit renders these differently from st.button; target explicitly */
+    div[data-testid="stFormSubmitButton"] > button,
+    form[data-testid="stForm"] button[type="submit"] {
+        background-color: #5D4037 !important; 
+        color: white !important;
+        border: 1px solid #5D4037 !important;
+        border-radius: 5px !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stFormSubmitButton"] > button:hover,
+    form[data-testid="stForm"] button[type="submit"]:hover {
+        background-color: #3E2723 !important; 
+        border-color: #3E2723 !important;
+        color: white !important;
+    }
     
     /* PRIMARY BUTTONS (Current Phase) */
     div.stButton > button[kind="primary"],
@@ -652,6 +669,8 @@ def render_bottom_navigation():
     if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
         current_idx = PHASES.index(st.session_state.current_phase_label)
         st.divider()
+        # Add a small spacer to keep bottom nav comfortably separated from content above
+        st.markdown("<div style='height: 10px'></div>", unsafe_allow_html=True)
         
         col_prev, col_middle, col_next = st.columns([1, 1, 1])
         
@@ -2719,19 +2738,24 @@ if "Scope" in phase:
         
         df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
         edited_sched = st.data_editor(
-            df_sched, 
-            num_rows="dynamic", 
-            width="stretch", 
-            key="sched_editor", 
+            df_sched,
+            num_rows="dynamic",
+            width="stretch",
+            key="sched_editor",
             column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")}
         )
-        
-        # Update session state with edited data
+
+        # Update session state with edited data and force a single rerun when changes occur
         if not edited_sched.empty:
-            st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
-        
-        # Always render chart from current edited data
-        chart_data = edited_sched.copy()
+            new_records = edited_sched.to_dict('records')
+            if new_records != st.session_state.data['phase1'].get('schedule', []):
+                st.session_state.data['phase1']['schedule'] = new_records
+                st.rerun()
+            else:
+                st.session_state.data['phase1']['schedule'] = new_records
+
+        # Always render chart from the latest session data for reliability
+        chart_data = pd.DataFrame(st.session_state.data['phase1']['schedule']).copy()
         chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
         
         if not chart_data.empty:
@@ -2763,7 +2787,7 @@ if "Scope" in phase:
                     tooltip=['Stage:N', 'Start:T', 'End:T', 'Owner:N']
                 ).properties(height=300).interactive()
                 
-                st.altair_chart(chart)
+                st.altair_chart(chart, use_container_width=True)
             except Exception as e:
                 st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
         else:
