@@ -2666,9 +2666,15 @@ if "Scope" in phase:
         if not (c and s):
             return
         prompt = f"""
-        Act as a Chief Medical Officer. For "{c}" in "{s}", return a JSON object with keys:
-        inclusion, exclusion, problem, objectives. Make inclusion/exclusion numbered lists.
-        Do not use markdown formatting (no asterisks for bold). Use plain text only.
+        Act as a Chief Medical Officer creating a clinical care pathway. For "{c}" in "{s}", return a JSON object with exactly these keys: inclusion, exclusion, problem, objectives.
+        
+        CRITICAL REQUIREMENTS:
+        - inclusion: ONLY 3-5 brief patient characteristics that INCLUDE them in the pathway (e.g., age range, presentation type, risk factors). Concise phrases, not detailed descriptions.
+        - exclusion: ONLY 3-5 brief characteristics that EXCLUDE patients (e.g., contraindications, alternative diagnoses, comorbidities). Concise phrases, not detailed descriptions.
+        - problem: One brief clinical problem statement (1-2 sentences). Describe the gap or challenge, not educational content.
+        - objectives: ONLY 3-4 brief clinical objectives for the pathway (e.g., "Reduce time to diagnosis", "Standardize treatment decisions"). Short statements, not detailed goals.
+        
+        Format each list as a simple newline-separated text, NOT as a JSON array. Do not use markdown formatting (no asterisks, dashes for bullets). Use plain text only.
         """
         with ai_activity("Generating pathway scope…"):
             data = get_gemini_response(prompt, json_mode=True)
