@@ -2763,7 +2763,7 @@ if "Scope" in phase:
                     tooltip=['Stage:N', 'Start:T', 'End:T', 'Owner:N']
                 ).properties(height=300).interactive()
                 
-                st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(chart)
             except Exception as e:
                 st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
         else:
@@ -2776,7 +2776,7 @@ if "Scope" in phase:
     d = st.session_state.data['phase1']
     
     if d.get('condition') and d.get('problem'):
-        if st.button("Download Project Charter (.docx)", type="secondary", use_container_width=True):
+        if st.button("Download Project Charter (.docx)", type="secondary"):
             with st.status("Generating Project Charter...", expanded=True) as status:
                 st.write("Building project charter based on IHI Quality Improvement framework...")
                 p_ihi = f"""You are a Quality Improvement Advisor using IHI's Model for Improvement.
@@ -2854,7 +2854,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
 
             spacer, submit_col = st.columns([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+                submitted = st.form_submit_button("Regenerate", type="secondary")
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
