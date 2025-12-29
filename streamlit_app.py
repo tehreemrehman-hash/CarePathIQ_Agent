@@ -2777,10 +2777,6 @@ if "Scope" in phase:
     
     if d.get('condition') and d.get('problem'):
         if st.button("Download Project Charter (.docx)", type="secondary", use_container_width=True):
-                            else:
-                                status.update(label="Failed to generate charter.", state="error")
-                else:
-                    st.info("Complete Clinical Condition and Problem Statement to download the Project Charter.")
             with st.status("Generating Project Charter...", expanded=True) as status:
                 st.write("Building project charter based on IHI Quality Improvement framework...")
                 p_ihi = f"""You are a Quality Improvement Advisor using IHI's Model for Improvement.
@@ -2819,6 +2815,10 @@ Return clean JSON ONLY. No markdown, no explanation."""
                         st.download_button("Download Project Charter (.docx)", doc, f"Project_Charter_{d['condition']}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                     else:
                         status.update(label="Word export unavailable. Please ensure python-docx is installed.", state="error")
+                else:
+                    status.update(label="Failed to generate charter.", state="error")
+    else:
+        st.info("Complete Clinical Condition and Problem Statement to download the Project Charter.")
 
     # Refine & Regenerate (placed below charter so edits can be made, then re-generate)
     st.divider()
