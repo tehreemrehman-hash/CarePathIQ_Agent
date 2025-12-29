@@ -3598,17 +3598,25 @@ elif "Interface" in phase or "UI" in phase:
             new_svg = render_graphviz_bytes(g, "svg")
             cache[sig] = {"svg": new_svg}
             svg_bytes = new_svg
+        else:
+            debug_log(f"build_graphviz_from_nodes returned None. graphviz module: {graphviz}")
     p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
     import base64
     svg_b64 = base64.b64encode(svg_bytes or b"").decode('utf-8') if svg_bytes else ""
+    
+    # Also decode SVG to string for direct embedding
+    svg_str = svg_bytes.decode('utf-8') if svg_bytes else ""
+
+    # DEBUG: Log SVG generation status
+    debug_log(f"SVG generation - graphviz: {graphviz is not None}, svg_bytes: {svg_bytes is not None}, svg_b64 len: {len(svg_b64)}, svg_str len: {len(svg_str)}")
 
     col_left, col_right = st.columns([3, 2])
 
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
         st.subheader("Pathway Visualization")
-        if svg_b64:
+        if svg_str:  # Use svg_str instead of svg_b64 to check if we have SVG data
             with st.expander("Open Preview", expanded=False):
                 preview_html = f"""
                 <div id="cpq-preview" style="border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
@@ -3618,21 +3626,22 @@ elif "Interface" in phase or "UI" in phase:
                     <button id="cpq-fit" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Fit</button>
                   </div>
                   <div id="cpq-canvas" style="width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;">
-                    <div id="cpq-inner" style="transform-origin: top left;">
-                      <img id="cpq-svg" src="data:image/svg+xml;base64,{svg_b64}" style="display:block;" />
-                    </div>
+                    {svg_str}
                   </div>
                 </div>
                 <script>
                   (function() {{
-                    const img = document.getElementById('cpq-svg');
-                    const inner = document.getElementById('cpq-inner');
                     const canvas = document.getElementById('cpq-canvas');
+                    const svg = canvas.querySelector('svg');
+                    if (!svg) return;
+                    
                     let scale = 1;
-
+                    const initialViewBox = svg.getAttribute('viewBox') || svg.getAttribute('viewbox');
+                    
                     function fitToWidth() {{
-                      if (!img.complete) return;
-                      const naturalWidth = img.naturalWidth || img.width;
+                      if (!svg) return;
+                      const rect = svg.getBoundingClientRect();
+                      const naturalWidth = rect.width || svg.clientWidth;
                       const available = canvas.clientWidth - 24;
                       if (naturalWidth > 0 && available > 0) {{
                         scale = Math.min(1, available / naturalWidth);
@@ -3640,16 +3649,17 @@ elif "Interface" in phase or "UI" in phase:
                       }}
                     }}
 
-                                        function apply() {{
-                                            // Avoid Python f-string brace conflict by using plain string concatenation
-                                            inner.style.transform = 'scale(' + scale + ')';
-                                        }}
+                    function apply() {{
+                      svg.style.transform = 'scale(' + scale + ')';
+                      svg.style.transformOrigin = 'top left';
+                    }}
 
                     document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); apply(); }};
                     document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); apply(); }};
                     document.getElementById('cpq-fit').onclick = () => fitToWidth();
-                    img.onload = fitToWidth;
-                    if (img.complete) fitToWidth();
+                    
+                    // Fit on load
+                    setTimeout(fitToWidth, 100);
                     window.addEventListener('resize', fitToWidth);
                   }})();
                 </script>
@@ -3660,7 +3670,7 @@ elif "Interface" in phase or "UI" in phase:
             with c1:
                 st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
             with c2:
-                st.caption("Preview opens inline with zoom controls; SVG download remains available.")
+                st.caption("Click 'Open Preview' above to view and zoom the pathway diagram.")
         else:
             st.warning("Unable to render pathway visualization")
 
