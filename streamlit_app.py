@@ -632,6 +632,25 @@ HEURISTIC_DEFS = {
     "H9": "Help users recognize, diagnose, and recover from errors: Error messages in plain language.",
     "H10": "Help and documentation: Provide concise, concrete documentation focused on user tasks."
 }
+
+# Heuristics categorized by applicability to clinical pathways
+HEURISTIC_CATEGORIES = {
+    "pathway_actionable": {
+        "H2": "Language clarity (replace medical jargon with patient-friendly terms where appropriate)",
+        "H4": "Consistency (standardize terminology and node types across pathway)",
+        "H5": "Error prevention (add critical alerts, validation rules, and edge case handling)"
+    },
+    "ui_design_only": {
+        "H1": "Status visibility (implement progress indicators and highlighting in the interface)",
+        "H3": "User control (add escape routes and undo/skip options in UI)",
+        "H6": "Recognition not recall (use visual icons and clear labels instead of hidden menus)",
+        "H7": "Efficiency accelerators (add keyboard shortcuts and quick actions for power users)",
+        "H8": "Minimalist design (remove clutter and non-essential information from interface)",
+        "H9": "Error recovery (display clear, plain-language error messages and recovery steps)",
+        "H10": "Help & docs (provide in-app tooltips, FAQs, and guided walkthroughs)"
+    }
+}
+
 ROLE_COLORS = {
     "Physician": "#E3F2FD",
     "Doctor": "#E3F2FD",
@@ -1479,6 +1498,41 @@ def format_citation_line(entry, style="APA"):
         return f"{authors}. {title}. {journal}. {year}. PMID:{pmid}."
     # Default APA (also used for custom style names)
     return f"{authors} ({year}). {title}. {journal}. PMID: {pmid}."
+
+def apply_pathway_heuristic_improvements(nodes, heuristics_data):
+    """
+    Apply ONLY the pathway-actionable heuristics to the nodes:
+    - H2: Language clarity (simplify terminology)
+    - H4: Consistency (standardize terminology and structure)
+    - H5: Error prevention (add alerts and edge cases)
+    
+    Returns: Updated nodes list or None if LLM fails
+    """
+    actionable_keys = ["H2", "H4", "H5"]
+    insights = {k: heuristics_data.get(k, "") for k in actionable_keys if k in heuristics_data}
+    
+    if not insights:
+        return None
+    
+    # Build a focused prompt that asks for specific pathway improvements
+    insights_text = "\n".join([f"{k}: {v}" for k, v in insights.items()])
+    
+    prompt = f"""You are a clinical pathway expert. Apply these specific improvements to the pathway:
+
+{insights_text}
+
+Current pathway nodes: {json.dumps(nodes)}
+
+Improvements to apply:
+1. For H2 (Language): Replace medical jargon with plain language where appropriate. Keep clinical terms where necessary.
+2. For H4 (Consistency): Standardize terminology and ensure all similar decisions use consistent structure.
+3. For H5 (Error Prevention): Add specific alerts, validation checkpoints, or warning conditions to prevent common errors.
+
+Return ONLY a valid JSON array of updated nodes. Preserve all original node structure and IDs.
+Keep labels concise and actionable. Do not invent new nodes unless specifically needed for safety."""
+    
+    new_nodes = get_gemini_response(prompt, json_mode=True)
+    return new_nodes if new_nodes and isinstance(new_nodes, list) else None
 
 def create_references_docx(citations, style="APA"):
     """Create Word document with citations. Supports preset styles and custom style names."""
@@ -3755,51 +3809,84 @@ elif "Interface" in phase or "UI" in phase:
         st.subheader("Nielsen's Heuristics Evaluation")
         h_data = p4_state.get('heuristics_data', {})
 
-        h_data = p4_state.get('heuristics_data', {})
         if not h_data:
             styled_info("Heuristics are generated automatically. They will appear here shortly.")
         else:
-            st.caption("Click each heuristic to view definition and AI-generated recommendations")
-            ordered_keys = sorted(h_data.keys(), key=lambda hk: int(hk[1:]) if hk[1:].isdigit() else 0)
-            for heuristic_key in ordered_keys:
-                insight = h_data[heuristic_key]
-                definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
-                category_name = definition.split(':')[0] if ':' in definition else heuristic_key
-                with st.expander(f"**{heuristic_key}** - {category_name}", expanded=False):
-                    st.markdown(f"**Definition:** {definition}")
-                    st.divider()
-                    st.markdown(f"**AI Recommendation:**")
-                    # White background with black text for consistency
-                    st.markdown(
-                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
-                        unsafe_allow_html=True
-                    )
-                    act_left, act_right = st.columns([1, 1])
-                    with act_left:
-                        if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}"):
-                            p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                            with ai_activity(f"Applying {heuristic_key} recommendation…"):
-                                prompt_apply = f"""
-                                Update the clinical pathway by applying this specific usability recommendation.
-                                Heuristic {heuristic_key} recommendation: {insight}
-                                Current pathway: {json.dumps(nodes)}
-                                Return ONLY the updated JSON array of nodes.
-                                """
-                                new_nodes = get_gemini_response(prompt_apply, json_mode=True)
-                                if new_nodes and isinstance(new_nodes, list):
-                                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                    p4_state['viz_cache'] = {}
-                                    st.success(f"Applied {heuristic_key} recommendation")
-                                    st.rerun()
-                    with act_right:
-                        if st.button(f"↶ Undo", key=f"p4_undo_{heuristic_key}"):
-                            if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
-                                prev_nodes = p4_state['nodes_history'].pop()
-                                st.session_state.data['phase3']['nodes'] = prev_nodes
-                                st.success(f"Undid last change")
+            # Separate actionable from UI-only heuristics
+            actionable_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["pathway_actionable"]}
+            ui_only_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["ui_design_only"]}
+            
+            # SUMMARY CARD
+            st.info(f"""
+**Heuristics Summary:**
+- **{len(actionable_h)} pathway improvements** ready to apply collectively (H2, H4, H5)
+- **{len(ui_only_h)} design recommendations** to review for UI implementation (H1, H3, H6-H10)
+""")
+            
+            # SECTION 1: ACTIONABLE PATHWAY IMPROVEMENTS
+            if actionable_h:
+                st.markdown("### 🔧 Pathway Improvements (Actionable)")
+                st.caption("These heuristics can improve your clinical pathway structure and clarity. Apply them collectively below.")
+                
+                for heuristic_key in sorted(actionable_h.keys()):
+                    insight = actionable_h[heuristic_key]
+                    category_desc = HEURISTIC_CATEGORIES["pathway_actionable"].get(heuristic_key, "")
+                    
+                    with st.expander(f"**{heuristic_key}** - {category_desc.split(' (')[0]}", expanded=False):
+                        st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
+                        st.divider()
+                        st.markdown(f"**AI Assessment for Your Pathway:**")
+                        st.markdown(
+                            f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
+                            unsafe_allow_html=True
+                        )
+                
+                # COLLECTIVE APPLY BUTTON FOR ACTIONABLE HEURISTICS
+                col_apply, col_space = st.columns([1, 1])
+                with col_apply:
+                    if st.button("✓ Apply All Improvements", key="p4_apply_all_actionable", type="primary"):
+                        p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        with ai_activity("Applying pathway improvements (H2, H4, H5)…"):
+                            improved_nodes = apply_pathway_heuristic_improvements(nodes, actionable_h)
+                            if improved_nodes:
+                                st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
+                                p4_state['viz_cache'] = {}
+                                st.success("✓ Applied pathway improvements. Visualization and nodes updated.")
                                 st.rerun()
                             else:
-                                st.warning("No changes to undo")
+                                st.error("Could not process improvements. Please try again.")
+                
+                # UNDO BUTTON (outside the button columns for visibility)
+                if st.button("↶ Undo Last Changes", key="p4_undo_all"):
+                    if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
+                        prev_nodes = p4_state['nodes_history'].pop()
+                        st.session_state.data['phase3']['nodes'] = prev_nodes
+                        p4_state['viz_cache'] = {}
+                        st.success("Undid last improvement batch")
+                        st.rerun()
+                    else:
+                        st.info("No changes to undo")
+                
+                st.divider()
+            
+            # SECTION 2: UI DESIGN RECOMMENDATIONS (REVIEW-ONLY)
+            if ui_only_h:
+                st.markdown("### 🎨 Design Recommendations (UI/UX - For Your Designer)")
+                st.caption("These are interface design improvements to implement in your app's frontend. Share with your design team.")
+                
+                for heuristic_key in sorted(ui_only_h.keys()):
+                    insight = ui_only_h[heuristic_key]
+                    category_desc = HEURISTIC_CATEGORIES["ui_design_only"].get(heuristic_key, "")
+                    
+                    with st.expander(f"**{heuristic_key}** - {category_desc.split(' (')[0]}", expanded=False):
+                        st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
+                        st.divider()
+                        st.markdown(f"**Recommendation for Your Interface:**")
+                        st.markdown(
+                            f"<div style='background-color: #f0f7ff; color: #001a4d; padding: 12px; border-radius: 5px; border-left: 4px solid #0066cc; margin-bottom: 10px;'>{insight}</div>",
+                            unsafe_allow_html=True
+                        )
+                        st.caption("💡 Implementation tip: This is a design consideration to discuss with your frontend team or include in wireframes/mockups.")
 
     render_bottom_navigation()
     st.stop()
