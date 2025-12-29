@@ -677,7 +677,12 @@ def render_bottom_navigation():
         # Add a small spacer to keep bottom nav comfortably separated from content above
         st.markdown("<div style='height: 10px'></div>", unsafe_allow_html=True)
         
-        col_prev, col_middle, col_next = st.columns([1, 1, 1])
+        try:
+            # Try Streamlit >= 1.30 with vertical_alignment
+            col_prev, col_middle, col_next = st.columns([1, 1, 1], vertical_alignment="center")
+        except TypeError:
+            # Fallback for older Streamlit versions
+            col_prev, col_middle, col_next = st.columns([1, 1, 1])
         
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
