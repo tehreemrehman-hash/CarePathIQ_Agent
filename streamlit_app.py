@@ -2883,7 +2883,16 @@ Return clean JSON ONLY. No markdown, no explanation."""
     with st.expander("Refine & Regenerate", expanded=False):
         st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Apply to automatically update all Phase 1 content and charter data.")
         with st.form("p1_refine_form"):
-            col_text, col_file = st.columns([2, 1])
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                st.text_area(
+                    "Refinement Notes",
+                    key="p1_refine_input",
+                    placeholder="Clarify inclusion criteria; tighten scope; align objectives",
+                    height=90,
+                    help="Describe what to change. After applying, click Generate Project Charter above again."
+                )
+
             with col_file:
                 st.caption("Supporting Documents (optional)")
                 p1_uploaded = st.file_uploader(
@@ -2900,16 +2909,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
                             with st.expander(f"Review: {file_result['filename']}", expanded=False):
                                 st.markdown(file_result["review"])
 
-            with col_text:
-                st.text_area(
-                    "Refinement Notes",
-                    key="p1_refine_input",
-                    placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-                    height=90,
-                    help="Describe what to change. After applying, click Generate Project Charter above again."
-                )
-
-            spacer, submit_col = st.columns([5, 2])
+            spacer, submit_col = columns_top([5, 2])
             with submit_col:
                 submitted = st.form_submit_button("Regenerate", type="secondary")
 
@@ -3438,7 +3438,16 @@ elif "Decision" in phase or "Tree" in phase:
     with st.expander("Refine & Regenerate", expanded=False):
         st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Regenerate to automatically update the pathway above.")
         with st.form("p3_refine_form"):
-            col_text, col_file = st.columns([2, 1])
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                st.text_area(
+                    "Refinement Notes",
+                    key="p3_refine_input",
+                    placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
+                    height=90,
+                    help="Describe what to change. After applying, the pathway will regenerate above."
+                )
+
             with col_file:
                 st.caption("Supporting Documents (optional)")
                 p3_uploaded = st.file_uploader(
@@ -3455,16 +3464,7 @@ elif "Decision" in phase or "Tree" in phase:
                             with st.expander(f"Review: {file_result['filename']}", expanded=False):
                                 st.markdown(file_result["review"])
 
-            with col_text:
-                st.text_area(
-                    "Refinement Notes",
-                    key="p3_refine_input",
-                    placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
-                    height=90,
-                    help="Describe what to change. After applying, the pathway will regenerate above."
-                )
-
-            spacer, submit_col = st.columns([5, 2])
+            spacer, submit_col = columns_top([5, 2])
             with submit_col:
                 submitted = st.form_submit_button("Regenerate", type="secondary")
 
@@ -3705,45 +3705,50 @@ elif "Interface" in phase or "UI" in phase:
         h_data = p4_state.get('heuristics_data', {})
         with st.expander("Refine & Regenerate", expanded=False):
             st.caption("Tip: Use natural language to micro‑refine the pathway. Optionally upload a supporting document. Click Regenerate to apply.")
-            col_text, col_file = columns_top([2, 1])
-            with col_file:
-                st.caption("Supporting Document (optional)")
-                uploaded = st.file_uploader(
-                    "Drag and drop file here",
-                    key="p4_upload",
-                    accept_multiple_files=False,
-                    label_visibility="collapsed",
-                    help="Limit 200MB per file"
-                )
-                if uploaded:
-                    file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
-                    if file_result:
-                        with st.expander("File Review", expanded=True):
-                            st.markdown(file_result["review"])
+            with st.form("p4_refine_form"):
+                col_text, col_file = columns_top([2, 1])
+                with col_text:
+                    refine_notes = st.text_area(
+                        "Refinement Notes",
+                        placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
+                        key="p4_refine_notes",
+                        height=90,
+                        label_visibility="visible"
+                    )
 
-            with col_text:
-                refine_notes = st.text_area(
-                    "Refinement Notes",
-                    placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
-                    key="p4_refine_notes",
-                    height=120,
-                    label_visibility="visible"
-                )
+                with col_file:
+                    st.caption("Supporting Documents (optional)")
+                    uploaded = st.file_uploader(
+                        "Drag and drop file here",
+                        key="p4_upload",
+                        accept_multiple_files=False,
+                        label_visibility="collapsed",
+                        help="Limit 200MB per file"
+                    )
+                    if uploaded:
+                        file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
+                        if file_result:
+                            with st.expander("File Review", expanded=False):
+                                st.markdown(file_result["review"])
 
-            apply_disabled = not refine_notes and not st.session_state.get("file_p4_refine_file")
-            if st.button("Apply Refinements", key="p4_apply_refine", disabled=apply_disabled):
-                with st.spinner("Applying refinements..."):
-                    refine_with_file = refine_notes
+                spacer, submit_col = columns_top([5, 2])
+                with submit_col:
+                    submitted = st.form_submit_button("Regenerate", type="secondary")
+
+            if submitted:
+                refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
+                if refine_with_file:
                     if st.session_state.get("file_p4_refine_file"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_file')}"
-                    refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
-                    if refined:
-                        st.session_state.data['phase3']['nodes'] = refined
-                        p4_state['viz_cache'] = {}
-                        st.success("Refinements applied. Regenerated nodes below.")
-                        st.rerun()
-                    else:
-                        st.warning("Could not apply refinements. Please try different notes or regenerate.")
+                    with st.spinner("Applying refinements..."):
+                        refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
+                        if refined:
+                            st.session_state.data['phase3']['nodes'] = refined
+                            p4_state['viz_cache'] = {}
+                            st.success("Refinements applied. Regenerated nodes below.")
+                            st.rerun()
+                        else:
+                            st.warning("Could not apply refinements. Please try different notes or regenerate.")
 
     # RIGHT: Nielsen's heuristics panel
     with col_right:
@@ -4368,30 +4373,34 @@ elif "Operationalize" in phase or "Deploy" in phase:
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
             st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
-            col_text, col_file = columns_top([2, 1])
-            with col_text:
-                refine_edu = st.text_area(
-                    "Refinement Notes",
-                    placeholder="Add case studies; include quick checks; simplify objectives",
-                    key="p5_refine_edu",
-                    height=90,
-                    label_visibility="visible"
-                )
-            with col_file:
-                st.caption("Supporting Document (optional)")
-                p5ed_uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p5_edu_upload",
-                    accept_multiple_files=False,
-                    label_visibility="collapsed"
-                )
-                if p5ed_uploaded:
-                    file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
-                    if file_result:
-                        with st.expander("File Review", expanded=True):
-                            st.markdown(file_result["review"])
-            regen_disabled = not refine_edu and not st.session_state.get("file_p5_edu_review")
-            if st.button("Regenerate", key="regen_edu", disabled=regen_disabled):
+            with st.form("p5_refine_edu_form"):
+                col_text, col_file = columns_top([2, 1])
+                with col_text:
+                    refine_edu = st.text_area(
+                        "Refinement Notes",
+                        placeholder="Add case studies; include quick checks; simplify objectives",
+                        key="p5_refine_edu",
+                        height=90,
+                        label_visibility="visible"
+                    )
+                with col_file:
+                    st.caption("Supporting Documents (optional)")
+                    p5ed_uploaded = st.file_uploader(
+                        "Drag & drop or browse",
+                        key="p5_edu_upload",
+                        accept_multiple_files=False,
+                        label_visibility="collapsed"
+                    )
+                    if p5ed_uploaded:
+                        file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
+                        if file_result:
+                            with st.expander("File Review", expanded=False):
+                                st.markdown(file_result["review"])
+                spacer, submit_col = columns_top([5, 2])
+                with submit_col:
+                    submitted_edu = st.form_submit_button("Regenerate", type="secondary")
+            
+            if submitted_edu:
                 with st.spinner("Refining..."):
                     # Include file context
                     refine_with_file = refine_edu
@@ -4588,9 +4597,9 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         # Refine & Regenerate section for Executive Summary
         with st.expander("Refine & Regenerate Executive Summary", expanded=False):
-            st.caption("Tip: Refine your Executive Summary using natural language. Optionally attach strategic planning documents. Click Apply to auto-regenerate.")
+            st.caption("Tip: Refine your Executive Summary using natural language. Optionally attach strategic planning documents. Click Regenerate to auto-regenerate.")
             with st.form("p5_refine_exec_form"):
-                col_text, col_file = st.columns([2, 1])
+                col_text, col_file = columns_top([2, 1])
                 with col_text:
                     st.text_area(
                         "Refinement Notes",
@@ -4600,7 +4609,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         help="Describe improvements for the Executive Summary."
                     )
                 with col_file:
-                    st.caption("Supporting Document (optional)")
+                    st.caption("Supporting Documents (optional)")
                     p5ex_uploaded = st.file_uploader(
                         "Drag & drop or browse",
                         key="p5_exec_upload",
@@ -4613,7 +4622,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         if file_result:
                             with st.expander("File Review", expanded=False):
                                 st.markdown(file_result["review"])
-                spacer, submit_col = st.columns([5, 2])
+                spacer, submit_col = columns_top([5, 2])
                 with submit_col:
                     submitted_exec = st.form_submit_button("Regenerate", type="secondary")
 
