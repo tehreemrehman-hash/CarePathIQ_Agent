@@ -1249,20 +1249,20 @@ def create_word_docx(data):
 
         doc.add_heading('How will we know that a change is an improvement?', level=1)
         doc.add_heading('Outcome Measure(s)', level=2)
-        for m in ihi.get('outcome_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+        for m in ihi.get('outcome_measures', []): doc.add_paragraph(m, style='List Bullet')
         
         doc.add_heading('Process Measure(s)', level=2)
-        for m in ihi.get('process_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+        for m in ihi.get('process_measures', []): doc.add_paragraph(m, style='List Bullet')
         
         doc.add_heading('Balancing Measure(s)', level=2)
-        for m in ihi.get('balancing_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+        for m in ihi.get('balancing_measures', []): doc.add_paragraph(m, style='List Bullet')
 
         doc.add_heading('What changes can we make?', level=1)
         doc.add_heading('Initial Activities', level=2)
         doc.add_paragraph(ihi.get('initial_activities', ''))
         
         doc.add_heading('Change Ideas', level=2)
-        for c in ihi.get('change_ideas', []): doc.add_paragraph(f"- {c}", style='List Bullet')
+        for c in ihi.get('change_ideas', []): doc.add_paragraph(c, style='List Bullet')
         
         doc.add_heading('Key Stakeholders', level=2)
         doc.add_paragraph(ihi.get('stakeholders', ''))
@@ -2627,6 +2627,7 @@ if "Scope" in phase:
         prompt = f"""
         Act as a Chief Medical Officer. For "{c}" in "{s}", return a JSON object with keys:
         inclusion, exclusion, problem, objectives. Make inclusion/exclusion numbered lists.
+        Do not use markdown formatting (no asterisks for bold). Use plain text only.
         """
         with ai_activity("Generating pathway scope…"):
             data = get_gemini_response(prompt, json_mode=True)
@@ -2651,7 +2652,6 @@ if "Scope" in phase:
         # AI draft, keeping the callback snappy and avoiding rerun warnings.
         sync_p1_widgets()
         st.session_state['p1_should_draft'] = True
-        st.rerun()
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
@@ -2667,6 +2667,13 @@ if "Scope" in phase:
     if st.session_state.get('p1_should_draft'):
         st.session_state['p1_should_draft'] = False
         trigger_p1_draft()
+        # Copy AI-generated values to widget keys so they display immediately
+        p1 = st.session_state.data['phase1']
+        st.session_state['p1_inc'] = p1.get('inclusion', '')
+        st.session_state['p1_exc'] = p1.get('exclusion', '')
+        st.session_state['p1_prob'] = p1.get('problem', '')
+        st.session_state['p1_obj'] = p1.get('objectives', '')
+        st.rerun()
 
     # 4) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
@@ -2690,64 +2697,90 @@ if "Scope" in phase:
         st.text_area("Project Goals", key="p1_obj", height=compute_textarea_height(st.session_state.get('p1_obj',''), 14), on_change=sync_p1_widgets, label_visibility="collapsed")
 
     st.divider()
-    st.subheader("5. Project Timeline (Gantt Chart)")
-    styled_info("<b>Tip:</b> Hover over the top right of the chart to download the image or table. You can also directly edit the timeline table below to adjust start/end dates and task owners.")
-    if not st.session_state.data['phase1']['schedule']:
-        today = date.today()
-        def add_weeks(start, w): return start + timedelta(weeks=w)
-        d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
-        d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
-        st.session_state.data['phase1']['schedule'] = [
-            {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
-            {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
-            {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
-            {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
-            {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-            {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
-            {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
-            {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
-            {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
-        ]
-    df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
-    if not edited_sched.empty:
-        st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
+    
+    with st.expander("5. Project Timeline (Gantt Chart)", expanded=False):
+        styled_info("<b>Tip:</b> Edit the timeline table below to adjust start/end dates and task owners. The chart updates automatically. Hover over the chart to download.")
+        if not st.session_state.data['phase1']['schedule']:
+            today = date.today()
+            def add_weeks(start, w): return start + timedelta(weeks=w)
+            d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
+            d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
+            st.session_state.data['phase1']['schedule'] = [
+                {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
+                {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
+                {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
+                {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
+                {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
+                {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
+                {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
+                {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
+                {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
+            ]
+        
+        df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+        edited_sched = st.data_editor(
+            df_sched, 
+            num_rows="dynamic", 
+            width="stretch", 
+            key="sched_editor", 
+            column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")}
+        )
+        
+        # Update session state with edited data
+        if not edited_sched.empty:
+            st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
+        
+        # Always render chart from current edited data
         chart_data = edited_sched.copy()
         chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
-        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
-        chart_data['End'] = pd.to_datetime(chart_data['End'])
+        
         if not chart_data.empty:
-            # Define consistent color scheme for all owners
-            owner_colors = {
-                'PM': '#5f9ea0',           # Cadet blue
-                'Clinical Lead': '#4169e1',  # Royal blue
-                'Expert Panel': '#b0c4de',   # Light steel blue
-                'IT': '#dc143c',             # Crimson
-                'Ops': '#ffb6c1',            # Light pink
-                'Quality': '#5D4037'         # Brown (consistent with brand)
-            }
-            
-            chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Start', title='Date'),
-                x2='End',
-                y=alt.Y('Stage', sort=None),
-                color=alt.Color('Owner', 
-                    scale=alt.Scale(
-                        domain=list(owner_colors.keys()),
-                        range=list(owner_colors.values())
+            try:
+                chart_data['Start'] = pd.to_datetime(chart_data['Start'])
+                chart_data['End'] = pd.to_datetime(chart_data['End'])
+                
+                # Define consistent color scheme for all owners
+                owner_colors = {
+                    'PM': '#5f9ea0',           # Cadet blue
+                    'Clinical Lead': '#4169e1',  # Royal blue
+                    'Expert Panel': '#b0c4de',   # Light steel blue
+                    'IT': '#dc143c',             # Crimson
+                    'Ops': '#ffb6c1',            # Light pink
+                    'Quality': '#5D4037'         # Brown (consistent with brand)
+                }
+                
+                chart = alt.Chart(chart_data).mark_bar().encode(
+                    x=alt.X('Start:T', title='Date'),
+                    x2='End:T',
+                    y=alt.Y('Stage:N', sort=None, title='Stage'),
+                    color=alt.Color('Owner:N', 
+                        scale=alt.Scale(
+                            domain=list(owner_colors.keys()),
+                            range=list(owner_colors.values())
+                        ),
+                        legend=alt.Legend(title='Owner')
                     ),
-                    legend=alt.Legend(title='Owner')
-                ),
-                tooltip=['Stage', 'Start', 'End', 'Owner']
-            ).properties(height=300).interactive()
-            st.altair_chart(chart, width="stretch")
-
-    
-    if st.button("Generate Project Charter", type="secondary", use_container_width=True):
-        sync_p1_widgets()
-        d = st.session_state.data['phase1']
-        if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
+                    tooltip=['Stage:N', 'Start:T', 'End:T', 'Owner:N']
+                ).properties(height=300).interactive()
+                
+                st.altair_chart(chart, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
         else:
+            st.info("Add timeline entries to see the Gantt chart.")
+
+    st.divider()
+    
+    # Download Project Charter - generates on-the-fly when clicked
+    sync_p1_widgets()
+    d = st.session_state.data['phase1']
+    
+    if d.get('condition') and d.get('problem'):
+        if st.button("Download Project Charter (.docx)", type="secondary", use_container_width=True):
+                            else:
+                                status.update(label="Failed to generate charter.", state="error")
+                else:
+                    st.info("Complete Clinical Condition and Problem Statement to download the Project Charter.")
             with st.status("Generating Project Charter...", expanded=True) as status:
                 st.write("Building project charter based on IHI Quality Improvement framework...")
                 p_ihi = f"""You are a Quality Improvement Advisor using IHI's Model for Improvement.
@@ -2791,23 +2824,24 @@ Return clean JSON ONLY. No markdown, no explanation."""
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.caption("Tip: Use natural language for micro‑refinements and optionally attach a supporting document. Click Apply to update, then re‑generate the charter above.")
+        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Apply to automatically update all Phase 1 content and charter data.")
         with st.form("p1_refine_form"):
             col_text, col_file = st.columns([2, 1])
             with col_file:
-                st.caption("Supporting Document (optional)")
+                st.caption("Supporting Documents (optional)")
                 p1_uploaded = st.file_uploader(
                     "Drag & drop or browse",
                     key="p1_file_upload",
-                    accept_multiple_files=False,
+                    accept_multiple_files=True,
                     label_visibility="collapsed",
-                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
+                    help="Attach PDFs/DOCX files; the agent auto-summarizes them for context."
                 )
                 if p1_uploaded:
-                    file_result = upload_and_review_file(p1_uploaded, "p1_refine", "clinical scope and charter")
-                    if file_result:
-                        with st.expander("File Review", expanded=False):
-                            st.markdown(file_result["review"])
+                    for uploaded_file in p1_uploaded:
+                        file_result = upload_and_review_file(uploaded_file, f"p1_refine_{uploaded_file.name}", "clinical scope and charter")
+                        if file_result:
+                            with st.expander(f"Review: {file_result['filename']}", expanded=False):
+                                st.markdown(file_result["review"])
 
             with col_text:
                 st.text_area(
@@ -2820,18 +2854,26 @@ Return clean JSON ONLY. No markdown, no explanation."""
 
             spacer, submit_col = st.columns([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Apply Refinements", type="secondary", use_container_width=True)
+                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
         if refinement_text:
-            if st.session_state.get("file_p1_refine_review"):
-                refinement_text += f"\n\nSupporting Document:\n{st.session_state.get('file_p1_refine_review')}"
+            # Collect all uploaded document reviews
+            doc_reviews = []
+            for key in st.session_state.keys():
+                if key.startswith("file_p1_refine_") and key != "file_p1_refine":
+                    doc_reviews.append(st.session_state.get(key, ''))
+            
+            if doc_reviews:
+                refinement_text += f"\n\nSupporting Documents:\n" + "\n\n".join(doc_reviews)
+            
             current = st.session_state.data['phase1']
             prompt = f"""
             Update the following sections based on this user feedback: "{refinement_text}"
             Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
             Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
+            Do not use markdown formatting (no asterisks for bold). Use plain text only.
             """
             with ai_activity("Applying refinements and auto-generating charter…"):
                 data = get_gemini_response(prompt, json_mode=True)
@@ -3351,7 +3393,7 @@ elif "Decision" in phase or "Tree" in phase:
 
             spacer, submit_col = st.columns([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Apply Refinements", type="secondary", use_container_width=True)
+                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -4483,7 +4525,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 st.markdown(file_result["review"])
                 spacer, submit_col = st.columns([5, 2])
                 with submit_col:
-                    submitted_exec = st.form_submit_button("Apply Refinements", type="secondary", use_container_width=True)
+                    submitted_exec = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
             if submitted_exec:
                 refine_exec = st.session_state.get('p5_refine_exec', '').strip()
