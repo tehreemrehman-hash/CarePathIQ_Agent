@@ -417,6 +417,11 @@ st.markdown("""
         display: flex !important;
         align-items: flex-start !important;
     }
+
+    /* For horizontal button rows (e.g., bottom navigation), center-align contents */
+    [data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
+        align-items: center !important;
+    }
     
     button, input, select, textarea, label {
         vertical-align: middle !important;
