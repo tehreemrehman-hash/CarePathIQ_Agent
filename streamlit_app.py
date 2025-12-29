@@ -2595,7 +2595,7 @@ p5_complete = bool(p5.get('beta_html') or p5.get('expert_html') or p5.get('edu_h
 phase_completion.append(p5_complete)
 
 # Compact navigation with numbered phases and status indicators
-st.caption("**Select Phase:**")
+st.caption("**Phase**")
 
 # Use ultra-short labels for navigation buttons
 phase_short_labels = [
@@ -2618,7 +2618,18 @@ with st.sidebar:
             st.session_state.current_phase_label = p
             st.rerun()
 
-nav_cols = st.columns(len(PHASES))  # Equal-width columns for each phase button
+# Create columns with arrows between buttons for forward flow visualization
+# Pattern: [button] → [button] → [button] → [button] → [button]
+num_buttons = len(PHASES)
+num_arrows = num_buttons - 1
+# Create columns: button, arrow, button, arrow, ..., button
+col_specs = []
+for i in range(num_buttons):
+    col_specs.append(3)  # Button column (wider)
+    if i < num_arrows:
+        col_specs.append(0.5)  # Arrow column (narrow)
+
+nav_cols = st.columns(col_specs)
 
 col_idx = 0
 for i, p in enumerate(PHASES):
@@ -2632,11 +2643,17 @@ for i, p in enumerate(PHASES):
     button_label = f"{phase_num}. {short_label}"
     
     with nav_cols[col_idx]:
-        if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type):
+        if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
             st.session_state.current_phase_label = p
             st.rerun()
     
     col_idx += 1
+    
+    # Add arrow between buttons (except after the last button)
+    if i < num_arrows:
+        with nav_cols[col_idx]:
+            st.markdown("<div style='text-align: center; padding-top: 4px; font-size: 20px; color: #666;'>→</div>", unsafe_allow_html=True)
+        col_idx += 1
 
 st.markdown("---")
 
@@ -3408,23 +3425,24 @@ elif "Decision" in phase or "Tree" in phase:
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.caption("Tip: Use natural language for micro‑refinements and optionally attach a supporting document. Click Apply to update, then re‑generate the pathway above.")
+        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Regenerate to automatically update the pathway above.")
         with st.form("p3_refine_form"):
             col_text, col_file = st.columns([2, 1])
             with col_file:
-                st.caption("Supporting Document (optional)")
+                st.caption("Supporting Documents (optional)")
                 p3_uploaded = st.file_uploader(
                     "Drag & drop or browse",
                     key="p3_file_upload",
-                    accept_multiple_files=False,
+                    accept_multiple_files=True,
                     label_visibility="collapsed",
-                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
+                    help="Attach PDFs/DOCX files; the agent auto-summarizes them for context."
                 )
                 if p3_uploaded:
-                    file_result = upload_and_review_file(p3_uploaded, "p3_refine", "decision tree pathway")
-                    if file_result:
-                        with st.expander("File Review", expanded=False):
-                            st.markdown(file_result["review"])
+                    for uploaded_file in p3_uploaded:
+                        file_result = upload_and_review_file(uploaded_file, f"p3_refine_{uploaded_file.name}", "decision tree pathway")
+                        if file_result:
+                            with st.expander(f"Review: {file_result['filename']}", expanded=False):
+                                st.markdown(file_result["review"])
 
             with col_text:
                 st.text_area(
@@ -3441,49 +3459,56 @@ elif "Decision" in phase or "Tree" in phase:
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
-        # Include uploaded file context
-        if st.session_state.get("file_p3_refine_review"):
-            refinement_request += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p3_refine_review')}"
-        if refinement_request and st.session_state.data['phase3']['nodes']:
-            with ai_activity("Applying refinements to decision tree..."):
-                current_nodes = st.session_state.data['phase3']['nodes']
-                ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
-                prompt = f"""
-                Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
+        if refinement_request:
+            # Collect all uploaded document reviews
+            doc_reviews = []
+            for key in st.session_state.keys():
+                if key.startswith("file_p3_refine_") and key != "file_p3_refine":
+                    doc_reviews.append(st.session_state.get(key, ''))
+            
+            if doc_reviews:
+                refinement_request += f"\n\nSupporting Documents:\n" + "\n\n".join(doc_reviews)
+            
+            if st.session_state.data['phase3']['nodes']:
+                with ai_activity("Applying refinements to decision tree..."):
+                    current_nodes = st.session_state.data['phase3']['nodes']
+                    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+                    prompt = f"""
+                    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
 
-                Current pathway for {cond} in {setting}:
-                {json.dumps(current_nodes, indent=2)}
+                    Current pathway for {cond} in {setting}:
+                    {json.dumps(current_nodes, indent=2)}
 
-                Available Evidence:
-                {ev_context}
+                    Available Evidence:
+                    {ev_context}
 
-                User's refinement request: "{refinement_request}"
+                    User's refinement request: "{refinement_request}"
 
-                Apply the requested changes while maintaining:
-                - CGT/Ad/it principles and Medical Decision Analysis best practices
-                - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
-                - Actionable steps with medical acronyms for brevity
-                - Specific discharge details (prescriptions with dose/route, referrals)
-                - Evidence citations (PMIDs where applicable)
+                    Apply the requested changes while maintaining:
+                    - CGT/Ad/it principles and Medical Decision Analysis best practices
+                    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+                    - Actionable steps with medical acronyms for brevity
+                    - Specific discharge details (prescriptions with dose/route, referrals)
+                    - Evidence citations (PMIDs where applicable)
 
-                Output: Complete revised JSON array of nodes with fields: type, label, evidence.
-                Rules:
-                - type in [Start, Decision, Process, End]
-                - First node: type "Start", label "patient present to {setting} with {cond}"
-                - NO node count limit - build complete clinical flow
-                - If >20 nodes, organize into sections or sub-pathways
-                """
-                nodes = get_gemini_response(prompt, json_mode=True)
-                if isinstance(nodes, list) and len(nodes) > 0:
-                    # Silently normalize OR logic in End nodes to proper Decision nodes
-                    nodes = normalize_or_logic(nodes)
-                    st.session_state.data['phase3']['nodes'] = nodes
-                    # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
-                    st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
-                    st.success("Refinements applied and pathway regenerated!")
+                    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
+                    Rules:
+                    - type in [Start, Decision, Process, End]
+                    - First node: type "Start", label "patient present to {setting} with {cond}"
+                    - NO node count limit - build complete clinical flow
+                    - If >20 nodes, organize into sections or sub-pathways
+                    """
+                    nodes = get_gemini_response(prompt, json_mode=True)
+                    if isinstance(nodes, list) and len(nodes) > 0:
+                        # Silently normalize OR logic in End nodes to proper Decision nodes
+                        nodes = normalize_or_logic(nodes)
+                        st.session_state.data['phase3']['nodes'] = nodes
+                        # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
+                        st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
+                        st.success("Refinements applied and pathway regenerated!")
+                    else:
+                        st.error("Failed to regenerate pathway. Please try again.")
                     st.rerun()
-                else:
-                    st.error("Failed to apply refinements. Please try again.")
     
     render_bottom_navigation()
     st.stop()
