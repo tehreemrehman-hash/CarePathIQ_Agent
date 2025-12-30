@@ -1,33 +1,25 @@
 import streamlit as st
-# Version info sidebar caption
-try:
-    from app_version import COMMIT_SHORT, COMMIT_DATE
-    st.sidebar.caption(f"Version {COMMIT_SHORT} • {COMMIT_DATE}")
-except Exception:
-    pass
+# Version info sidebar caption (admin-only)
 import streamlit.components.v1 as components
-from google import genai
+import os
+import json
 import pandas as pd
+import altair as alt
 import urllib.request
 import urllib.parse
-import json
 import re
 import time
 import base64
 from io import BytesIO
 import datetime
 from datetime import date, timedelta
-import os
 import copy
 import xml.etree.ElementTree as ET
-import altair as alt
 from contextlib import contextmanager
 import requests
 import hashlib
 import textwrap
-
-# --- GRAPHVIZ PATH FIX ---
-os.environ["PATH"] += os.pathsep + '/usr/bin'
+from google import genai
 
 def _get_query_param(name: str):
     try:
@@ -73,16 +65,16 @@ def debug_log(msg: str):
 
 # --- GOOGLE GENAI CLIENT HELPER ---
 # Using official google-genai SDK per https://ai.google.dev/gemini-api/docs/quickstart
-# Pattern: from google import genai -> client = genai.Client(api_key=key)
 def get_genai_client():
     return st.session_state.get("genai_client")
-
 
 # Column helper that prefers top alignment but gracefully falls back
 def columns_top(spec, **kwargs):
     try:
+        # Streamlit >= 1.30 supports vertical_alignment
         return st.columns(spec, vertical_alignment="top", **kwargs)
     except TypeError:
+        # Older Streamlit versions without vertical_alignment
         return st.columns(spec, **kwargs)
 
 # Unified status UI for AI tasks
@@ -97,7 +89,6 @@ def ai_activity(label="Working with the AI agent…"):
             st.error("Please try again or adjust your input.")
             return
 
-
 def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     """Regenerate Phase 3 nodes based on user refinement notes and optional heuristics context."""
     refine_text = (refine_text or "").strip()
@@ -108,7 +99,10 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     setting = st.session_state.data['phase1'].get('setting') or "care setting"
     evidence_list = st.session_state.data['phase2'].get('evidence', [])
 
-    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+    ev_context = "\n".join([
+        f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}"
+        for e in evidence_list[:20]
+    ])
 
     heuristics_summary = ""
     if heuristics_data:
@@ -121,9 +115,44 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
                     bullet_lines.append(f"- {label}: {recs[0]}")
             except Exception:
                 continue
-        else:
-            # If nothing to show, provide a helpful prompt only
-            styled_info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
+        if bullet_lines:
+            heuristics_summary = "\nHeuristics guidance:\n" + "\n".join(bullet_lines[:5])
+
+    prompt = f"""
+    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
+
+    Current pathway for {cond} in {setting}:
+    {json.dumps(nodes, indent=2)}
+
+    Available Evidence:
+    {ev_context}
+
+    User's refinement request: "{refine_text}"
+    {heuristics_summary}
+
+    Apply the requested changes while maintaining:
+    - CGT/Ad/it principles and Medical Decision Analysis best practices
+    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+    - Actionable steps with medical acronyms for brevity
+    - Specific discharge details (prescriptions with dose/route, referrals)
+    - Evidence citations (PMIDs where applicable)
+
+    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
+    Rules:
+    - type in [Start, Decision, Process, End]
+    - First node: type "Start", label "patient present to {setting} with {cond}"
+    - NO node count limit - build complete clinical flow
+    - If >20 nodes, organize into sections or sub-pathways
+    - End nodes must be terminal single outcomes (no "or" phrasing)
+    - Consecutive decision nodes are allowed when logic requires it
+    """
+
+    return get_gemini_response(prompt, json_mode=True)
+
+# --- LIBRARY HANDLING ---
+try:
+    from docx import Document
+    from docx.shared import Inches as DocxInches
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -199,6 +228,23 @@ st.markdown("""
     button[kind="secondary"]:hover,
     div.stButton > button:not([kind="primary"]):hover,
     div[data-testid="stButton"] > button:not([kind="primary"]):hover {
+        background-color: #3E2723 !important; 
+        border-color: #3E2723 !important;
+        color: white !important;
+    }
+
+    /* FORM SUBMIT BUTTONS (e.g., "Regenerate" inside forms) */
+    /* Streamlit renders these differently from st.button; target explicitly */
+    div[data-testid="stFormSubmitButton"] > button,
+    form[data-testid="stForm"] button[type="submit"] {
+        background-color: #5D4037 !important; 
+        color: white !important;
+        border: 1px solid #5D4037 !important;
+        border-radius: 5px !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stFormSubmitButton"] > button:hover,
+    form[data-testid="stForm"] button[type="submit"]:hover {
         background-color: #3E2723 !important; 
         border-color: #3E2723 !important;
         color: white !important;
@@ -371,6 +417,16 @@ st.markdown("""
         display: flex !important;
         align-items: flex-start !important;
     }
+
+    /* For horizontal button rows (e.g., bottom navigation), center-align contents */
+    [data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
+        align-items: center !important;
+    }
+    /* Ensure the inner vertical block centers content within horizontal rows */
+    [data-testid="stHorizontalBlock"] div[data-testid="stColumn"] > div > div[data-testid="stVerticalBlock"] {
+        justify-content: center !important;
+        align-items: center !important;
+    }
     
     button, input, select, textarea, label {
         vertical-align: middle !important;
@@ -512,7 +568,7 @@ st.markdown("""
     }
     
     /* Make navigation buttons more compact */
-    [data-testid="stHorizontalBlock"] > div[data-testid="column"] button {
+    [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] button {
         font-size: 0.9rem !important;
         padding: 10px 8px !important;
         white-space: nowrap !important;
@@ -581,6 +637,25 @@ HEURISTIC_DEFS = {
     "H9": "Help users recognize, diagnose, and recover from errors: Error messages in plain language.",
     "H10": "Help and documentation: Provide concise, concrete documentation focused on user tasks."
 }
+
+# Heuristics categorized by applicability to clinical pathways
+HEURISTIC_CATEGORIES = {
+    "pathway_actionable": {
+        "H2": "Language clarity (replace medical jargon with patient-friendly terms where appropriate)",
+        "H4": "Consistency (standardize terminology and node types across pathway)",
+        "H5": "Error prevention (add critical alerts, validation rules, and edge case handling)"
+    },
+    "ui_design_only": {
+        "H1": "Status visibility (implement progress indicators and highlighting in the interface)",
+        "H3": "User control (add escape routes and undo/skip options in UI)",
+        "H6": "Recognition not recall (use visual icons and clear labels instead of hidden menus)",
+        "H7": "Efficiency accelerators (add keyboard shortcuts and quick actions for power users)",
+        "H8": "Minimalist design (remove clutter and non-essential information from interface)",
+        "H9": "Error recovery (display clear, plain-language error messages and recovery steps)",
+        "H10": "Help & docs (provide in-app tooltips, FAQs, and guided walkthroughs)"
+    }
+}
+
 ROLE_COLORS = {
     "Physician": "#E3F2FD",
     "Doctor": "#E3F2FD",
@@ -607,215 +682,7 @@ PROVIDER_OPTIONS = {
 }
 
 # ==========================================
-# 2. CHAT & FEEDBACK HELPER FUNCTIONS
-# ==========================================
-
-def initialize_chat_state():
-    """Initialize chat messages in session state if not exists."""
-    if "chat_messages" not in st.session_state:
-        st.session_state["chat_messages"] = []
-    if "chat_expanded" not in st.session_state:
-        # Auto-open if query param ?chat=1 is present
-        qp = _get_query_param("chat")
-        st.session_state["chat_expanded"] = str(qp).lower() in ("1", "true", "yes", "y")
-
-
-def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
-    """Save feedback response as JSON to data/feedback/ folder."""
-    os.makedirs("data/feedback", exist_ok=True)
-    
-    # Safely get pathway condition from session state
-    pathway_condition = ""
-    if hasattr(st.session_state, 'data') and isinstance(st.session_state.data, dict):
-        pathway_condition = st.session_state.data.get("phase1", {}).get("condition", "")
-    
-    feedback_data = {
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-        "rating": rating,
-        "feedback_text": feedback_text,
-        "phase": phase,
-        "pathway_condition": pathway_condition
-    }
-    
-    timestamp_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
-    filename = f"data/feedback/feedback_{timestamp_ms}.json"
-    with open(filename, "w") as f:
-        json.dump(feedback_data, f, indent=2)
-
-
-def get_carepathiq_scoped_response(user_question: str) -> str:
-    """
-    Get a response from Gemini scoped strictly to CarePathIQ app questions.
-    Enhanced with comprehensive knowledge of app structure, files, and capabilities.
-    """
-    # Try local FAQ first (lightweight, always works)
-    response = get_local_faq_answer(user_question)
-    if response:
-        return response
-    
-    # Only try AI if client is available
-    client = get_genai_client()
-    if not client:
-        return "Please enter your Gemini API key in the sidebar to enable AI-powered answers."
-    
-    scope_constraint = """You are the CarePathIQ AI Agent - an expert assistant with complete knowledge of the CarePathIQ clinical pathway development application.
-
-**The 5 Phases in Detail:**
-
-1. **Phase 1: Define Scope & Charter** — Input clinical condition and care setting. AI auto-drafts inclusion/exclusion criteria, problem statement, objectives, and population.
-2. **Phase 2: Appraise Evidence** — PubMed/MESH query integration with evidence table, PMID, abstract, and GRADE quality assessment. PICO framework support.
-3. **Phase 3: Build Decision Tree** — Node-based pathway (decision, action, outcome nodes) with Graphviz rendering and AI-powered regeneration with user refinement.
-4. **Phase 4: Design Interface** — Nielsen's 10 Usability Heuristics analysis with AI recommendations and visual preview of improvements.
-5. **Phase 5: Operationalize** — Expert Panel Form, Beta Testing Form, Interactive Education (quizzes + certificates), Executive Summary. All standalone HTML/DOCX.
-
-**Key Features:** Gemini API integration, admin mode (?admin=CODE), feedback system, CSV/DOCX/HTML/PNG/SVG exports, responsive pink/brown/teal design.
-
-**Your Capabilities:** Explain phases/features, guide workflow, troubleshoot (API, models, exports), clarify inputs/outputs, explain Phase 5 deliverables.
-
-**Response Style:** Concise 2-4 sentences, reference specific phases/features, conversational expert tone.
-
-**User Question:** {user_question}"""
-
-    response = get_gemini_response(scope_constraint)
-    if not response:
-        response = get_local_faq_answer(user_question)
-    return response or "I'm not sure how to help with that. Please ask me about features in the CarePathIQ app!"
-
-
-def get_local_faq_answer(user_question: str) -> str:
-    """Provide lightweight built-in answers when AI is unavailable."""
-    q = (user_question or "").strip().lower()
-    if "5 phases" in q or "five phases" in q or "phases" in q:
-        return (
-            "CarePathIQ has 5 phases: 1) **Define Scope** — clarify condition, context, and goals. "
-            "2) **Appraise Evidence** — gather and grade studies with structured PICO/MESH support. "
-            "3) **Build Decision Tree** — design pathway logic and branches. "
-            "4) **Design Interface** — preview and optimize using Nielsen's usability heuristics. "
-            "5) **Operationalize** — export expert forms, beta testing, education modules, and executive summary."
-        )
-    if "decision tree" in q or "phase 3" in q or "nodes" in q or "pathway" in q:
-        return (
-            "In Phase 3, add nodes (decisions, actions, outcomes), connect them to form branches, "
-            "and iterate using evidence and heuristics. Use the refinement box to request changes, "
-            "then regenerate to update the pathway structure. The AI uses Phase 1 & 2 context to build logical flows."
-        )
-    if "evidence" in q or "phase 2" in q or "pubmed" in q or "mesh" in q:
-        return (
-            "Phase 2 enables PubMed searches with MESH term suggestions. Include study PMID, title, abstract, "
-            "GRADE quality assessment, and relevance notes. Structured PICO framework helps organize evidence systematically. "
-            "Export to CSV for documentation."
-        )
-    if "phase 5" in q or "operationalize" in q or "export" in q or "expert" in q or "beta" in q:
-        return (
-            "Phase 5 generates 4 deliverables: Expert Panel Feedback Form (HTML), Beta Testing Form (HTML), "
-            "Interactive Education Module (HTML with quizzes & certificates), and Executive Summary (Word doc). "
-            "All are standalone files with no backend—users download, share, and collect responses via CSV."
-        )
-    if "heuristics" in q or "phase 4" in q or "usability" in q or "nielsen" in q:
-        return (
-            "Phase 4 applies Nielsen's 10 Usability Heuristics to your pathway. The AI analyzes each heuristic "
-            "(visibility, error prevention, consistency, etc.) and suggests improvements. You can apply or reject "
-            "each recommendation to optimize the user experience."
-        )
-    if "api" in q or "key" in q or "gemini" in q or "model" in q:
-        return (
-            "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
-            "Supports gemini-2.5-flash, gemini-2.5-flash-lite, and gemini-3-flash models. Enter your API key "
-            "in the sidebar to activate all AI features."
-        )
-    if "files" in q or "structure" in q or "code" in q:
-        return (
-            "Main files: streamlit_app.py (4200+ lines, 5-phase workflow), phase5_helpers.py (HTML generators), "
-            "education_template.py (quiz system). Documentation: PHASE5_GUIDE.md, API_ALIGNMENT.md, README.md. "
-            "Uses Streamlit, google-genai, Graphviz, python-docx."
-        )
-    return (
-        "I can help with: the 5 phases workflow, building decision trees, evidence appraisal, "
-        "usability heuristics, Phase 5 exports, API setup, or technical structure. What would you like to know?"
-    )
-
-
-def load_admin_feedback_dashboard():
-    """Admin-only dashboard to view and export feedback responses."""
-    if not is_admin():
-        return
-    
-    with st.expander("🔧 Admin: Feedback Dashboard", expanded=False):
-        feedback_dir = "data/feedback"
-        
-        if not os.path.exists(feedback_dir):
-            st.info("No feedback collected yet.")
-            return
-        
-        feedback_files = [f for f in os.listdir(feedback_dir) if f.endswith(".json")]
-        
-        if not feedback_files:
-            st.info("No feedback collected yet.")
-            return
-        
-        st.markdown(f"**Total Responses:** {len(feedback_files)}")
-        
-        all_ratings = []
-        for filename in feedback_files:
-            try:
-                with open(os.path.join(feedback_dir, filename)) as f:
-                    data = json.load(f)
-                    all_ratings.append(data.get("rating", 0))
-            except Exception:
-                continue
-        
-        if all_ratings:
-            avg_rating = sum(all_ratings) / len(all_ratings)
-            st.metric("Average Rating", f"{avg_rating:.1f}/10")
-        
-        st.markdown("### Feedback Responses")
-        
-        selected_file = st.selectbox(
-            "View feedback:",
-            feedback_files,
-            format_func=lambda x: x.replace("feedback_", "").replace(".json", "")
-        )
-        
-        if selected_file:
-            try:
-                with open(os.path.join(feedback_dir, selected_file)) as f:
-                    feedback = json.load(f)
-                    st.json(feedback)
-            except Exception as e:
-                st.error(f"Error loading feedback: {e}")
-        
-        if st.button("Export All Feedback as CSV"):
-            import csv
-            import io
-            
-            output = io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(["timestamp", "rating", "feedback", "phase", "pathway_condition"])
-            
-            for filename in feedback_files:
-                try:
-                    with open(os.path.join(feedback_dir, filename)) as f:
-                        data = json.load(f)
-                        writer.writerow([
-                            data.get("timestamp", ""),
-                            data.get("rating", ""),
-                            data.get("feedback_text", ""),
-                            data.get("phase", ""),
-                            data.get("pathway_condition", "")
-                        ])
-                except Exception:
-                    continue
-            
-            csv_data = output.getvalue()
-            st.download_button(
-                label="Download CSV",
-                data=csv_data,
-                file_name="carepathiq_feedback.csv",
-                mime="text/csv"
-            )
-
-# ==========================================
-# 3. HELPER FUNCTIONS
+# 2. HELPER FUNCTIONS
 # ==========================================
 
 import secrets
@@ -831,13 +698,20 @@ def render_bottom_navigation():
     if "current_phase_label" in st.session_state and st.session_state.current_phase_label in PHASES:
         current_idx = PHASES.index(st.session_state.current_phase_label)
         st.divider()
+        # Add a small spacer to keep bottom nav comfortably separated from content above
+        st.markdown("<div style='height: 10px'></div>", unsafe_allow_html=True)
         
-        col_prev, col_middle, col_next = st.columns([1, 1, 1])
+        try:
+            # Try Streamlit >= 1.30 with vertical_alignment
+            col_prev, col_middle, col_next = st.columns([1, 1, 1], vertical_alignment="center")
+        except TypeError:
+            # Fallback for older Streamlit versions
+            col_prev, col_middle, col_next = st.columns([1, 1, 1])
         
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", use_container_width=True, type="secondary"):
+                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", type="secondary"):
                     st.session_state.current_phase_label = prev_phase
                     st.rerun()
         else:
@@ -854,7 +728,7 @@ def render_bottom_navigation():
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", use_container_width=True, type="primary"):
+                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", type="primary"):
                     st.session_state.current_phase_label = next_phase
                     st.rerun()
         # Always render brand/licensing footer before any phase stop()
@@ -963,6 +837,52 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
     except Exception as e:
         st.error(f"File upload failed: {e}")
         return None
+
+
+def review_document(file_uri: str, context: str = "") -> str:
+    """
+    Review an uploaded file using Gemini API and return a markdown summary.
+    
+    Args:
+        file_uri: URI of the file uploaded to Gemini Files API
+        context: Optional context about what the file is for (e.g., 'clinical pathway')
+    
+    Returns:
+        str: Markdown-formatted review summary
+    """
+    client = get_genai_client()
+    if not client:
+        return "⚠️ API connection unavailable. Could not review file."
+    
+    try:
+        context_phrase = f" for {context}" if context else ""
+        prompt = f"""Review this document{context_phrase}. Provide a concise summary in markdown format including:
+        
+- **Purpose**: Main topic and intent
+- **Key Points**: 3-5 most important takeaways
+- **Relevance**: How this relates to clinical pathway development{context_phrase}
+
+Keep the summary brief (3-5 sentences per section)."""
+        
+        # Use the file URI in the content
+        contents = [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {"file_data": {"file_uri": file_uri}}
+                ]
+            }
+        ]
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents
+        )
+        
+        return response.text if response and response.text else "✓ File uploaded successfully. Content available for AI analysis."
+    
+    except Exception as e:
+        return f"✓ File uploaded. *(Auto-review unavailable: {str(e)})*"
 
 
 def create_formsubmit_html(form_html: str) -> str:
@@ -1382,20 +1302,20 @@ def create_word_docx(data):
 
         doc.add_heading('How will we know that a change is an improvement?', level=1)
         doc.add_heading('Outcome Measure(s)', level=2)
-        for m in ihi.get('outcome_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+        for m in ihi.get('outcome_measures', []): doc.add_paragraph(m, style='List Bullet')
         
         doc.add_heading('Process Measure(s)', level=2)
-        for m in ihi.get('process_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+        for m in ihi.get('process_measures', []): doc.add_paragraph(m, style='List Bullet')
         
         doc.add_heading('Balancing Measure(s)', level=2)
-        for m in ihi.get('balancing_measures', []): doc.add_paragraph(f"- {m}", style='List Bullet')
+        for m in ihi.get('balancing_measures', []): doc.add_paragraph(m, style='List Bullet')
 
         doc.add_heading('What changes can we make?', level=1)
         doc.add_heading('Initial Activities', level=2)
         doc.add_paragraph(ihi.get('initial_activities', ''))
         
         doc.add_heading('Change Ideas', level=2)
-        for c in ihi.get('change_ideas', []): doc.add_paragraph(f"- {c}", style='List Bullet')
+        for c in ihi.get('change_ideas', []): doc.add_paragraph(c, style='List Bullet')
         
         doc.add_heading('Key Stakeholders', level=2)
         doc.add_paragraph(ihi.get('stakeholders', ''))
@@ -1450,6 +1370,62 @@ def create_word_docx(data):
         st.error(f"Error generating document: {str(e)}")
         return None
 
+def generate_p1_charter():
+    """
+    Auto-generate Phase 1 Project Charter using IHI Model for Improvement.
+    Updates st.session_state.data['phase1']['ihi_content'] and triggers download.
+    """
+    d = st.session_state.data['phase1']
+    if not d.get('condition') or not d.get('problem'):
+        st.warning("Please fill in Condition and Problem before generating charter.")
+        return
+    
+    with st.status("Generating Project Charter...", expanded=True) as status:
+        st.write("Building project charter based on IHI Quality Improvement framework...")
+        
+        p_ihi = f"""You are a Quality Improvement Advisor using IHI's Model for Improvement.
+
+Build a project charter for managing "{d['condition']}" in "{d.get('setting', '') or 'care setting'}".
+
+**Phase 1 Context:**
+Problem: {d['problem']}
+Inclusion: {d.get('inclusion', '')}
+Exclusion: {d.get('exclusion', '')}
+Objectives: {d.get('objectives', '')}
+
+Return JSON with keys:
+- project_description (string)
+- rationale (string)
+- expected_outcomes (string)
+- aim_statement (string)
+- outcome_measures (string)
+- process_measures (string)
+- balancing_measures (string)
+- initial_activities (string)
+- change_ideas (array of strings)
+- stakeholders (string)
+- barriers (string)
+- boundaries: object with in_scope (string) and out_of_scope (string)
+
+Return clean JSON ONLY. No markdown, no explanation."""
+        
+        res = get_gemini_response(p_ihi, json_mode=True)
+        if res:
+            st.session_state.data['phase1']['ihi_content'] = res
+            doc = create_word_docx(st.session_state.data['phase1'])
+            if doc:
+                status.update(label="Ready!", state="complete")
+                st.download_button(
+                    "Download Project Charter (.docx)",
+                    doc,
+                    f"Project_Charter_{d['condition']}.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            else:
+                status.update(label="Word export unavailable. Please ensure python-docx is installed.", state="error")
+        else:
+            status.update(label="Failed to generate charter.", state="error")
+
 def create_exec_summary_docx(summary_text, condition):
     if Document is None: return None
     doc = Document()
@@ -1465,8 +1441,57 @@ def create_exec_summary_docx(summary_text, condition):
     buffer = BytesIO(); doc.save(buffer); buffer.seek(0)
     return buffer
 
+def auto_grade_evidence_list(evidence_list: list):
+    """
+    Auto-grade a list of evidence items using GRADE criteria via Gemini API.
+    Updates each item in the list with 'grade' and 'rationale' fields.
+    
+    Args:
+        evidence_list: List of evidence dictionaries with at least 'id' and 'title' keys
+    """
+    if not evidence_list:
+        return
+    
+    try:
+        prompt = (
+            "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
+            "and provide a brief Rationale (1-2 sentences) for each article. "
+            f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in evidence_list])}. "
+            "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
+            '{"12345678": {"grade": "High (A)", "rationale": "text here"}}'
+        )
+        
+        grades = get_gemini_response(prompt, json_mode=True)
+        
+        if grades and isinstance(grades, dict):
+            for e in evidence_list:
+                pmid_str = str(e.get('id', ''))
+                if pmid_str in grades:
+                    grade_data = grades[pmid_str]
+                    if isinstance(grade_data, dict):
+                        e['grade'] = grade_data.get('grade', 'Un-graded')
+                        e['rationale'] = grade_data.get('rationale', 'Not provided.')
+                    else:
+                        e['grade'] = 'Un-graded'
+                        e['rationale'] = 'Not provided.'
+                else:
+                    e.setdefault('grade', 'Un-graded')
+                    e.setdefault('rationale', 'Not yet evaluated.')
+        else:
+            # If API call fails, set defaults
+            for e in evidence_list:
+                e.setdefault('grade', 'Un-graded')
+                e.setdefault('rationale', 'Auto-grading unavailable.')
+    
+    except Exception as ex:
+        # On error, set defaults and log
+        for e in evidence_list:
+            e.setdefault('grade', 'Un-graded')
+            e.setdefault('rationale', f'Auto-grading error: {str(ex)}')
+
 def format_citation_line(entry, style="APA"):
-    """Lightweight formatter for citation strings based on available PubMed fields."""
+    """Lightweight formatter for citation strings based on available PubMed fields.
+    Supports preset styles (APA, MLA, Vancouver) and custom style names."""
     authors = (entry.get("authors") or "Unknown").rstrip(".")
     title = (entry.get("title") or "Untitled").rstrip(".")
     journal = (entry.get("journal") or "Journal").rstrip(".")
@@ -1476,14 +1501,52 @@ def format_citation_line(entry, style="APA"):
         return f"{authors}. \"{title}.\" {journal}, {year}. PMID {pmid}."
     if style == "Vancouver":
         return f"{authors}. {title}. {journal}. {year}. PMID:{pmid}."
-    # Default APA
+    # Default APA (also used for custom style names)
     return f"{authors} ({year}). {title}. {journal}. PMID: {pmid}."
 
+def apply_pathway_heuristic_improvements(nodes, heuristics_data):
+    """
+    Apply ONLY the pathway-actionable heuristics to the nodes:
+    - H2: Language clarity (simplify terminology)
+    - H4: Consistency (standardize terminology and structure)
+    - H5: Error prevention (add alerts and edge cases)
+    
+    Returns: Updated nodes list or None if LLM fails
+    """
+    actionable_keys = ["H2", "H4", "H5"]
+    insights = {k: heuristics_data.get(k, "") for k in actionable_keys if k in heuristics_data}
+    
+    if not insights:
+        return None
+    
+    # Build a focused prompt that asks for specific pathway improvements
+    insights_text = "\n".join([f"{k}: {v}" for k, v in insights.items()])
+    
+    prompt = f"""You are a clinical pathway expert. Apply these specific improvements to the pathway:
+
+{insights_text}
+
+Current pathway nodes: {json.dumps(nodes)}
+
+Improvements to apply:
+1. For H2 (Language): Replace medical jargon with plain language where appropriate. Keep clinical terms where necessary.
+2. For H4 (Consistency): Standardize terminology and ensure all similar decisions use consistent structure.
+3. For H5 (Error Prevention): Add specific alerts, validation checkpoints, or warning conditions to prevent common errors.
+
+Return ONLY a valid JSON array of updated nodes. Preserve all original node structure and IDs.
+Keep labels concise and actionable. Do not invent new nodes unless specifically needed for safety."""
+    
+    new_nodes = get_gemini_response(prompt, json_mode=True)
+    return new_nodes if new_nodes and isinstance(new_nodes, list) else None
+
 def create_references_docx(citations, style="APA"):
+    """Create Word document with citations. Supports preset styles and custom style names."""
     if Document is None or not citations:
         return None
     doc = Document()
-    doc.add_heading(f"References ({style})", 0)
+    # Use the style name (preset or custom) in the heading
+    heading_text = f"References ({style})" if style else "References"
+    doc.add_heading(heading_text, 0)
     for idx, entry in enumerate(citations, start=1):
         line = format_citation_line(entry, style)
         doc.add_paragraph(f"{idx}. {line}")
@@ -1511,6 +1574,85 @@ def harden_nodes(nodes_list):
                 node['branches'] = [{'label': 'Yes', 'target': i+1}, {'label': 'No', 'target': i+2}]
         validated.append(node)
     return validated
+
+def normalize_or_logic(nodes_list):
+    """
+    Automatically detect and convert OR logic in End nodes to proper Decision nodes with branches.
+    This runs silently as backend auto-normalization with no user notification.
+    
+    Example: "Discharge or Admit to Cardiology" (End node)
+    Becomes: "Disposition decision?" (Decision) with branches to "Discharge" and "Admit to Cardiology" (End nodes)
+    """
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return nodes_list
+    
+    normalized = []
+    added_nodes = []
+    
+    for idx, node in enumerate(nodes_list):
+        if not isinstance(node, dict):
+            normalized.append(node)
+            continue
+        
+        # Check if this is an End node with OR logic
+        label = node.get('label', '').lower()
+        if node.get('type') == 'End' and ' or ' in label:
+            # Extract the original label for clarity
+            original_label = node.get('label', '')
+            
+            # Split by ' or ' to get individual outcomes
+            outcomes = [o.strip() for o in original_label.split(' or ')]
+            
+            if len(outcomes) > 1:
+                # Convert this End node to a Decision node
+                decision_label = f"{outcomes[0].split()[0]} vs {outcomes[1].split()[0] if len(outcomes[1].split()) > 0 else 'other'}?"
+                decision_node = {
+                    'type': 'Decision',
+                    'label': decision_label,
+                    'evidence': node.get('evidence', 'N/A'),
+                    'branches': []
+                }
+                
+                # Create End nodes for each outcome
+                end_node_targets = []
+                for outcome_idx, outcome in enumerate(outcomes):
+                    end_node = {
+                        'type': 'End',
+                        'label': outcome,
+                        'evidence': 'N/A'
+                    }
+                    added_nodes.append(end_node)
+                    # Calculate target index: current position + branches + previously added nodes
+                    target_idx = len(normalized) + 1 + outcome_idx
+                    end_node_targets.append(target_idx)
+                    
+                    # Add branch to decision node
+                    decision_node['branches'].append({
+                        'label': outcome.split()[0],  # First word of outcome as branch label
+                        'target': target_idx
+                    })
+                
+                normalized.append(decision_node)
+            else:
+                # No actual OR split possible, keep as-is
+                normalized.append(node)
+        else:
+            normalized.append(node)
+    
+    # Append all newly created End nodes at the end
+    result = normalized + added_nodes
+    
+    # Update all target indices to account for insertions
+    # Rebuild with proper sequential indexing
+    final_result = []
+    for node in result:
+        final_node = dict(node)
+        if final_node.get('type') == 'Decision' and 'branches' in final_node:
+            # Branches already set correctly during creation
+            pass
+        final_result.append(final_node)
+    
+    return final_result
 
 def generate_mermaid_code(nodes, orientation="TD"):
     """Legacy function - now redirects to DOT format for compatibility."""
@@ -1563,6 +1705,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             ntype = n.get('type', 'Process')
             if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
             elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
+            elif ntype == 'Reevaluation': shape, fill = 'box', '#FFCC80'
             else: shape, fill = 'box', '#FFF2CC'
             fill = _role_fill(n.get('role', ''), fill)
             lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
@@ -1621,6 +1764,7 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 ntype = n.get('type', 'Process')
                 if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
                 elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
+                elif ntype == 'Reevaluation': shape, fill = 'box', '#FFCC80'
                 else: shape, fill = 'box', '#FFF2CC'
                 fill = _role_fill(n.get('role', ''), fill)
                 c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
@@ -2028,7 +2172,245 @@ def compute_textarea_height(text: str, min_rows: int = 10, max_rows: int = 100, 
     return lines * line_px + padding_px
 
 # ==========================================
-# 3. SIDEBAR & SESSION INITIALIZATION
+# 3A. CHAT & FEEDBACK HELPER FUNCTIONS
+# ==========================================
+
+def initialize_chat_state():
+    """Initialize chat messages in session state if not exists."""
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []
+    if "chat_expanded" not in st.session_state:
+        # Auto-open if query param ?chat=1 is present
+        qp = _get_query_param("chat")
+        st.session_state["chat_expanded"] = str(qp).lower() in ("1", "true", "yes", "y")
+
+
+def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
+    """Save feedback response as JSON to data/feedback/ folder."""
+    import datetime
+    os.makedirs("data/feedback", exist_ok=True)
+    
+    # Safely get pathway condition from session state
+    pathway_condition = ""
+    if hasattr(st.session_state, 'data') and isinstance(st.session_state.data, dict):
+        pathway_condition = st.session_state.data.get("phase1", {}).get("condition", "")
+    
+    feedback_data = {
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "rating": rating,
+        "feedback_text": feedback_text,
+        "phase": phase,
+        "pathway_condition": pathway_condition
+    }
+    
+    timestamp_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
+    filename = f"data/feedback/feedback_{timestamp_ms}.json"
+    with open(filename, "w") as f:
+        json.dump(feedback_data, f, indent=2)
+
+
+def get_carepathiq_scoped_response(user_question: str) -> str:
+    """
+    Get a response from Gemini scoped strictly to CarePathIQ app questions.
+    Enhanced with comprehensive knowledge of app structure, files, and capabilities.
+    """
+    # Try local FAQ first (lightweight, always works)
+    response = get_local_faq_answer(user_question)
+    if response:
+        return response
+    
+    # Only try AI if client is available
+    client = get_genai_client()
+    if not client:
+        return "Please enter your Gemini API key in the sidebar to enable AI-powered answers."
+    
+    scope_constraint = """You are the CarePathIQ AI Agent - an expert assistant with complete knowledge of the CarePathIQ clinical pathway development application.
+
+**The 5 Phases in Detail:**
+
+1. **Phase 1: Define Scope & Charter** — Input clinical condition and care setting. AI auto-drafts inclusion/exclusion criteria, problem statement, objectives, and population.
+   
+2. **Phase 2: Appraise Evidence** — PubMed/MESH query integration with evidence table, PMID, abstract, and GRADE quality assessment. PICO framework support.
+   
+3. **Phase 3: Build Decision Tree** — Node-based pathway (decision, action, outcome nodes) with Graphviz rendering and AI-powered regeneration with user refinement.
+   
+4. **Phase 4: Design Interface** — Nielsen's 10 Usability Heuristics analysis with AI recommendations and visual preview of improvements.
+   
+5. **Phase 5: Operationalize** — Expert Panel Form, Beta Testing Form, Interactive Education (quizzes + certificates), Executive Summary. All standalone HTML/DOCX.
+
+**Key Features:** Gemini API integration, admin mode (?admin=CODE), feedback system, CSV/DOCX/HTML/PNG/SVG exports, responsive pink/brown/teal design.
+
+**Your Capabilities:** Explain phases/features, guide workflow, troubleshoot (API, models, exports), clarify inputs/outputs, explain Phase 5 deliverables.
+
+**Response Style:** Concise 2-4 sentences, reference specific phases/features, conversational expert tone.
+
+**User Question:** {user_question}"""
+
+    response = get_gemini_response(scope_constraint)
+    if not response:
+        response = get_local_faq_answer(user_question)
+    return response or "I'm not sure how to help with that. Please ask me about features in the CarePathIQ app!"
+
+
+def get_local_faq_answer(user_question: str) -> str:
+    """Provide lightweight built-in answers when AI is unavailable."""
+    q = (user_question or "").strip().lower()
+    if "5 phases" in q or "five phases" in q or "phases" in q:
+        return (
+            "CarePathIQ has 5 phases: 1) **Define Scope** — clarify condition, context, and goals. "
+            "2) **Appraise Evidence** — gather and grade studies with structured PICO/MESH support. "
+            "3) **Build Decision Tree** — design pathway logic and branches. "
+            "4) **Design Interface** — preview and optimize using Nielsen's usability heuristics. "
+            "5) **Operationalize** — export expert forms, beta testing, education modules, and executive summary."
+        )
+    if "decision tree" in q or "phase 3" in q or "nodes" in q or "pathway" in q:
+        return (
+            "In Phase 3, add nodes (decisions, actions, outcomes), connect them to form branches, "
+            "and iterate using evidence and heuristics. Use the refinement box to request changes, "
+            "then regenerate to update the pathway structure. The AI uses Phase 1 & 2 context to build logical flows."
+        )
+    if "evidence" in q or "phase 2" in q or "pubmed" in q or "mesh" in q:
+        return (
+            "Phase 2 enables PubMed searches with MESH term suggestions. Include study PMID, title, abstract, "
+            "GRADE quality assessment, and relevance notes. Structured PICO framework helps organize evidence systematically. "
+            "Export to CSV for documentation."
+        )
+    if "phase 5" in q or "operationalize" in q or "export" in q or "expert" in q or "beta" in q:
+        return (
+            "Phase 5 generates 4 deliverables: Expert Panel Feedback Form (HTML), Beta Testing Form (HTML), "
+            "Interactive Education Module (HTML with quizzes & certificates), and Executive Summary (Word doc). "
+            "All are standalone files with no backend—users download, share, and collect responses via CSV."
+        )
+    if "heuristics" in q or "phase 4" in q or "usability" in q or "nielsen" in q:
+        return (
+            "Phase 4 applies Nielsen's 10 Usability Heuristics to your pathway. The AI analyzes each heuristic "
+            "(visibility, error prevention, consistency, etc.) and suggests improvements. You can apply or reject "
+            "each recommendation to optimize the user experience."
+        )
+    if "api" in q or "key" in q or "gemini" in q or "model" in q:
+        return (
+            "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
+            "Supports gemini-2.5-flash, gemini-2.5-flash-lite, and gemini-3-flash models. Enter your API key "
+            "in the sidebar to activate all AI features."
+        )
+    if "files" in q or "structure" in q or "code" in q:
+        return (
+            "Main files: streamlit_app.py (4200+ lines, 5-phase workflow), phase5_helpers.py (HTML generators), "
+            "education_template.py (quiz system). Documentation: PHASE5_GUIDE.md, API_ALIGNMENT.md, README.md. "
+            "Uses Streamlit, google-genai, Graphviz, python-docx."
+        )
+    return (
+        "I can help with: the 5 phases workflow, building decision trees, evidence appraisal, "
+        "usability heuristics, Phase 5 exports, API setup, or technical structure. What would you like to know?"
+    )
+
+
+def render_satisfaction_survey():
+    """Render satisfaction survey with rating slider and feedback textarea."""
+    with st.expander("📋 Feedback & Satisfaction Survey", expanded=False):
+        st.markdown("### How satisfied are you with this app?")
+        
+        rating = st.slider(
+            "Rating (10=Very Satisfied, 0=Not Satisfied)",
+            min_value=0,
+            max_value=10,
+            value=5,
+            step=1
+        )
+        
+        feedback_text = st.text_area(
+            "Additional feedback (optional)",
+            placeholder="Tell us what you think...",
+            height=100
+        )
+        
+        if st.button("Submit Feedback"):
+            phase = "Phase 3"
+            save_feedback_response(rating, feedback_text, phase)
+            st.success("✅ Thank you for your feedback!")
+
+
+def load_admin_feedback_dashboard():
+    """Admin-only dashboard to view and export feedback responses."""
+    if not is_admin():
+        return
+    
+    with st.expander("🔧 Admin: Feedback Dashboard", expanded=False):
+        feedback_dir = "data/feedback"
+        
+        if not os.path.exists(feedback_dir):
+            st.info("No feedback collected yet.")
+            return
+        
+        feedback_files = [f for f in os.listdir(feedback_dir) if f.endswith(".json")]
+        
+        if not feedback_files:
+            st.info("No feedback collected yet.")
+            return
+        
+        st.markdown(f"**Total Responses:** {len(feedback_files)}")
+        
+        all_ratings = []
+        for filename in feedback_files:
+            try:
+                with open(os.path.join(feedback_dir, filename)) as f:
+                    data = json.load(f)
+                    all_ratings.append(data.get("rating", 0))
+            except Exception:
+                continue
+        
+        if all_ratings:
+            avg_rating = sum(all_ratings) / len(all_ratings)
+            st.metric("Average Rating", f"{avg_rating:.1f}/10")
+        
+        st.markdown("### Feedback Responses")
+        
+        selected_file = st.selectbox(
+            "View feedback:",
+            feedback_files,
+            format_func=lambda x: x.replace("feedback_", "").replace(".json", "")
+        )
+        
+        if selected_file:
+            try:
+                with open(os.path.join(feedback_dir, selected_file)) as f:
+                    feedback = json.load(f)
+                    st.json(feedback)
+            except Exception as e:
+                st.error(f"Error loading feedback: {e}")
+        
+        if st.button("Export All Feedback as CSV"):
+            import csv
+            import io
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["timestamp", "rating", "feedback", "phase", "pathway_condition"])
+            
+            for filename in feedback_files:
+                try:
+                    with open(os.path.join(feedback_dir, filename)) as f:
+                        data = json.load(f)
+                        writer.writerow([
+                            data.get("timestamp", ""),
+                            data.get("rating", ""),
+                            data.get("feedback_text", ""),
+                            data.get("phase", ""),
+                            data.get("pathway_condition", "")
+                        ])
+                except Exception:
+                    continue
+            
+            csv_data = output.getvalue()
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name="feedback_export.csv",
+                mime="text/csv"
+            )
+
+# ==========================================
+# 3B. SIDEBAR & SESSION INITIALIZATION
 # ==========================================
 with st.sidebar:
     try:
@@ -2038,8 +2420,9 @@ with st.sidebar:
             st.markdown(f"""<div style="text-align: center; margin-bottom: 20px;"><a href="https://carepathiq.org/" target="_blank"><img src="data:image/png;base64,{logo_data}" width="200" style="max-width: 100%;"></a></div>""", unsafe_allow_html=True)
     except Exception: pass
 
-    st.title("AI Agent")
     st.divider()
+    
+    # API Key and Model - at top for easy access
     # Do not prefill from secrets so landing shows on first load
     gemini_api_key = st.text_input("Gemini API Key", value="", type="password", key="gemini_key")
     
@@ -2051,42 +2434,7 @@ with st.sidebar:
     model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"])
     model_choice = st.selectbox("Model", model_options, index=0)
     
-    # Preview before activation
-    if not gemini_api_key:
-        st.divider()
-        st.caption("Preview of AI agent")
-        for p in PHASES:
-            st.markdown(f"- {p}")
-
-    if gemini_api_key:
-        try:
-            st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
-            should_validate = st.session_state.get("last_tested_key") != gemini_api_key
-            if should_validate:
-                st.session_state["last_tested_key"] = gemini_api_key
-                ok = validate_ai_connection()
-                if ok:
-                    st.success("AI Connected")
-                    st.session_state["ai_valid"] = True
-                    st.session_state.pop("ai_error", None)
-                else:
-                    # Show concise message only
-                    err = st.session_state.get("ai_error")
-                    short_msg = err or "API key invalid or model unavailable."
-                    st.error(short_msg)
-                    st.session_state["ai_valid"] = False
-            else:
-                # Preserve prior validation result
-                if st.session_state.get("ai_valid"):
-                    st.success("AI Connected")
-                else:
-                    st.info("Key entered — awaiting first AI call")
-        except Exception as e:
-            st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
-            st.stop()
-    
-    # Chat and feedback features
-    st.markdown("---")
+    st.divider()
     
     # Chat expander - plain text, no icon
     initialize_chat_state()
@@ -2177,6 +2525,33 @@ with st.sidebar:
                 st.info("Please provide a rating or feedback")
     
     load_admin_feedback_dashboard()
+
+    if gemini_api_key:
+        try:
+            st.session_state["genai_client"] = genai.Client(api_key=gemini_api_key)
+            should_validate = st.session_state.get("last_tested_key") != gemini_api_key
+            if should_validate:
+                st.session_state["last_tested_key"] = gemini_api_key
+                ok = validate_ai_connection()
+                if ok:
+                    st.success("AI Connected")
+                    st.session_state["ai_valid"] = True
+                    st.session_state.pop("ai_error", None)
+                else:
+                    # Show concise message only
+                    err = st.session_state.get("ai_error")
+                    short_msg = err or "API key invalid or model unavailable."
+                    st.error(short_msg)
+                    st.session_state["ai_valid"] = False
+            else:
+                # Preserve prior validation result
+                if st.session_state.get("ai_valid"):
+                    st.success("AI Connected")
+                else:
+                    st.info("Key entered — awaiting first AI call")
+        except Exception as e:
+            st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
+            st.stop()
 
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
@@ -2286,7 +2661,7 @@ p5_complete = bool(p5.get('beta_html') or p5.get('expert_html') or p5.get('edu_h
 phase_completion.append(p5_complete)
 
 # Compact navigation with numbered phases and status indicators
-st.caption("**Select Phase:**")
+st.caption("**Phase**")
 
 # Use ultra-short labels for navigation buttons
 phase_short_labels = [
@@ -2305,11 +2680,22 @@ with st.sidebar:
         short_label = phase_short_labels[i]
         button_label = f"{i + 1}. {short_label}"
         button_type = "primary" if is_active else "secondary"
-        if st.button(button_label, key=f"side_nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
+        if st.button(button_label, key=f"side_nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type):
             st.session_state.current_phase_label = p
             st.rerun()
 
-nav_cols = st.columns(len(PHASES))  # Equal-width columns for each phase button
+# Create columns with arrows between buttons for forward flow visualization
+# Pattern: [button] → [button] → [button] → [button] → [button]
+num_buttons = len(PHASES)
+num_arrows = num_buttons - 1
+# Create columns: button, arrow, button, arrow, ..., button
+col_specs = []
+for i in range(num_buttons):
+    col_specs.append(3)  # Button column (wider)
+    if i < num_arrows:
+        col_specs.append(0.5)  # Arrow column (narrow)
+
+nav_cols = st.columns(col_specs)
 
 col_idx = 0
 for i, p in enumerate(PHASES):
@@ -2328,6 +2714,12 @@ for i, p in enumerate(PHASES):
             st.rerun()
     
     col_idx += 1
+    
+    # Add arrow between buttons (except after the last button)
+    if i < num_arrows:
+        with nav_cols[col_idx]:
+            st.markdown("<div style='text-align: center; padding-top: 4px; font-size: 20px; color: #666;'>→</div>", unsafe_allow_html=True)
+        col_idx += 1
 
 st.markdown("---")
 
@@ -2340,10 +2732,17 @@ if "Scope" in phase:
         if not (c and s):
             return
         prompt = f"""
-        Act as a Chief Medical Officer. For "{c}" in "{s}", return a JSON object with keys:
-        inclusion, exclusion, problem, objectives. Make inclusion/exclusion numbered lists.
+        Act as a Chief Medical Officer creating a clinical care pathway. For "{c}" in "{s}", return a JSON object with exactly these keys: inclusion, exclusion, problem, objectives.
+        
+        CRITICAL REQUIREMENTS:
+        - inclusion: ONLY 3-5 brief patient characteristics that INCLUDE them in the pathway (e.g., age range, presentation type, risk factors). Concise phrases, not detailed descriptions.
+        - exclusion: ONLY 3-5 brief characteristics that EXCLUDE patients (e.g., contraindications, alternative diagnoses, comorbidities). Concise phrases, not detailed descriptions.
+        - problem: One brief clinical problem statement (1-2 sentences). Describe the gap or challenge, not educational content.
+        - objectives: ONLY 3-4 brief clinical objectives for the pathway (e.g., "Reduce time to diagnosis", "Standardize treatment decisions"). Short statements, not detailed goals.
+        
+        Format each list as a simple newline-separated text, NOT as a JSON array. Do not use markdown formatting (no asterisks, dashes for bullets). Use plain text only.
         """
-        with ai_activity("Drafting Phase 1 content…"):
+        with ai_activity("Generating pathway scope…"):
             data = get_gemini_response(prompt, json_mode=True)
         if data and isinstance(data, dict):
             st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
@@ -2361,13 +2760,11 @@ if "Scope" in phase:
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
 
     def sync_and_draft():
-        # First sync widget values to session state, then request a rerun
-        # so the UI reflects the new values immediately.
-        # We set a flag to perform the AI draft on the next run to avoid
-        # blocking the UI refresh while the network call executes.
+        # First sync widget values to session state; Streamlit will rerun
+        # automatically after this callback. On the next run, we perform the
+        # AI draft, keeping the callback snappy and avoiding rerun warnings.
         sync_p1_widgets()
         st.session_state['p1_should_draft'] = True
-        st.rerun()
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
@@ -2383,10 +2780,17 @@ if "Scope" in phase:
     if st.session_state.get('p1_should_draft'):
         st.session_state['p1_should_draft'] = False
         trigger_p1_draft()
+        # Copy AI-generated values to widget keys so they display immediately
+        p1 = st.session_state.data['phase1']
+        st.session_state['p1_inc'] = p1.get('inclusion', '')
+        st.session_state['p1_exc'] = p1.get('exclusion', '')
+        st.session_state['p1_prob'] = p1.get('problem', '')
+        st.session_state['p1_obj'] = p1.get('objectives', '')
+        st.rerun()
 
     # 4) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
-    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent drafts the rest automatically.")
+    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent generates the rest automatically.")
 
     col1, col2 = columns_top(2)
     with col1:
@@ -2406,66 +2810,69 @@ if "Scope" in phase:
         st.text_area("Project Goals", key="p1_obj", height=compute_textarea_height(st.session_state.get('p1_obj',''), 14), on_change=sync_p1_widgets, label_visibility="collapsed")
 
     st.divider()
-    st.subheader("5. Project Timeline (Gantt Chart)")
-    styled_info("<b>Tip:</b> Hover over the top right of the chart to download the image or table. You can also directly edit the timeline table below to adjust start/end dates and task owners.")
-    if not st.session_state.data['phase1']['schedule']:
-        today = date.today()
-        def add_weeks(start, w): return start + timedelta(weeks=w)
-        d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
-        d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
-        st.session_state.data['phase1']['schedule'] = [
-            {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
-            {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
-            {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
-            {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
-            {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-            {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
-            {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
-            {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
-            {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
-        ]
-    df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
-    if not edited_sched.empty:
-        st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
-        chart_data = edited_sched.copy()
-        chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
-        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
-        chart_data['End'] = pd.to_datetime(chart_data['End'])
-        if not chart_data.empty:
-            # Define consistent color scheme for all owners
-            owner_colors = {
-                'PM': '#5f9ea0',           # Cadet blue
-                'Clinical Lead': '#4169e1',  # Royal blue
-                'Expert Panel': '#b0c4de',   # Light steel blue
-                'IT': '#dc143c',             # Crimson
-                'Ops': '#ffb6c1',            # Light pink
-                'Quality': '#5D4037'         # Brown (consistent with brand)
-            }
-            
-            chart = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('Start', title='Date'),
-                x2='End',
-                y=alt.Y('Stage', sort=None),
-                color=alt.Color('Owner', 
-                    scale=alt.Scale(
-                        domain=list(owner_colors.keys()),
-                        range=list(owner_colors.values())
-                    ),
-                    legend=alt.Legend(title='Owner')
-                ),
-                tooltip=['Stage', 'Start', 'End', 'Owner']
-            ).properties(height=300).interactive()
-            st.altair_chart(chart, width="stretch")
     
-    if st.button("Generate Project Charter", type="secondary", use_container_width=True):
-        sync_p1_widgets()
-        d = st.session_state.data['phase1']
-        if not d['condition'] or not d['problem']: st.error("Please fill in Condition and Problem.")
+    with st.expander("5. Project Timeline (Gantt Chart)", expanded=False):
+        styled_info("<b>Tip:</b> Edit the timeline table below to adjust start/end dates and task owners. The chart updates automatically. Hover over the chart to download.")
+        if not st.session_state.data['phase1']['schedule']:
+            today = date.today()
+            def add_weeks(start, w): return start + timedelta(weeks=w)
+            d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
+            d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
+            st.session_state.data['phase1']['schedule'] = [
+                {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
+                {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
+                {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
+                {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
+                {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
+                        ),
+                        legend=alt.Legend(title='Owner')
+                    ),
+                    tooltip=['Stage:N', 'Start:T', 'End:T', 'Owner:N']
+                ).properties(height=300).interactive()
+                
+                st.altair_chart(chart, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
         else:
+            st.info("Add timeline entries to see the Gantt chart.")
+
+    st.divider()
+    
+    # Download Project Charter - generates on-the-fly when clicked
+    sync_p1_widgets()
+    d = st.session_state.data['phase1']
+    
+    if d.get('condition') and d.get('problem'):
+        if st.button("Download Project Charter (.docx)", type="secondary"):
             with st.status("Generating Project Charter...", expanded=True) as status:
                 st.write("Building project charter based on IHI Quality Improvement framework...")
-                p_ihi = f"Act as QI Advisor (IHI Model). Draft Charter for {d['condition']}. Problem: {d['problem']}. Scope: {d['inclusion']}. Return JSON: project_description, rationale, expected_outcomes, aim_statement, outcome_measures, process_measures, balancing_measures, initial_activities, change_ideas, stakeholders, barriers, boundaries (return as dict: in_scope, out_of_scope)."
+                p_ihi = f"""You are a Quality Improvement Advisor using IHI's Model for Improvement.
+
+Build a project charter for managing "{d['condition']}" in "{d.get('setting', '') or 'care setting'}".
+
+**Phase 1 Context:**
+Problem: {d['problem']}
+Inclusion: {d['inclusion']}
+Exclusion: {d['exclusion']}
+Objectives: {d.get('objectives', '')}
+
+**Required JSON Output** (clean, no nested objects, all values as strings or string arrays):
+Return ONLY a JSON object with these exact keys:
+- problem: narrative (string, 1–2 paragraphs, use Phase 1 problem statement)
+- project_description: scope statement (string, 1 paragraph: 1 sentence scope + 1 sentence approach)
+- rationale: evidence basis (string, 1 paragraph, use Phase 1 context)
+- expected_outcomes: list of strings (5–8 outcomes, one string per item)
+- aim_statement: SMART goal (string, 1 line)
+- outcome_measures: list of strings (safety/efficiency metrics, 4–6 items)
+- process_measures: list of strings (protocol adherence, 4–6 items)
+- balancing_measures: list of strings (staff impact, 3–4 items)
+- initial_activities: narrative (string, 1 paragraph)
+- change_ideas: list of strings (4–6 PDSA-ready interventions)
+- stakeholders: comma-separated string
+- barriers: list of strings (3–5 barriers)
+- boundaries: object with in_scope (string) and out_of_scope (string)
+
+Return clean JSON ONLY. No markdown, no explanation."""
                 res = get_gemini_response(p_ihi, json_mode=True)
                 if res:
                     st.session_state.data['phase1']['ihi_content'] = res
@@ -2475,28 +2882,18 @@ if "Scope" in phase:
                         st.download_button("Download Project Charter (.docx)", doc, f"Project_Charter_{d['condition']}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
                     else:
                         status.update(label="Word export unavailable. Please ensure python-docx is installed.", state="error")
+                else:
+                    status.update(label="Failed to generate charter.", state="error")
+    else:
+        st.info("Complete Clinical Condition and Problem Statement to download the Project Charter.")
 
     # Refine & Regenerate (placed below charter so edits can be made, then re-generate)
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
+        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Apply to automatically update all Phase 1 content and charter data.")
         with st.form("p1_refine_form"):
-            col_file, col_text = st.columns([1, 2])
-            with col_file:
-                st.caption("Supporting Document (optional)")
-                p1_uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p1_file_upload",
-                    accept_multiple_files=False,
-                    label_visibility="collapsed",
-                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-                )
-                if p1_uploaded:
-                    file_result = upload_and_review_file(p1_uploaded, "p1_refine", "clinical scope and charter")
-                    if file_result:
-                        with st.expander("File Review", expanded=False):
-                            st.markdown(file_result["review"])
-
+            col_text, col_file = columns_top([2, 1])
             with col_text:
                 st.text_area(
                     "Refinement Notes",
@@ -2506,29 +2903,55 @@ if "Scope" in phase:
                     help="Describe what to change. After applying, click Generate Project Charter above again."
                 )
 
-            spacer, submit_col = st.columns([5, 2])
+            with col_file:
+                st.caption("Supporting Documents (optional)")
+                p1_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p1_file_upload",
+                    accept_multiple_files=True,
+                    label_visibility="collapsed",
+                    help="Attach PDFs/DOCX files; the agent auto-summarizes them for context."
+                )
+                if p1_uploaded:
+                    for uploaded_file in p1_uploaded:
+                        file_result = upload_and_review_file(uploaded_file, f"p1_refine_{uploaded_file.name}", "clinical scope and charter")
+                        if file_result:
+                            with st.expander(f"Review: {file_result['filename']}", expanded=False):
+                                st.markdown(file_result["review"])
+
+            spacer, submit_col = columns_top([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Regenerate", use_container_width=True, type="secondary")
+                submitted = st.form_submit_button("Regenerate", type="secondary")
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
         if refinement_text:
-            if st.session_state.get("file_p1_refine_review"):
-                refinement_text += f"\n\nSupporting Document:\n{st.session_state.get('file_p1_refine_review')}"
+            # Collect all uploaded document reviews
+            doc_reviews = []
+            for key in st.session_state.keys():
+                if key.startswith("file_p1_refine_") and key != "file_p1_refine":
+                    doc_reviews.append(st.session_state.get(key, ''))
+            
+            if doc_reviews:
+                refinement_text += f"\n\nSupporting Documents:\n" + "\n\n".join(doc_reviews)
+            
             current = st.session_state.data['phase1']
             prompt = f"""
             Update the following sections based on this user feedback: "{refinement_text}"
             Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
             Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
+            Do not use markdown formatting (no asterisks for bold). Use plain text only.
             """
-            with ai_activity("Applying refinements to Phase 1 content…"):
+            with ai_activity("Applying refinements and auto-generating charter…"):
                 data = get_gemini_response(prompt, json_mode=True)
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                st.success("Refinements applied. Click 'Generate Project Charter' above to refresh the document.")
+                # Auto-generate charter
+                generate_p1_charter()
+                st.success("Refinements applied and Project Charter auto-generated!")
             else:
                 st.error("Failed to apply refinements. Please try again.")
     render_bottom_navigation()
@@ -2580,9 +3003,6 @@ elif "Evidence" in phase or "Appraise" in phase:
                             grade_data = grades[pmid_str]
                             e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
                             e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
-                for e in st.session_state.data['phase2']['evidence']:
-                    e.setdefault('grade', 'Un-graded')
-                    e.setdefault('rationale', 'Not yet evaluated.')
         st.session_state['p2_last_autorun_query'] = st.session_state.data['phase2']['mesh_query']
 
     # Summary banner for newly enriched evidence from Phase 3
@@ -2765,62 +3185,55 @@ elif "Evidence" in phase or "Appraise" in phase:
                     # Centered download button beneath the section
                     dl_l, dl_c, dl_r = st.columns([1,2,1])
                     with dl_c:
-                        st.download_button("Download (CSV)", csv_data_full, file_name="evidence_table.csv", mime="text/csv", use_container_width=True)
+                        st.download_button("Download (.csv)", csv_data_full, file_name="evidence_table.csv", mime="text/csv")
 
             with c2:
                 if show_citations:
-                    st.subheader("Formatted Citations", help="Generate Word citations in your preferred style.")
-                    citation_style = st.selectbox("Citation style", ["APA", "MLA", "Vancouver"], key="p2_citation_style", label_visibility="collapsed")
+                    st.subheader("Formatted Citations", help="Generate Word citations in your preferred style. Pick a preset or type your own below.")
+                    style_col, custom_col = columns_top([1, 2])
+                    with style_col:
+                        citation_style = st.selectbox(
+                            "Citation style",
+                            ["APA", "MLA", "Vancouver"],
+                            key="p2_citation_style"
+                        )
+                        st.caption("Pick a preset or type your own below.")
+                    with custom_col:
+                        custom_style = st.text_input(
+                            "Or enter custom style name",
+                            value="",
+                            placeholder="Harvard, Chicago",
+                            max_chars=30,
+                            key="p2_custom_citation_style"
+                        )
+                        st.caption("Leave blank to use the preset above.")
+
+                    # Use custom style if provided, otherwise use selected preset
+                    final_citation_style = custom_style if custom_style.strip() else citation_style
                     references_source = display_data if display_data else evidence_data
-                    # Build citation lines and centered download
                     citations = references_source or []
-                    lines = [format_citation_line(entry, citation_style) for entry in citations]
-                    docx_bytes = create_references_docx(citations, style=citation_style)
+                    lines = [format_citation_line(entry, final_citation_style) for entry in citations]
+                    docx_bytes = create_references_docx(citations, style=final_citation_style)
+
+                    no_citations = len(citations) == 0
                     dl2_l, dl2_c, dl2_r = st.columns([1,2,1])
                     with dl2_c:
                         if docx_bytes:
-                            st.download_button("Download (DOC)", docx_bytes, file_name="citations.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                            st.download_button(
+                                "Download (.docx)",
+                                docx_bytes,
+                                file_name="citations.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                disabled=no_citations
+                            )
                         else:
                             st.info("Word export unavailable (python-docx not installed)")
+                        if no_citations:
+                            st.info("Add evidence to enable download.")
 
     else:
-        # If nothing to show, provide a helpful prompt and the PubMed link if available
+        # If nothing to show, provide a helpful prompt
         styled_info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
-        # Offer quick broaden options
-        c = st.session_state.data['phase1'].get('condition', '')
-        s = st.session_state.data['phase1'].get('setting', '')
-        
-        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-        if c and st.button("Broaden: drop setting", key="p2_broaden_drop_setting", use_container_width=True):
-            cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
-            q = f'{cond_q} AND english[lang]'
-            st.session_state.data['phase2']['mesh_query'] = q
-            full_query = f"{q} AND (\"last 5 years\"[dp])"
-            with ai_activity("Searching PubMed and auto‑grading…"):
-                results = search_pubmed(full_query)
-                st.session_state.data['phase2']['evidence'] = results
-                if results:
-                    prompt = (
-                        "Assign GRADE quality of evidence (use EXACTLY one of: 'High (A)', 'Moderate (B)', 'Low (C)', or 'Very Low (D)') "
-                        "and provide a brief Rationale (1-2 sentences) for each article. "
-                        f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in results])}. "
-                        "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
-                        "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
-                    )
-                    grades = get_gemini_response(prompt, json_mode=True)
-                    if grades and isinstance(grades, dict):
-                        for e in st.session_state.data['phase2']['evidence']:
-                            pmid_str = str(e['id'])
-                            if pmid_str in grades:
-                                grade_data = grades[pmid_str]
-                                e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
-                                e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
-            st.session_state['p2_last_autorun_query'] = q
-            st.rerun()
-        if st.session_state.data['phase2'].get('mesh_query'):
-            search_q = st.session_state.data['phase2']['mesh_query']
-            full_q = search_q if '"last 5 years"[dp]' in search_q else f"{search_q} AND (\"last 5 years\"[dp])"
-            st.link_button("Open in PubMed ↗", f"https://pubmed.ncbi.nlm.nih.gov/?term={urllib.parse.quote(full_q)}", type="secondary")
     render_bottom_navigation()
     st.stop()
 
@@ -2828,6 +3241,8 @@ elif "Evidence" in phase or "Appraise" in phase:
 elif "Decision" in phase or "Tree" in phase:
     st.header(f"Phase 3. {PHASES[2]}")
     styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
+    
+    st.divider()
     
     # Reset enrichment flag each time Phase 3 is loaded (allows re-enrichment if new PMIDs added)
     # This is a safety mechanism to detect changes from previous session
@@ -2881,6 +3296,8 @@ elif "Decision" in phase or "Tree" in phase:
         with ai_activity("Auto-generating decision tree from Phase 1 & 2 data..."):
             nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(nodes, list) and len(nodes) > 0:
+            # Silently normalize OR logic in End nodes to proper Decision nodes
+            nodes = normalize_or_logic(nodes)
             st.session_state.data['phase3']['nodes'] = nodes
             st.rerun()
         elif not isinstance(nodes, list):
@@ -2928,81 +3345,6 @@ elif "Decision" in phase or "Tree" in phase:
     # Display pathway metrics with evidence enrichment
     node_count = len(st.session_state.data['phase3']['nodes'])
 
-    def fingerprint_nodes(nodes: list) -> str:
-        return hashlib.md5(json.dumps(nodes, sort_keys=True).encode("utf-8")).hexdigest()
-
-    def auto_fix_problematic_end_nodes(problematic_ends: list) -> bool:
-        """Attempt to auto-convert End nodes containing OR logic into explicit Decision branches."""
-        current_nodes = st.session_state.data['phase3']['nodes']
-        current_fp = fingerprint_nodes(current_nodes)
-        last_attempt_fp = st.session_state.data['phase3'].get('or_fix_attempt_fp')
-
-        # Avoid re-entering while an in-flight attempt is running
-        if st.session_state.data['phase3'].get('or_fix_inflight'):
-            styled_info("<b>Auto-fix:</b> Converting OR End nodes to Decision branches…")
-            return True
-
-        # If we've already tried for this exact snapshot, surface the warning instead
-        if last_attempt_fp == current_fp:
-            return False
-
-        st.session_state.data['phase3']['or_fix_inflight'] = True
-        ev_context = "\n".join([
-            f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}"
-            for e in evidence_list[:20]
-        ])
-        with ai_activity("Auto-fixing OR logic in End nodes…"):
-            prompt = f"""
-            You are updating a clinical decision tree. Some End nodes incorrectly include OR logic in their labels.
-
-            Task: rewrite the JSON list so that every End node containing "or" in its label is replaced with a Decision
-            node that branches into explicit End outcomes. Keep the rest of the pathway intact.
-
-            Current pathway (JSON):
-            {json.dumps(current_nodes, indent=2)}
-
-            Evidence for reference (do not invent new IDs):
-            {ev_context}
-
-            Requirements:
-            - Preserve fields: type, label, evidence.
-            - For each problematic End node, create a Decision node summarizing the choice, followed immediately by explicit End nodes (one outcome per End node).
-            - Copy any evidence from the original End node to its derived Decision/End nodes when appropriate; otherwise use "N/A".
-            - Do not add new fields; keep Start/Decision/Process/End types only.
-            - Keep the sequence logical and avoid duplicates.
-            - Return JSON only.
-            """
-            fixed_nodes = get_gemini_response(prompt, json_mode=True)
-
-        st.session_state.data['phase3']['or_fix_inflight'] = False
-        st.session_state.data['phase3']['or_fix_attempt_fp'] = current_fp
-
-        if isinstance(fixed_nodes, list) and fixed_nodes:
-            st.session_state.data['phase3']['nodes'] = fixed_nodes
-            st.session_state.data['phase3']['or_fix_success_fp'] = fingerprint_nodes(fixed_nodes)
-            st.success("Automatically converted OR End nodes into explicit Decision branches.")
-            st.rerun()
-
-        # Auto-fix failed to return usable content; allow fallback warning
-        return False
-
-    # Flag problematic terminal nodes that include OR logic
-    problematic_ends = [
-        (idx + 1, n.get('label', ''))
-        for idx, n in enumerate(st.session_state.data['phase3']['nodes'])
-        if n.get('type') == 'End' and ' or ' in n.get('label', '').lower()
-    ]
-
-    auto_fix_triggered = False
-    if problematic_ends:
-        auto_fix_triggered = auto_fix_problematic_end_nodes(problematic_ends)
-        if not auto_fix_triggered:
-            preview = "; ".join([f"{i}: {lbl[:80]}" for i, lbl in problematic_ends[:3]])
-            st.warning(
-                f"End nodes should be single outcomes. Found OR logic in: {preview}. "
-                "Convert these to Decision nodes with explicit branches (e.g., 'Discharge vs Admit')."
-            )
-    
     # Extract all PMIDs from Phase 3 nodes
     phase3_pmids = extract_pmids_from_nodes(st.session_state.data['phase3']['nodes'])
     phase2_pmids = set([e['id'] for e in evidence_list])
@@ -3100,70 +3442,55 @@ elif "Decision" in phase or "Tree" in phase:
 
     st.divider()
 
-    # Natural Language Refinement Interface (placed below the table)
-    # File upload for Phase 3 refinement
-    col_file, col_text = columns_top([1, 2])
-    with col_file:
-        st.caption("Supporting Document (optional)")
-        p3_uploaded = st.file_uploader(
-            "Drag & drop or browse",
-            key="p3_file_upload",
-            accept_multiple_files=False,
-            label_visibility="collapsed"
-        )
-        if p3_uploaded:
-            file_result = upload_and_review_file(p3_uploaded, "p3_refine", "decision tree pathway")
-            if file_result:
-                with st.expander("File Review", expanded=True):
-                    st.markdown(file_result["review"])
+    # Refine & Regenerate (placed below the table)
+    st.divider()
+    submitted = False
+    with st.expander("Refine & Regenerate", expanded=False):
+        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Regenerate to automatically update the pathway above.")
+        with st.form("p3_refine_form"):
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                st.text_area(
+                    "Refinement Notes",
+                    key="p3_refine_input",
+                    placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
+                    height=90,
+                    help="Describe what to change. After applying, the pathway will regenerate above."
+                )
 
-    col_file, col_text = st.columns([1, 2])
-    with col_file:
-        st.caption("Supporting Document (optional)")
-        p3_uploaded = st.file_uploader(
-            "Drag & drop or browse",
-            key="p3_refine_upload",
-            accept_multiple_files=False,
-            label_visibility="collapsed",
-            help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-        )
-        if p3_uploaded:
-            file_result = upload_and_review_file(p3_uploaded, "p3_refine", "pathway")
-            if file_result:
-                with st.expander("File Review", expanded=False):
-                    st.markdown(file_result["review"])
+            with col_file:
+                st.caption("Supporting Documents (optional)")
+                p3_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p3_file_upload",
+                    accept_multiple_files=True,
+                    label_visibility="collapsed",
+                    help="Attach PDFs/DOCX files; the agent auto-summarizes them for context."
+                )
+                if p3_uploaded:
+                    for uploaded_file in p3_uploaded:
+                        file_result = upload_and_review_file(uploaded_file, f"p3_refine_{uploaded_file.name}", "decision tree pathway")
+                        if file_result:
+                            with st.expander(f"Review: {file_result['filename']}", expanded=False):
+                                st.markdown(file_result["review"])
 
-    with col_text:
-        st.text_area(
-            "Refinement Notes",
-            placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-            key="p3_refine_input",
-            height=90
-        )
-    
-    # Reset refinement applied flag if text area content changes
-    if 'p3_last_refine_input' not in st.session_state:
-        st.session_state['p3_last_refine_input'] = ""
-    
-    current_refine_input = st.session_state.get('p3_refine_input', '').strip()
-    if current_refine_input != st.session_state['p3_last_refine_input']:
-        st.session_state['p3_refinement_applied'] = False
-        st.session_state['p3_last_refine_input'] = current_refine_input
-    
-    # Check if refinements were just applied
-    p3_refinement_applied = st.session_state.get('p3_refinement_applied', False)
+            spacer, submit_col = columns_top([5, 2])
+            with submit_col:
+                submitted = st.form_submit_button("Regenerate", type="secondary")
 
-    # Always present a brown secondary regenerate button
-    refine_button_type = "secondary"
-    refine_button_label = "Regenerate"
-
-    if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
-        if not p3_refinement_applied:
-            refinement_request = st.session_state.get('p3_refine_input', '').strip()
-            # Include uploaded file context
-            if st.session_state.get("file_p3_refine_review"):
-                refinement_request += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p3_refine_review')}"
-            if refinement_request and st.session_state.data['phase3']['nodes']:
+    if submitted:
+        refinement_request = st.session_state.get('p3_refine_input', '').strip()
+        if refinement_request:
+            # Collect all uploaded document reviews
+            doc_reviews = []
+            for key in st.session_state.keys():
+                if key.startswith("file_p3_refine_") and key != "file_p3_refine":
+                    doc_reviews.append(st.session_state.get(key, ''))
+            
+            if doc_reviews:
+                refinement_request += f"\n\nSupporting Documents:\n" + "\n\n".join(doc_reviews)
+            
+            if st.session_state.data['phase3']['nodes']:
                 with ai_activity("Applying refinements to decision tree..."):
                     current_nodes = st.session_state.data['phase3']['nodes']
                     ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
@@ -3194,14 +3521,15 @@ elif "Decision" in phase or "Tree" in phase:
                     """
                     nodes = get_gemini_response(prompt, json_mode=True)
                     if isinstance(nodes, list) and len(nodes) > 0:
+                        # Silently normalize OR logic in End nodes to proper Decision nodes
+                        nodes = normalize_or_logic(nodes)
                         st.session_state.data['phase3']['nodes'] = nodes
                         # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
                         st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
-                        st.session_state['p3_refinement_applied'] = True
-                        st.success("Refinements applied")
-                        st.rerun()
-        else:
-            st.info("Refinements already applied. Edit notes to regenerate again.")
+                        st.success("Refinements applied and pathway regenerated!")
+                    else:
+                        st.error("Failed to regenerate pathway. Please try again.")
+                    st.rerun()
     
     render_bottom_navigation()
     st.stop()
@@ -3280,70 +3608,36 @@ elif "Interface" in phase or "UI" in phase:
             new_svg = render_graphviz_bytes(g, "svg")
             cache[sig] = {"svg": new_svg}
             svg_bytes = new_svg
+        else:
+            debug_log(f"build_graphviz_from_nodes returned None. graphviz module: {graphviz}")
     p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
     import base64
     svg_b64 = base64.b64encode(svg_bytes or b"").decode('utf-8') if svg_bytes else ""
+    
+    # Also decode SVG to string for direct embedding
+    svg_str = svg_bytes.decode('utf-8') if svg_bytes else ""
+
+    # Always prepare DOT source as a client-side fallback via Viz.js
+    dot_src = dot_from_nodes(nodes_for_viz, "TD")
+
+    # DEBUG: Log SVG generation status
+    debug_log(f"SVG generation - graphviz: {graphviz is not None}, svg_bytes: {svg_bytes is not None}, svg_b64 len: {len(svg_b64)}, svg_str len: {len(svg_str)}")
 
     col_left, col_right = st.columns([3, 2])
 
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
         st.subheader("Pathway Visualization")
-        if svg_b64:
-            with st.expander("Open Preview", expanded=False):
-                preview_html = f"""
-                <div id="cpq-preview" style="border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
-                  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;">
-                    <button id="cpq-zoom-out" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">-</button>
-                    <button id="cpq-zoom-in" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">+</button>
-                    <button id="cpq-fit" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Fit</button>
-                  </div>
-                  <div id="cpq-canvas" style="width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;">
-                    <div id="cpq-inner" style="transform-origin: top left;">
-                      <img id="cpq-svg" src="data:image/svg+xml;base64,{svg_b64}" style="display:block;" />
-                    </div>
-                  </div>
-                </div>
-                <script>
-                  (function() {{
-                    const img = document.getElementById('cpq-svg');
-                    const inner = document.getElementById('cpq-inner');
-                    const canvas = document.getElementById('cpq-canvas');
-                    let scale = 1;
-
-                    function fitToWidth() {{
-                      if (!img.complete) return;
-                      const naturalWidth = img.naturalWidth || img.width;
-                      const available = canvas.clientWidth - 24;
-                      if (naturalWidth > 0 && available > 0) {{
-                        scale = Math.min(1, available / naturalWidth);
-                        apply();
-                      }}
-                    }}
-
-                    function apply() {{
-                                            inner.style.transform = `scale(${{scale}})`;
-                    }}
-
-                    document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); apply(); }};
-                    document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); apply(); }};
-                    document.getElementById('cpq-fit').onclick = () => fitToWidth();
-                    img.onload = fitToWidth;
-                    if (img.complete) fitToWidth();
-                    window.addEventListener('resize', fitToWidth);
-                  }})();
-                </script>
-                """
-                components.html(preview_html, height=520)
-
-            c1, c2 = columns_top([1, 1])
-            with c1:
-                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", use_container_width=True)
-            with c2:
-                st.caption("Preview opens inline with zoom controls; SVG download remains available.")
-        else:
-            st.warning("Unable to render pathway visualization")
+                styled_info("<b>Tip:</b> Inline preview is disabled. After any edits in the decision tree table or settings, download the updated SVG below to view changes.")
+                if svg_bytes:
+                        c1, c2 = columns_top([1, 1])
+                        with c1:
+                                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
+                        with c2:
+                                st.caption("Re‑download the SVG after each edit to see updates.")
+                else:
+                        st.warning("SVG unavailable. Install Graphviz on the server and retry.")
 
         st.divider()
 
@@ -3355,7 +3649,7 @@ elif "Interface" in phase or "UI" in phase:
                 df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
             else:
                 df_p4['node_id'] = range(1, len(df_p4) + 1)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor", use_container_width=True)
+            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor")
             manual_changed = not df_p4.equals(edited_p4)
             if manual_changed:
                 if 'node_id' in edited_p4.columns:
@@ -3365,7 +3659,7 @@ elif "Interface" in phase or "UI" in phase:
                 st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
 
             regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
-            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", use_container_width=True, disabled=regen_disabled, type="secondary"):
+            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", disabled=regen_disabled):
                 p4_state['viz_cache'] = {}
                 st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
                 st.rerun()
@@ -3375,96 +3669,135 @@ elif "Interface" in phase or "UI" in phase:
         # REFINE AND REGENERATE SECTION (collapsed for cleaner UI)
         h_data = p4_state.get('heuristics_data', {})
         with st.expander("Refine & Regenerate", expanded=False):
-            col_file, col_text = columns_top([1, 2])
-            with col_file:
-                st.caption("Supporting Document (optional)")
-                uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p4_upload",
-                    accept_multiple_files=False,
-                    label_visibility="collapsed",
-                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-                )
-                if uploaded:
-                    file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
-                    if file_result:
-                        with st.expander("File Review", expanded=True):
-                            st.markdown(file_result["review"])
+            st.caption("Tip: Use natural language to micro‑refine the pathway. Optionally upload a supporting document. Click Regenerate to apply.")
+            with st.form("p4_refine_form"):
+                col_text, col_file = columns_top([2, 1])
+                with col_text:
+                    refine_notes = st.text_area(
+                        "Refinement Notes",
+                        placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
+                        key="p4_refine_notes",
+                        height=90,
+                        label_visibility="visible"
+                    )
 
-            with col_text:
-                refine_notes = st.text_area(
-                    "Refinement Notes",
-                    placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-                    key="p4_refine_notes",
-                    height=90,
-                    label_visibility="visible"
-                )
+                with col_file:
+                    st.caption("Supporting Documents (optional)")
+                    uploaded = st.file_uploader(
+                        "Drag and drop file here",
+                        key="p4_upload",
+                        accept_multiple_files=False,
+                        label_visibility="collapsed",
+                        help="Limit 200MB per file"
+                    )
+                    if uploaded:
+                        file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
+                        if file_result:
+                            with st.expander("File Review", expanded=False):
+                                st.markdown(file_result["review"])
 
-            apply_disabled = not refine_notes and not st.session_state.get("file_p4_refine_file")
-            if st.button("Regenerate", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled, type="secondary"):
-                with st.spinner("Applying refinements..."):
-                    refine_with_file = refine_notes
+                spacer, submit_col = columns_top([5, 2])
+                with submit_col:
+                    submitted = st.form_submit_button("Regenerate", type="secondary")
+
+            if submitted:
+                refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
+                if refine_with_file:
                     if st.session_state.get("file_p4_refine_file"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_file')}"
-                    refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
-                    if refined:
-                        st.session_state.data['phase3']['nodes'] = refined
-                        p4_state['viz_cache'] = {}
-                        st.success("Refinements applied. Regenerated nodes below.")
-                        st.rerun()
-                    else:
-                        st.warning("Could not apply refinements. Please try different notes or regenerate.")
+                    with st.spinner("Applying refinements..."):
+                        refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
+                        if refined:
+                            st.session_state.data['phase3']['nodes'] = refined
+                            p4_state['viz_cache'] = {}
+                            st.success("Refinements applied. Regenerated nodes below.")
+                            st.rerun()
+                        else:
+                            st.warning("Could not apply refinements. Please try different notes or regenerate.")
 
     # RIGHT: Nielsen's heuristics panel
     with col_right:
         st.subheader("Nielsen's Heuristics Evaluation")
         h_data = p4_state.get('heuristics_data', {})
 
-        h_data = p4_state.get('heuristics_data', {})
         if not h_data:
             styled_info("Heuristics are generated automatically. They will appear here shortly.")
         else:
-            st.caption("Click each heuristic to view definition and AI-generated recommendations")
-            ordered_keys = sorted(h_data.keys(), key=lambda hk: int(hk[1:]) if hk[1:].isdigit() else 0)
-            for heuristic_key in ordered_keys:
-                insight = h_data[heuristic_key]
-                definition = HEURISTIC_DEFS.get(heuristic_key, "No definition available.")
-                category_name = definition.split(':')[0] if ':' in definition else heuristic_key
-                with st.expander(f"**{heuristic_key}** - {category_name}", expanded=False):
-                    st.markdown(f"**Definition:** {definition}")
-                    st.divider()
-                    st.markdown(f"**AI Recommendation:**")
-                    # White background with black text for consistency
-                    st.markdown(
-                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
-                        unsafe_allow_html=True
-                    )
-                    act_left, act_right = st.columns([1, 1])
-                    with act_left:
-                        if st.button(f"✓ Apply", key=f"p4_apply_{heuristic_key}", use_container_width=True):
-                            p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                            with ai_activity(f"Applying {heuristic_key} recommendation…"):
-                                prompt_apply = f"""
-                                Update the clinical pathway by applying this specific usability recommendation.
-                                Heuristic {heuristic_key} recommendation: {insight}
-                                Current pathway: {json.dumps(nodes)}
-                                Return ONLY the updated JSON array of nodes.
-                                """
-                                new_nodes = get_gemini_response(prompt_apply, json_mode=True)
-                                if new_nodes and isinstance(new_nodes, list):
-                                    st.session_state.data['phase3']['nodes'] = harden_nodes(new_nodes)
-                                    p4_state['viz_cache'] = {}
-                                    st.success(f"Applied {heuristic_key} recommendation")
-                                    st.rerun()
-                    with act_right:
-                        if st.button(f"↶ Undo", key=f"p4_undo_{heuristic_key}", use_container_width=True):
-                            if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
-                                prev_nodes = p4_state['nodes_history'].pop()
-                                st.session_state.data['phase3']['nodes'] = prev_nodes
-                                st.success(f"Undid last change")
+            # Separate actionable from UI-only heuristics
+            actionable_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["pathway_actionable"]}
+            ui_only_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["ui_design_only"]}
+            
+            # SUMMARY CARD
+            st.info(f"""
+**Heuristics Summary:**
+- **{len(actionable_h)} pathway improvements** ready to apply collectively (H2, H4, H5)
+- **{len(ui_only_h)} design recommendations** to review for UI implementation (H1, H3, H6-H10)
+""")
+            
+            # SECTION 1: ACTIONABLE PATHWAY IMPROVEMENTS
+            if actionable_h:
+                st.markdown("### 🔧 Pathway Improvements (Actionable)")
+                st.caption("These heuristics can improve your clinical pathway structure and clarity. Apply them collectively below.")
+                
+                for heuristic_key in sorted(actionable_h.keys()):
+                    insight = actionable_h[heuristic_key]
+                    category_desc = HEURISTIC_CATEGORIES["pathway_actionable"].get(heuristic_key, "")
+                    
+                    with st.expander(f"**{heuristic_key}** - {category_desc.split(' (')[0]}", expanded=False):
+                        st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
+                        st.divider()
+                        st.markdown(f"**AI Assessment for Your Pathway:**")
+                        st.markdown(
+                            f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
+                            unsafe_allow_html=True
+                        )
+                
+                # COLLECTIVE APPLY BUTTON FOR ACTIONABLE HEURISTICS
+                col_apply, col_space = st.columns([1, 1])
+                with col_apply:
+                    if st.button("✓ Apply All Improvements", key="p4_apply_all_actionable", type="primary"):
+                        p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        with ai_activity("Applying pathway improvements (H2, H4, H5)…"):
+                            improved_nodes = apply_pathway_heuristic_improvements(nodes, actionable_h)
+                            if improved_nodes:
+                                st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
+                                p4_state['viz_cache'] = {}
+                                st.success("✓ Applied pathway improvements. Visualization and nodes updated.")
                                 st.rerun()
                             else:
-                                st.warning("No changes to undo")
+                                st.error("Could not process improvements. Please try again.")
+                
+                # UNDO BUTTON (outside the button columns for visibility)
+                if st.button("↶ Undo Last Changes", key="p4_undo_all"):
+                    if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
+                        prev_nodes = p4_state['nodes_history'].pop()
+                        st.session_state.data['phase3']['nodes'] = prev_nodes
+                        p4_state['viz_cache'] = {}
+                        st.success("Undid last improvement batch")
+                        st.rerun()
+                    else:
+                        st.info("No changes to undo")
+                
+                st.divider()
+            
+            # SECTION 2: UI DESIGN RECOMMENDATIONS (REVIEW-ONLY)
+            if ui_only_h:
+                st.markdown("### 🎨 Design Recommendations (UI/UX - For Your Designer)")
+                st.caption("These are interface design improvements to implement in your app's frontend. Share with your design team.")
+                
+                for heuristic_key in sorted(ui_only_h.keys()):
+                    insight = ui_only_h[heuristic_key]
+                    category_desc = HEURISTIC_CATEGORIES["ui_design_only"].get(heuristic_key, "")
+                    
+                    with st.expander(f"**{heuristic_key}** - {category_desc.split(' (')[0]}", expanded=False):
+                        st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
+                        st.divider()
+                        st.markdown(f"**Recommendation for Your Interface:**")
+                        st.markdown(
+                            f"<div style='background-color: #f0f7ff; color: #001a4d; padding: 12px; border-radius: 5px; border-left: 4px solid #0066cc; margin-bottom: 10px;'>{insight}</div>",
+                            unsafe_allow_html=True
+                        )
+                        st.caption("💡 Implementation tip: This is a design consideration to discuss with your frontend team or include in wireframes/mockups.")
 
     render_bottom_navigation()
     st.stop()
@@ -3479,7 +3812,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
             generate_expert_form_html,
             generate_beta_form_html,
             create_phase5_executive_summary_docx,
-            ensure_carepathiq_branding
+            ensure_carepathiq_branding,
+            get_role_depth_mapping,
+            generate_role_specific_module_header,
+            generate_role_specific_learning_objectives,
+            generate_role_specific_quiz_scenario,
+            filter_nodes_by_role
         )
         from education_template import create_education_module_template
     except ImportError:
@@ -3487,7 +3825,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
         st.stop()
     
     # Single info box at top
-    styled_info("<b>Tip:</b> Download HTML files and share with anyone. They can open in any browser, provide feedback, and download results as CSV to share back with you.")
+    styled_info("<b>Tip:</b> Enter a target audience below, and each deliverable will be auto-generated immediately. Download the HTML file to share—it opens in any browser and allows feedback export as CSV.")
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     setting = st.session_state.data['phase1'].get('setting', '') or ""
@@ -3507,8 +3845,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
     
     # 2x2 GRID LAYOUT
     col1, col2 = st.columns(2)
-    
-        # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
+
+    # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
     with col1:
         st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
 
@@ -3524,67 +3862,128 @@ elif "Operationalize" in phase or "Deploy" in phase:
             st.session_state["p5_aud_expert"] = aud_expert
             st.session_state["p5_aud_expert_prev"] = aud_expert
             with st.spinner("Generating expert feedback form..."):
+                # Generate SVG for pathway visualization in downloaded form
+                g = build_graphviz_from_nodes(nodes, "TD")
+                svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
+                
                 expert_html = generate_expert_form_html(
                     condition=cond,
                     nodes=nodes,
                     audience=aud_expert,
                     organization=cond,
-                    care_setting=setting
+                    care_setting=setting,
+                    pathway_svg_b64=svg_b64,
+                    genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
-            st.success("Generated!")
+                st.success("Generated!")
 
-        if st.session_state.data['phase5'].get('expert_html'):
-            exp_html = st.session_state.data['phase5']['expert_html']
-            dl_l, dl_c, dl_r = st.columns([1, 2, 1])
-            with dl_c:
-                st.download_button(
-                    "Download (HTML)",
-                    exp_html,
-                    f"ExpertFeedback_{cond.replace(' ', '_')}.html",
-                    "text/html",
-                    use_container_width=True
+                if st.session_state.data['phase5'].get('expert_html'):
+                        exp_html = st.session_state.data['phase5']['expert_html']
+                        dl_l, dl_c, dl_r = st.columns([1, 2, 1])
+                        with dl_c:
+                                st.download_button(
+                                        "Download (.html)",
+                                        exp_html,
+                                        f"ExpertFeedback_{cond.replace(' ', '_')}.html",
+                                        "text/html",
+                                        
+                                )
+
+                        # Inline pathway preview (similar to Phase 4) for expert panel context
+                        nodes_for_viz = nodes if nodes else [
+                                {"label": "Start", "type": "Start"},
+                                {"label": "Add nodes in Phase 3", "type": "Process"},
+                                {"label": "End", "type": "End"},
+                        ]
+                        g = build_graphviz_from_nodes(nodes_for_viz, "TD")
+                        svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                        if False and svg_bytes:
+                                import base64
+                                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
+                                with st.expander("View Pathway", expanded=False):
+                                        preview_html = f"""
+                                        <div id=\"cpq-preview\" style=\"border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);\">
+                                            <div style=\"display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;\">
+                                                <button id=\"cpq-zoom-out\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">-</button>
+                                                <button id=\"cpq-zoom-in\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">+</button>
+                                                <button id=\"cpq-fit\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">Fit</button>
+                                            </div>
+                                            <div id=\"cpq-canvas\" style=\"width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;\">
+                                                <div id=\"cpq-inner\" style=\"transform-origin: top left;\">
+                                                    <img id=\"cpq-svg\" src=\"data:image/svg+xml;base64,{svg_b64}\" style=\"display:block;\" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <script>
+                                            (function() {{
+                                                const img = document.getElementById('cpq-svg');
+                                                const inner = document.getElementById('cpq-inner');
+                                                const canvas = document.getElementById('cpq-canvas');
+                                                let scale = 1;
+                                                function fitToWidth() {{
+                                                    if (!img.complete) return;
+                                                    const naturalWidth = img.naturalWidth || img.width;
+                                                    const available = canvas.clientWidth - 24;
+                                                    if (naturalWidth > 0 && available > 0) {{
+                                                        scale = Math.min(1, available / naturalWidth);
+                                                        inner.style.transform = 'scale(' + scale + ')';
+                                                    }}
+                                                }}
+                                                document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); inner.style.transform = 'scale(' + scale + ')'; }};
+                                                document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); inner.style.transform = 'scale(' + scale + ')'; }};
+                                                document.getElementById('cpq-fit').onclick = () => fitToWidth();
+                                                img.onload = fitToWidth;
+                                                if (img.complete) fitToWidth();
+                                                window.addEventListener('resize', fitToWidth);
+                                            }})();
+                                        </script>
+                                        """
+                                        components.html(preview_html, height=520)
+
+        # Refine section (collapsible, notes on the left for natural flow)
+        with st.expander("Refine & Regenerate", expanded=False):
+            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                refine_expert = st.text_area(
+                    "Refinement Notes",
+                    placeholder="Add usability metrics; clarify scenarios; shorten steps",
+                    key="p5_refine_expert",
+                    height=90,
+                    label_visibility="visible"
                 )
-
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5e_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_expert_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-            )
-            if p5e_uploaded:
-                file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback form")
-                if file_result:
-                    with st.expander("File Review", expanded=True):
-                        st.markdown(file_result["review"])
-
-        with col_text:
-            refine_expert = st.text_area(
-                "Refinement Notes",
-                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-                key="p5_refine_expert",
-                height=90,
-                label_visibility="visible"
-            )
-        if refine_expert and st.button("Regenerate", key="regen_expert", use_container_width=True, type="secondary"):
-            with st.spinner("Refining..."):
-                refine_with_file = refine_expert
-                if st.session_state.get("file_p5_expert_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
-                refined_html = generate_expert_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    audience=st.session_state.get("p5_aud_expert", ""),
-                    organization=cond,
-                    care_setting=setting
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p5e_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p5_expert_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed"
                 )
-                st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
-            st.success("Refined!")
+                if p5e_uploaded:
+                    file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback form")
+                    if file_result:
+                        with st.expander("File Review", expanded=True):
+                            st.markdown(file_result["review"])
+            regen_disabled = not refine_expert and not st.session_state.get("file_p5_expert_review")
+            if st.button("Regenerate", key="regen_expert", disabled=regen_disabled):
+                with st.spinner("Refining..."):
+                    refine_with_file = refine_expert
+                    if st.session_state.get("file_p5_expert_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
+                    
+                    refined_html = generate_expert_form_html(
+                        condition=cond,
+                        nodes=nodes,
+                        audience=st.session_state.get("p5_aud_expert", ""),
+                        organization=cond,
+                        care_setting=setting,
+                        genai_client=get_genai_client()
+                    )
+                    st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
+                st.success("Refined!")
 
 # ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
@@ -3607,7 +4006,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     nodes=nodes,
                     audience=aud_beta,
                     organization=cond,
-                    care_setting=setting
+                    care_setting=setting,
+                    genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
             st.success("Generated!")
@@ -3618,51 +4018,106 @@ elif "Operationalize" in phase or "Deploy" in phase:
             dl_l, dl_c, dl_r = st.columns([1,2,1])
             with dl_c:
                 st.download_button(
-                    "Download (HTML)",
+                    "Download (.html)",
                     beta_html,
                     f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
                     "text/html",
-                    use_container_width=True
+                    
                 )
+
+            # Inline pathway preview for beta testing context
+            nodes_for_viz = nodes if nodes else [
+                {"label": "Start", "type": "Start"},
+                {"label": "Add nodes in Phase 3", "type": "Process"},
+                {"label": "End", "type": "End"},
+            ]
+            g = build_graphviz_from_nodes(nodes_for_viz, "TD")
+            svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+            if False and svg_bytes:
+                import base64
+                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
+                with st.expander("View Pathway", expanded=False):
+                    preview_html = f"""
+                    <div id=\"cpq-preview\" style=\"border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);\">
+                      <div style=\"display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;\">
+                        <button id=\"cpq-zoom-out\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">-</button>
+                        <button id=\"cpq-zoom-in\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">+</button>
+                        <button id=\"cpq-fit\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">Fit</button>
+                      </div>
+                      <div id=\"cpq-canvas\" style=\"width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;\">
+                        <div id=\"cpq-inner\" style=\"transform-origin: top left;\">
+                          <img id=\"cpq-svg\" src=\"data:image/svg+xml;base64,{svg_b64}\" style=\"display:block;\" />
+                        </div>
+                      </div>
+                    </div>
+                    <script>
+                    (function() {{
+                      const img = document.getElementById('cpq-svg');
+                      const inner = document.getElementById('cpq-inner');
+                      const canvas = document.getElementById('cpq-canvas');
+                      let scale = 1;
+                      function fitToWidth() {{
+                        if (!img.complete) return;
+                        const naturalWidth = img.naturalWidth || img.width;
+                        const available = canvas.clientWidth - 24;
+                        if (naturalWidth > 0 && available > 0) {{
+                          scale = Math.min(1, available / naturalWidth);
+                          inner.style.transform = 'scale(' + scale + ')';
+                        }}
+                      }}
+                      document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); inner.style.transform = 'scale(' + scale + ')'; }};
+                      document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); inner.style.transform = 'scale(' + scale + ')'; }};
+                      document.getElementById('cpq-fit').onclick = () => fitToWidth();
+                      img.onload = fitToWidth;
+                      if (img.complete) fitToWidth();
+                      window.addEventListener('resize', fitToWidth);
+                    }})();
+                    </script>
+                    """
+                    components.html(preview_html, height=520)
         
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5b_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_beta_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-            )
-            if p5b_uploaded:
-                file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
-                if file_result:
-                    with st.expander("📄 File Review", expanded=True):
-                        st.markdown(file_result["review"])
-        
-        refine_beta = st.text_area(
-            "Refinement Notes",
-            placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-            key="p5_refine_beta",
-            height=90,
-            label_visibility="visible"
-        )
-        if refine_beta and st.button("Regenerate", key="regen_beta", use_container_width=True, type="secondary"):
-            with st.spinner("Refining..."):
-                refine_with_file = refine_beta
-                if st.session_state.get("file_p5_beta_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
-                refined_html = generate_beta_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    audience=st.session_state.get("p5_aud_beta", ""),
-                    organization=cond,
-                    care_setting=setting
+        # Refine & Regenerate section (matching Expert Panel pattern)
+        with st.expander("Refine & Regenerate", expanded=False):
+            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                refine_beta = st.text_area(
+                    "Refinement Notes",
+                    placeholder="Add usability metrics; clarify scenarios; shorten steps",
+                    key="p5_refine_beta",
+                    height=90,
+                    label_visibility="visible"
                 )
-                st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
-            st.success("Refined!")
+            with col_file:
+                st.caption("Supporting Document (optional)")
+                p5b_uploaded = st.file_uploader(
+                    "Drag & drop or browse",
+                    key="p5_beta_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed"
+                )
+                if p5b_uploaded:
+                    file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
+                    if file_result:
+                        with st.expander("File Review", expanded=True):
+                            st.markdown(file_result["review"])
+            regen_disabled = not refine_beta and not st.session_state.get("file_p5_beta_review")
+            if st.button("Regenerate", key="regen_beta", disabled=regen_disabled):
+                with st.spinner("Refining..."):
+                    refine_with_file = refine_beta
+                    if st.session_state.get("file_p5_beta_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
+                    
+                    refined_html = generate_beta_form_html(
+                        condition=cond,
+                        nodes=nodes,
+                        audience=st.session_state.get("p5_aud_beta", ""),
+                        organization=cond,
+                        care_setting=setting,
+                        genai_client=get_genai_client()
+                    )
+                    st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
+                st.success("Refined!")
     
     st.divider()
     
@@ -3706,9 +4161,21 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         "Implement standardized protocols effectively"
                     ]
 
-                # Create educational modules from pathway nodes
+                # Get role-specific configuration
+                role_mapping = get_role_depth_mapping(aud_edu)
+                role_type = role_mapping.get('role_type', 'Clinical Team Member')
+                depth_level = role_mapping.get('depth_level', 'moderate')
+                role_statement = role_mapping.get('role_statement', '')
+                
+                # Filter nodes by role
+                filtered_nodes = filter_nodes_by_role(nodes, aud_edu)
+                
+                # Get evidence citations from Phase 2 for quiz explanations
+                evidence_data = st.session_state.data['phase2'].get('evidence', [])
+                
+                # Create educational modules from filtered pathway nodes
                 edu_topics = []
-                if nodes and len(nodes) > 1:
+                if filtered_nodes and len(filtered_nodes) > 1:
                     decision_nodes = [n for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label', '').strip()]
                     nodes_per_module = max(1, len(decision_nodes) // 3)
                     module_groups = [decision_nodes[i:i + nodes_per_module] for i in range(0, len(decision_nodes), nodes_per_module)][:4]
@@ -3717,11 +4184,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         if not module_nodes:
                             continue
 
-                        module_title = module_nodes[0].get('label', f'Module {mod_idx + 1}')
-                        if len(module_title) > 60:
-                            module_title = module_title[:60] + '...'
+                        # Generate role-specific module header
+                        module_title = generate_role_specific_module_header(
+                            target_audience=aud_edu,
+                            condition=cond,
+                            care_setting=setting,
+                            node=module_nodes[0] if module_nodes else None
+                        )
+                        
+                        if len(module_title) > 100:
+                            module_title = module_title[:100] + '...'
 
-                        content_html = f"<h4>Pathway Steps</h4>"
+                        content_html = f"<h4>Your Role in This Section</h4><p>{role_statement}</p><h4>Pathway Steps</h4>"
                         quiz_questions = []
 
                         for node in module_nodes:
@@ -3736,17 +4210,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
                             content_html += "</div>"
 
                             if node_type == 'Decision' and len(quiz_questions) < 3:
-                                quiz_questions.append({
-                                    "question": f"What is the recommended approach when: {node_label[:80]}?",
-                                    "options": [
-                                        "Follow the evidence-based pathway protocol",
-                                        "Skip assessment and proceed to treatment",
-                                        "Wait for additional consultation before acting",
-                                        "Defer decision-making to ancillary services"
-                                    ],
-                                    "correct": 0,
-                                    "explanation": f"The pathway recommends following evidence-based protocols. {node_evidence if node_evidence != 'N/A' else ''}"
-                                })
+                                # Generate role-specific scenario for this node
+                                scenario = generate_role_specific_quiz_scenario(
+                                    question_idx=len(quiz_questions),
+                                    node=node,
+                                    target_audience=aud_edu,
+                                    evidence_citations=evidence_data
+                                )
+                                quiz_questions.append(scenario)
 
                         content_html += "<h4>Key Clinical Pearls</h4><ul>"
                         content_html += f"<li>Early recognition and assessment improves outcomes</li>"
@@ -3756,7 +4227,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
 
                         if not quiz_questions:
                             quiz_questions.append({
-                                "question": f"What is a key principle in this module?",
+                                "question": f"What is a key principle in {role_type} management of this pathway?",
                                 "options": [
                                     "Follow evidence-based protocols",
                                     "Skip documentation steps",
@@ -3767,14 +4238,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 "explanation": "Evidence-based protocols improve patient outcomes and standardize care."
                             })
 
+                        # Generate role-specific learning objectives
+                        module_objectives = generate_role_specific_learning_objectives(
+                            target_audience=aud_edu,
+                            condition=cond,
+                            nodes=module_nodes,
+                            module_idx=mod_idx
+                        )
+
                         edu_topics.append({
                             "title": f"Module {mod_idx + 1}: {module_title}",
                             "content": content_html,
-                            "learning_objectives": [
-                                f"Understand decision points in {module_title.lower()}",
-                                "Apply evidence-based clinical reasoning",
-                                "Recognize appropriate care pathway steps"
-                            ],
+                            "learning_objectives": module_objectives,
                             "quiz": quiz_questions,
                             "time_minutes": 5
                         })
@@ -3821,7 +4296,10 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     organization=cond,
                     care_setting=setting,
                     require_100_percent=True,
-                    learning_objectives=overall_objectives[:4]
+                    learning_objectives=overall_objectives[:4],
+                    role_context=role_mapping,
+                    role_statement=role_statement,
+                    genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
             st.success("Generated!")
@@ -3832,46 +4310,101 @@ elif "Operationalize" in phase or "Deploy" in phase:
             dl_l, dl_c, dl_r = st.columns([1,2,1])
             with dl_c:
                 st.download_button(
-                    "Download (HTML)",
+                    "Download (.html)",
                     edu_html,
                     f"EducationModule_{cond.replace(' ', '_')}.html",
                     "text/html",
-                    use_container_width=True
+                    
                 )
+
+            # Inline pathway preview for education context
+            nodes_for_viz = nodes if nodes else [
+                {"label": "Start", "type": "Start"},
+                {"label": "Add nodes in Phase 3", "type": "Process"},
+                {"label": "End", "type": "End"},
+            ]
+            g = build_graphviz_from_nodes(nodes_for_viz, "TD")
+            svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+            if False and svg_bytes:
+                import base64
+                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
+                with st.expander("View Pathway", expanded=False):
+                    preview_html = f"""
+                    <div id=\"cpq-preview\" style=\"border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);\">
+                      <div style=\"display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;\">
+                        <button id=\"cpq-zoom-out\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">-</button>
+                        <button id=\"cpq-zoom-in\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">+</button>
+                        <button id=\"cpq-fit\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">Fit</button>
+                      </div>
+                      <div id=\"cpq-canvas\" style=\"width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;\">
+                        <div id=\"cpq-inner\" style=\"transform-origin: top left;\">
+                          <img id=\"cpq-svg\" src=\"data:image/svg+xml;base64,{svg_b64}\" style=\"display:block;\" />
+                        </div>
+                      </div>
+                    </div>
+                    <script>
+                    (function() {{
+                      const img = document.getElementById('cpq-svg');
+                      const inner = document.getElementById('cpq-inner');
+                      const canvas = document.getElementById('cpq-canvas');
+                      let scale = 1;
+                      function fitToWidth() {{
+                        if (!img.complete) return;
+                        const naturalWidth = img.naturalWidth || img.width;
+                        const available = canvas.clientWidth - 24;
+                        if (naturalWidth > 0 && available > 0) {{
+                          scale = Math.min(1, available / naturalWidth);
+                          inner.style.transform = 'scale(' + scale + ')';
+                        }}
+                      }}
+                      document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); inner.style.transform = 'scale(' + scale + ')'; }};
+                      document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); inner.style.transform = 'scale(' + scale + ')'; }};
+                      document.getElementById('cpq-fit').onclick = () => fitToWidth();
+                      img.onload = fitToWidth;
+                      if (img.complete) fitToWidth();
+                      window.addEventListener('resize', fitToWidth);
+                    }})();
+                    </script>
+                    """
+                    components.html(preview_html, height=520)
         
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5ed_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_edu_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-            )
-            if p5ed_uploaded:
-                file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
-                if file_result:
-                    with st.expander("File Review", expanded=True):
-                        st.markdown(file_result["review"])        
-        
-        # Refine section
-        with col_text:
-            refine_edu = st.text_area(
-                "Refinement Notes",
-                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-                key="p5_refine_edu",
-                height=90,
-                label_visibility="visible"
-            )
-        if refine_edu and st.button("Regenerate", key="regen_edu", use_container_width=True, type="secondary"):
-            with st.spinner("Refining..."):
-                # Include file context
-                refine_with_file = refine_edu
-                if st.session_state.get("file_p5_edu_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
-                
+        # Refine & Regenerate section (matching Expert Panel pattern)
+        with st.expander("Refine & Regenerate", expanded=False):
+            st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
+            with st.form("p5_refine_edu_form"):
+                col_text, col_file = columns_top([2, 1])
+                with col_text:
+                    refine_edu = st.text_area(
+                        "Refinement Notes",
+                        placeholder="Add case studies; include quick checks; simplify objectives",
+                        key="p5_refine_edu",
+                        height=90,
+                        label_visibility="visible"
+                    )
+                with col_file:
+                    st.caption("Supporting Documents (optional)")
+                    p5ed_uploaded = st.file_uploader(
+                        "Drag & drop or browse",
+                        key="p5_edu_upload",
+                        accept_multiple_files=False,
+                        label_visibility="collapsed"
+                    )
+                    if p5ed_uploaded:
+                        file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
+                        if file_result:
+                            with st.expander("File Review", expanded=False):
+                                st.markdown(file_result["review"])
+                spacer, submit_col = columns_top([5, 2])
+                with submit_col:
+                    submitted_edu = st.form_submit_button("Regenerate", type="secondary")
+            
+            if submitted_edu:
+                with st.spinner("Refining..."):
+                    # Include file context
+                    refine_with_file = refine_edu
+                    if st.session_state.get("file_p5_edu_review"):
+                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
+                    
                     # Get existing modules and add refinement notes
                     existing_html = st.session_state.data['phase5'].get('edu_html', '')
                     if existing_html:
@@ -4013,7 +4546,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                             organization=cond,
                             care_setting=setting,
                             require_100_percent=True,
-                            learning_objectives=overall_objectives[:4]
+                            learning_objectives=overall_objectives[:4],
+                            genai_client=get_genai_client()
                         )
                         st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
                     else:
@@ -4042,55 +4576,67 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         # Download centered
         if st.session_state.data['phase5'].get('exec_summary'):
-            # Pass session data and condition per function signature
+            # Pass session data, condition, and target audience per function signature
             docx_bytes = create_phase5_executive_summary_docx(
                 data=st.session_state.data,
-                condition=cond
+                condition=cond,
+                target_audience=aud_exec,
+                genai_client=get_genai_client()
             )
             dl_l, dl_c, dl_r = st.columns([1,2,1])
             with dl_c:
                 st.download_button(
-                    "Download (DOC)",
+                    "Download (.docx)",
                     docx_bytes,
                     f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True
+                    
                 )
         
-        # Refine section
-        col_file, col_text = columns_top([1, 2])
-        with col_file:
-            st.caption("Supporting Document (optional)")
-            p5ex_uploaded = st.file_uploader(
-                "Drag & drop or browse",
-                key="p5_exec_upload",
-                accept_multiple_files=False,
-                label_visibility="collapsed",
-                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
-            )
-            if p5ex_uploaded:
-                file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
-                if file_result:
-                    with st.expander("File Review", expanded=True):
-                        st.markdown(file_result["review"])        
-        
-        # Refine section
-        with col_text:
-            refine_exec = st.text_area(
-                "Refinement Notes",
-                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-                key="p5_refine_exec",
-                height=90,
-                label_visibility="visible"
-            )
-        if refine_exec and st.button("Regenerate", key="regen_exec", use_container_width=True, type="secondary"):
-            with st.spinner("Refining..."):
-                refine_with_file = refine_exec
-                if st.session_state.get("file_p5_exec_review"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_exec_review')}"
-                refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Notes: {refine_with_file}"
-                st.session_state.data['phase5']['exec_summary'] = refined_summary
-            st.success("Refined!")
+        # Refine & Regenerate section for Executive Summary
+        with st.expander("Refine & Regenerate Executive Summary", expanded=False):
+            st.caption("Tip: Refine your Executive Summary using natural language. Optionally attach strategic planning documents. Click Regenerate to auto-regenerate.")
+            with st.form("p5_refine_exec_form"):
+                col_text, col_file = columns_top([2, 1])
+                with col_text:
+                    st.text_area(
+                        "Refinement Notes",
+                        placeholder="Emphasize ROI and cost-benefit; highlight key metrics and outcomes; focus on strategic alignment",
+                        key="p5_refine_exec",
+                        height=90,
+                        help="Describe improvements for the Executive Summary."
+                    )
+                with col_file:
+                    st.caption("Supporting Documents (optional)")
+                    p5ex_uploaded = st.file_uploader(
+                        "Drag & drop or browse",
+                        key="p5_exec_upload",
+                        accept_multiple_files=False,
+                        label_visibility="collapsed",
+                        help="Attach strategic plans, budgets, or organizational goals."
+                    )
+                    if p5ex_uploaded:
+                        file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
+                        if file_result:
+                            with st.expander("File Review", expanded=False):
+                                st.markdown(file_result["review"])
+                spacer, submit_col = columns_top([5, 2])
+                with submit_col:
+                    submitted_exec = st.form_submit_button("Regenerate", type="secondary")
+
+            if submitted_exec:
+                refine_exec = st.session_state.get('p5_refine_exec', '').strip()
+                if refine_exec or st.session_state.get("file_p5_exec_review"):
+                    with ai_activity("Refining Executive Summary…"):
+                        refine_with_file = refine_exec
+                        if st.session_state.get("file_p5_exec_review"):
+                            refine_with_file += f"\n\n**Strategic Context:**\n{st.session_state.get('file_p5_exec_review')}"
+                        refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Strategic Updates: {refine_with_file}"
+                        st.session_state.data['phase5']['exec_summary'] = refined_summary
+                    st.success("Executive Summary auto-regenerated!")
+                    st.rerun()
+                else:
+                    st.warning("Please enter refinement notes or attach supporting documents.")
     
     render_bottom_navigation()
     st.stop()
