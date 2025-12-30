@@ -2824,15 +2824,24 @@ if "Scope" in phase:
                 {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
                 {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
                 {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-                        ),
-                        legend=alt.Legend(title='Owner')
-                    ),
-                    tooltip=['Stage:N', 'Start:T', 'End:T', 'Owner:N']
-                ).properties(height=300).interactive()
-                
-                st.altair_chart(chart, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
+            ]
+        
+        try:
+            df = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+            df['Start'] = pd.to_datetime(df['Start'])
+            df['End'] = pd.to_datetime(df['End'])
+            
+            chart = alt.Chart(df).mark_bar().encode(
+                x=alt.X('Start:T', title='Start Date'),
+                x2='End:T',
+                y=alt.Y('Stage:N', title='Project Stage'),
+                color=alt.Color('Owner:N', title='Owner'),
+                legend=alt.Legend(title='Owner')
+            ).properties(height=300).interactive()
+            
+            st.altair_chart(chart, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
         else:
             st.info("Add timeline entries to see the Gantt chart.")
 
@@ -3629,15 +3638,15 @@ elif "Interface" in phase or "UI" in phase:
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
         st.subheader("Pathway Visualization")
-                styled_info("<b>Tip:</b> Inline preview is disabled. After any edits in the decision tree table or settings, download the updated SVG below to view changes.")
-                if svg_bytes:
-                        c1, c2 = columns_top([1, 1])
-                        with c1:
-                                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
-                        with c2:
-                                st.caption("Re‑download the SVG after each edit to see updates.")
-                else:
-                        st.warning("SVG unavailable. Install Graphviz on the server and retry.")
+        styled_info("<b>Tip:</b> Inline preview is disabled. After any edits in the decision tree table or settings, download the updated SVG below to view changes.")
+        if svg_bytes:
+            c1, c2 = columns_top([1, 1])
+            with c1:
+                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
+            with c2:
+                st.caption("Re‑download the SVG after each edit to see updates.")
+        else:
+            st.warning("SVG unavailable. Install Graphviz on the server and retry.")
 
         st.divider()
 
