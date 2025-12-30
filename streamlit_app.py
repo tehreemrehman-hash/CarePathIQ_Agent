@@ -1504,38 +1504,47 @@ def format_citation_line(entry, style="APA"):
     # Default APA (also used for custom style names)
     return f"{authors} ({year}). {title}. {journal}. PMID: {pmid}."
 
-def apply_pathway_heuristic_improvements(nodes, heuristics_data):
+def apply_pathway_heuristic_improvements(nodes, heuristics_data, extra_ui_insights=None):
     """
-    Apply ONLY the pathway-actionable heuristics to the nodes:
-    - H2: Language clarity (simplify terminology)
-    - H4: Consistency (standardize terminology and structure)
-    - H5: Error prevention (add alerts and edge cases)
-    
+    Apply pathway-actionable heuristics (H2, H4, H5) and optionally selected UI heuristics
+    that the user explicitly opted into. Guardrails prevent unsafe edits.
     Returns: Updated nodes list or None if LLM fails
     """
     actionable_keys = ["H2", "H4", "H5"]
     insights = {k: heuristics_data.get(k, "") for k in actionable_keys if k in heuristics_data}
-    
-    if not insights:
-        return None
-    
-    # Build a focused prompt that asks for specific pathway improvements
-    insights_text = "\n".join([f"{k}: {v}" for k, v in insights.items()])
-    
-    prompt = f"""You are a clinical pathway expert. Apply these specific improvements to the pathway:
+    extra_ui_insights = extra_ui_insights or {}
 
-{insights_text}
+    if not insights and not extra_ui_insights:
+        return None
+
+    insights_text = "\n".join([f"{k}: {v}" for k, v in insights.items()])
+    extra_text = "\n".join([f"{k}: {v}" for k, v in extra_ui_insights.items()]) if extra_ui_insights else ""
+
+    guardrails = """Safety rules:
+1) Preserve all node IDs and existing branching logic
+2) Only reorder or annotate existing steps; add new nodes only if clearly required for safety/alerts
+3) Keep labels concise and clinical; do not hallucinate new clinical content"""
+
+    prompt = f"""You are a clinical pathway expert. Improve the pathway using the inputs below.
+
+Actionable heuristics (apply):
+{insights_text or '- none provided'}
+
+Optional UI heuristics selected by user (apply only if they map cleanly to existing steps):
+{extra_text or '- none provided'}
 
 Current pathway nodes: {json.dumps(nodes)}
 
-Improvements to apply:
-1. For H2 (Language): Replace medical jargon with plain language where appropriate. Keep clinical terms where necessary.
-2. For H4 (Consistency): Standardize terminology and ensure all similar decisions use consistent structure.
-3. For H5 (Error Prevention): Add specific alerts, validation checkpoints, or warning conditions to prevent common errors.
+Required improvements:
+1. H2 (Language): Replace medical jargon with plain language where appropriate; keep necessary clinical terms.
+2. H4 (Consistency): Standardize terminology and ensure similar decisions share structure.
+3. H5 (Error Prevention): Add specific alerts, validation checkpoints, or warning conditions to prevent common errors.
+4. If optional UI heuristics are provided, translate them into pathway-safe adjustments only when they align to existing steps.
 
-Return ONLY a valid JSON array of updated nodes. Preserve all original node structure and IDs.
-Keep labels concise and actionable. Do not invent new nodes unless specifically needed for safety."""
-    
+{guardrails}
+
+Return ONLY a valid JSON array of updated nodes. If unsure, return the original nodes unchanged."""
+
     new_nodes = get_gemini_response(prompt, json_mode=True)
     return new_nodes if new_nodes and isinstance(new_nodes, list) else None
 
@@ -3559,6 +3568,7 @@ elif "Interface" in phase or "UI" in phase:
     p4_state.setdefault('nodes_history', [])
     p4_state.setdefault('heuristics_data', {})
     p4_state.setdefault('auto_heuristics_done', False)
+    p4_state.setdefault('ui_apply_flags', {})
 
     # Detect pathway changes and allow heuristics to re-run
     try:
@@ -3745,7 +3755,7 @@ elif "Interface" in phase or "UI" in phase:
             # SECTION 1: ACTIONABLE PATHWAY IMPROVEMENTS
             if actionable_h:
                 st.markdown("### 🔧 Pathway Improvements (Actionable)")
-                st.caption("These heuristics can improve your clinical pathway structure and clarity. Apply them collectively below.")
+                st.caption("These heuristics can improve your clinical pathway structure and clarity. They will be applied collectively.")
                 
                 for heuristic_key in sorted(actionable_h.keys()):
                     insight = actionable_h[heuristic_key]
@@ -3759,39 +3769,12 @@ elif "Interface" in phase or "UI" in phase:
                             f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
                             unsafe_allow_html=True
                         )
-                
-                # COLLECTIVE APPLY BUTTON FOR ACTIONABLE HEURISTICS
-                col_apply, col_space = st.columns([1, 1])
-                with col_apply:
-                    if st.button("✓ Apply All Improvements", key="p4_apply_all_actionable", type="primary"):
-                        p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                        with ai_activity("Applying pathway improvements (H2, H4, H5)…"):
-                            improved_nodes = apply_pathway_heuristic_improvements(nodes, actionable_h)
-                            if improved_nodes:
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
-                                p4_state['viz_cache'] = {}
-                                st.success("✓ Applied pathway improvements. Visualization and nodes updated.")
-                                st.rerun()
-                            else:
-                                st.error("Could not process improvements. Please try again.")
-                
-                # UNDO BUTTON (outside the button columns for visibility)
-                if st.button("↶ Undo Last Changes", key="p4_undo_all"):
-                    if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
-                        prev_nodes = p4_state['nodes_history'].pop()
-                        st.session_state.data['phase3']['nodes'] = prev_nodes
-                        p4_state['viz_cache'] = {}
-                        st.success("Undid last improvement batch")
-                        st.rerun()
-                    else:
-                        st.info("No changes to undo")
-                
                 st.divider()
             
             # SECTION 2: UI DESIGN RECOMMENDATIONS (REVIEW-ONLY)
             if ui_only_h:
                 st.markdown("### 🎨 Design Recommendations (UI/UX - For Your Designer)")
-                st.caption("These are interface design improvements to implement in your app's frontend. Share with your design team.")
+                st.caption("These are interface design improvements. Optionally select ones that should also adjust the pathway with guardrails.")
                 
                 for heuristic_key in sorted(ui_only_h.keys()):
                     insight = ui_only_h[heuristic_key]
@@ -3805,7 +3788,41 @@ elif "Interface" in phase or "UI" in phase:
                             f"<div style='background-color: #f0f7ff; color: #001a4d; padding: 12px; border-radius: 5px; border-left: 4px solid #0066cc; margin-bottom: 10px;'>{insight}</div>",
                             unsafe_allow_html=True
                         )
-                        st.caption("💡 Implementation tip: This is a design consideration to discuss with your frontend team or include in wireframes/mockups.")
+                        apply_key = f"ui_apply_{heuristic_key}"
+                        current_choice = p4_state['ui_apply_flags'].get(heuristic_key, False)
+                        chosen = st.checkbox("Include in Apply to pathway (guardrails enforced)", value=current_choice, key=apply_key)
+                        p4_state['ui_apply_flags'][heuristic_key] = chosen
+                        st.caption("💡 Implementation tip: Discuss with your design team. If checked, Gemini will try to map this to existing steps while preserving IDs.")
+
+            # APPLY + UNDO (after both sections so selections are captured)
+            selected_ui_apply = {k: ui_only_h.get(k, "") for k, v in p4_state['ui_apply_flags'].items() if v and k in ui_only_h}
+            has_actionable = bool(actionable_h)
+            if has_actionable:
+                st.markdown("### ✅ Apply Pathway Improvements")
+                st.caption("Will apply H2/H4/H5 plus any UI recommendations you selected above, with guardrails to preserve IDs and logic.")
+                col_apply, col_space = st.columns([1, 1])
+                with col_apply:
+                    if st.button("✓ Apply Improvements", key="p4_apply_all_actionable", type="primary"):
+                        p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        with ai_activity("Applying pathway improvements with guardrails…"):
+                            improved_nodes = apply_pathway_heuristic_improvements(nodes, actionable_h, selected_ui_apply)
+                            if improved_nodes:
+                                st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
+                                p4_state['viz_cache'] = {}
+                                st.success("✓ Applied pathway improvements. Visualization and nodes updated.")
+                                st.rerun()
+                            else:
+                                st.error("Could not process improvements. Please try again.")
+
+                if st.button("↶ Undo Last Changes", key="p4_undo_all"):
+                    if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
+                        prev_nodes = p4_state['nodes_history'].pop()
+                        st.session_state.data['phase3']['nodes'] = prev_nodes
+                        p4_state['viz_cache'] = {}
+                        st.success("Undid last improvement batch")
+                        st.rerun()
+                    else:
+                        st.info("No changes to undo")
 
     render_bottom_navigation()
     st.stop()
