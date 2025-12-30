@@ -23,6 +23,48 @@ import textwrap
 # --- GRAPHVIZ PATH FIX ---
 os.environ["PATH"] += os.pathsep + '/usr/bin'
 
+def _get_query_param(name: str):
+    try:
+        # Streamlit >= 1.33
+        if hasattr(st, "query_params"):
+            val = st.query_params.get(name)
+        else:
+            val = st.experimental_get_query_params().get(name)
+        if isinstance(val, list):
+            return val[0] if val else None
+        return val
+    except Exception:
+        return None
+
+def is_admin():
+    # Env flag still enables admin mode for server-side checks
+    if os.environ.get("CPQ_SHOW_VERSION", "").lower() in ("1", "true", "yes", "y"):
+        return True
+    # Optional shared code via env or secrets + query param `?admin=CODE`
+    code = os.environ.get("CPQ_ADMIN_CODE", "")
+    try:
+        code = code or st.secrets.get("ADMIN_CODE", "")
+    except Exception:
+        pass
+    if code:
+        return (_get_query_param("admin") == code)
+    return False
+
+def is_debug():
+    # Enable with env `CPQ_DEBUG` or query param `?debug=1`
+    if os.environ.get("CPQ_DEBUG", "").lower() in ("1", "true", "yes", "y"):
+        return True
+    val = _get_query_param("debug")
+    return str(val).lower() in ("1", "true", "yes", "y")
+
+def debug_log(msg: str):
+    try:
+        if is_debug():
+            st.sidebar.caption(str(msg))
+    except Exception:
+        pass
+
+
 # --- GOOGLE GENAI CLIENT HELPER ---
 # Using official google-genai SDK per https://ai.google.dev/gemini-api/docs/quickstart
 # Pattern: from google import genai -> client = genai.Client(api_key=key)
@@ -73,44 +115,9 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
                     bullet_lines.append(f"- {label}: {recs[0]}")
             except Exception:
                 continue
-        if bullet_lines:
-            heuristics_summary = "\nHeuristics guidance:\n" + "\n".join(bullet_lines[:5])
-
-    prompt = f"""
-    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
-
-    Current pathway for {cond} in {setting}:
-    {json.dumps(nodes, indent=2)}
-
-    Available Evidence:
-    {ev_context}
-
-    User's refinement request: "{refine_text}"
-    {heuristics_summary}
-
-    Apply the requested changes while maintaining:
-    - CGT/Ad/it principles and Medical Decision Analysis best practices
-    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
-    - Actionable steps with medical acronyms for brevity
-    - Specific discharge details (prescriptions with dose/route, referrals)
-    - Evidence citations (PMIDs where applicable)
-
-    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
-    Rules:
-    - type in [Start, Decision, Process, End]
-    - First node: type "Start", label "patient present to {setting} with {cond}"
-    - NO node count limit - build complete clinical flow
-    - If >20 nodes, organize into sections or sub-pathways
-    - End nodes must be terminal single outcomes (no "or" phrasing)
-    - Consecutive decision nodes are allowed when logic requires it
-    """
-
-    return get_gemini_response(prompt, json_mode=True)
-
-# --- LIBRARY HANDLING ---
-try:
-    from docx import Document
-    from docx.shared import Inches as DocxInches
+        else:
+            # If nothing to show, provide a helpful prompt only
+            styled_info("No results yet. Refine the search or ensure Phase 1 has a condition and setting.")
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -283,6 +290,22 @@ st.markdown("""
     }
     div[data-testid="stExpander"] details summary svg {
         color: white !important;
+    }
+
+    /* Sidebar chat expander matches landing banner */
+    section[data-testid="stSidebar"] div[data-testid="stExpander"]:first-of-type details summary {
+        background-color: #FFB0C9 !important;
+        color: black !important;
+        border: 1px solid black !important;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+        font-weight: 700 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stExpander"]:first-of-type details summary:hover {
+        background-color: #FF9BB8 !important;
+        color: #3E2723 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stExpander"]:first-of-type details summary svg {
+        color: black !important;
     }
 
     /* HEADERS */
@@ -578,7 +601,215 @@ PROVIDER_OPTIONS = {
 }
 
 # ==========================================
-# 2. HELPER FUNCTIONS
+# 2. CHAT & FEEDBACK HELPER FUNCTIONS
+# ==========================================
+
+def initialize_chat_state():
+    """Initialize chat messages in session state if not exists."""
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []
+    if "chat_expanded" not in st.session_state:
+        # Auto-open if query param ?chat=1 is present
+        qp = _get_query_param("chat")
+        st.session_state["chat_expanded"] = str(qp).lower() in ("1", "true", "yes", "y")
+
+
+def save_feedback_response(rating: int, feedback_text: str, phase: str = ""):
+    """Save feedback response as JSON to data/feedback/ folder."""
+    os.makedirs("data/feedback", exist_ok=True)
+    
+    # Safely get pathway condition from session state
+    pathway_condition = ""
+    if hasattr(st.session_state, 'data') and isinstance(st.session_state.data, dict):
+        pathway_condition = st.session_state.data.get("phase1", {}).get("condition", "")
+    
+    feedback_data = {
+        "timestamp": datetime.datetime.utcnow().isoformat(),
+        "rating": rating,
+        "feedback_text": feedback_text,
+        "phase": phase,
+        "pathway_condition": pathway_condition
+    }
+    
+    timestamp_ms = int(datetime.datetime.utcnow().timestamp() * 1000)
+    filename = f"data/feedback/feedback_{timestamp_ms}.json"
+    with open(filename, "w") as f:
+        json.dump(feedback_data, f, indent=2)
+
+
+def get_carepathiq_scoped_response(user_question: str) -> str:
+    """
+    Get a response from Gemini scoped strictly to CarePathIQ app questions.
+    Enhanced with comprehensive knowledge of app structure, files, and capabilities.
+    """
+    # Try local FAQ first (lightweight, always works)
+    response = get_local_faq_answer(user_question)
+    if response:
+        return response
+    
+    # Only try AI if client is available
+    client = get_genai_client()
+    if not client:
+        return "Please enter your Gemini API key in the sidebar to enable AI-powered answers."
+    
+    scope_constraint = """You are the CarePathIQ AI Agent - an expert assistant with complete knowledge of the CarePathIQ clinical pathway development application.
+
+**The 5 Phases in Detail:**
+
+1. **Phase 1: Define Scope & Charter** — Input clinical condition and care setting. AI auto-drafts inclusion/exclusion criteria, problem statement, objectives, and population.
+2. **Phase 2: Appraise Evidence** — PubMed/MESH query integration with evidence table, PMID, abstract, and GRADE quality assessment. PICO framework support.
+3. **Phase 3: Build Decision Tree** — Node-based pathway (decision, action, outcome nodes) with Graphviz rendering and AI-powered regeneration with user refinement.
+4. **Phase 4: Design Interface** — Nielsen's 10 Usability Heuristics analysis with AI recommendations and visual preview of improvements.
+5. **Phase 5: Operationalize** — Expert Panel Form, Beta Testing Form, Interactive Education (quizzes + certificates), Executive Summary. All standalone HTML/DOCX.
+
+**Key Features:** Gemini API integration, admin mode (?admin=CODE), feedback system, CSV/DOCX/HTML/PNG/SVG exports, responsive pink/brown/teal design.
+
+**Your Capabilities:** Explain phases/features, guide workflow, troubleshoot (API, models, exports), clarify inputs/outputs, explain Phase 5 deliverables.
+
+**Response Style:** Concise 2-4 sentences, reference specific phases/features, conversational expert tone.
+
+**User Question:** {user_question}"""
+
+    response = get_gemini_response(scope_constraint)
+    if not response:
+        response = get_local_faq_answer(user_question)
+    return response or "I'm not sure how to help with that. Please ask me about features in the CarePathIQ app!"
+
+
+def get_local_faq_answer(user_question: str) -> str:
+    """Provide lightweight built-in answers when AI is unavailable."""
+    q = (user_question or "").strip().lower()
+    if "5 phases" in q or "five phases" in q or "phases" in q:
+        return (
+            "CarePathIQ has 5 phases: 1) **Define Scope** — clarify condition, context, and goals. "
+            "2) **Appraise Evidence** — gather and grade studies with structured PICO/MESH support. "
+            "3) **Build Decision Tree** — design pathway logic and branches. "
+            "4) **Design Interface** — preview and optimize using Nielsen's usability heuristics. "
+            "5) **Operationalize** — export expert forms, beta testing, education modules, and executive summary."
+        )
+    if "decision tree" in q or "phase 3" in q or "nodes" in q or "pathway" in q:
+        return (
+            "In Phase 3, add nodes (decisions, actions, outcomes), connect them to form branches, "
+            "and iterate using evidence and heuristics. Use the refinement box to request changes, "
+            "then regenerate to update the pathway structure. The AI uses Phase 1 & 2 context to build logical flows."
+        )
+    if "evidence" in q or "phase 2" in q or "pubmed" in q or "mesh" in q:
+        return (
+            "Phase 2 enables PubMed searches with MESH term suggestions. Include study PMID, title, abstract, "
+            "GRADE quality assessment, and relevance notes. Structured PICO framework helps organize evidence systematically. "
+            "Export to CSV for documentation."
+        )
+    if "phase 5" in q or "operationalize" in q or "export" in q or "expert" in q or "beta" in q:
+        return (
+            "Phase 5 generates 4 deliverables: Expert Panel Feedback Form (HTML), Beta Testing Form (HTML), "
+            "Interactive Education Module (HTML with quizzes & certificates), and Executive Summary (Word doc). "
+            "All are standalone files with no backend—users download, share, and collect responses via CSV."
+        )
+    if "heuristics" in q or "phase 4" in q or "usability" in q or "nielsen" in q:
+        return (
+            "Phase 4 applies Nielsen's 10 Usability Heuristics to your pathway. The AI analyzes each heuristic "
+            "(visibility, error prevention, consistency, etc.) and suggests improvements. You can apply or reject "
+            "each recommendation to optimize the user experience."
+        )
+    if "api" in q or "key" in q or "gemini" in q or "model" in q:
+        return (
+            "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
+            "Supports gemini-2.5-flash, gemini-2.5-flash-lite, and gemini-3-flash models. Enter your API key "
+            "in the sidebar to activate all AI features."
+        )
+    if "files" in q or "structure" in q or "code" in q:
+        return (
+            "Main files: streamlit_app.py (4200+ lines, 5-phase workflow), phase5_helpers.py (HTML generators), "
+            "education_template.py (quiz system). Documentation: PHASE5_GUIDE.md, API_ALIGNMENT.md, README.md. "
+            "Uses Streamlit, google-genai, Graphviz, python-docx."
+        )
+    return (
+        "I can help with: the 5 phases workflow, building decision trees, evidence appraisal, "
+        "usability heuristics, Phase 5 exports, API setup, or technical structure. What would you like to know?"
+    )
+
+
+def load_admin_feedback_dashboard():
+    """Admin-only dashboard to view and export feedback responses."""
+    if not is_admin():
+        return
+    
+    with st.expander("🔧 Admin: Feedback Dashboard", expanded=False):
+        feedback_dir = "data/feedback"
+        
+        if not os.path.exists(feedback_dir):
+            st.info("No feedback collected yet.")
+            return
+        
+        feedback_files = [f for f in os.listdir(feedback_dir) if f.endswith(".json")]
+        
+        if not feedback_files:
+            st.info("No feedback collected yet.")
+            return
+        
+        st.markdown(f"**Total Responses:** {len(feedback_files)}")
+        
+        all_ratings = []
+        for filename in feedback_files:
+            try:
+                with open(os.path.join(feedback_dir, filename)) as f:
+                    data = json.load(f)
+                    all_ratings.append(data.get("rating", 0))
+            except Exception:
+                continue
+        
+        if all_ratings:
+            avg_rating = sum(all_ratings) / len(all_ratings)
+            st.metric("Average Rating", f"{avg_rating:.1f}/10")
+        
+        st.markdown("### Feedback Responses")
+        
+        selected_file = st.selectbox(
+            "View feedback:",
+            feedback_files,
+            format_func=lambda x: x.replace("feedback_", "").replace(".json", "")
+        )
+        
+        if selected_file:
+            try:
+                with open(os.path.join(feedback_dir, selected_file)) as f:
+                    feedback = json.load(f)
+                    st.json(feedback)
+            except Exception as e:
+                st.error(f"Error loading feedback: {e}")
+        
+        if st.button("Export All Feedback as CSV"):
+            import csv
+            import io
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["timestamp", "rating", "feedback", "phase", "pathway_condition"])
+            
+            for filename in feedback_files:
+                try:
+                    with open(os.path.join(feedback_dir, filename)) as f:
+                        data = json.load(f)
+                        writer.writerow([
+                            data.get("timestamp", ""),
+                            data.get("rating", ""),
+                            data.get("feedback_text", ""),
+                            data.get("phase", ""),
+                            data.get("pathway_condition", "")
+                        ])
+                except Exception:
+                    continue
+            
+            csv_data = output.getvalue()
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name="carepathiq_feedback.csv",
+                mime="text/csv"
+            )
+
+# ==========================================
+# 3. HELPER FUNCTIONS
 # ==========================================
 
 import secrets
@@ -1847,6 +2078,99 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
+    
+    # Chat and feedback features
+    st.markdown("---")
+    
+    # Chat expander - plain text, no icon
+    initialize_chat_state()
+    with st.expander("Question about CarePathIQ?", expanded=False):
+        # Initialize welcome message if this is the first load
+        if not st.session_state.get("chat_initialized", False):
+            st.session_state["chat_messages"] = [
+                {
+                    "role": "assistant",
+                    "content": "Hi! Ask me anything about using CarePathIQ — the 5 phases, building pathways, using evidence, designing interfaces, or deploying your pathway."
+                }
+            ]
+            st.session_state["chat_initialized"] = True
+        
+        # Display chat messages
+        for message in st.session_state.get("chat_messages", []):
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+        
+        # Show suggested questions buttons (only if chat just started)
+        if len(st.session_state.get("chat_messages", [])) <= 1:
+            st.markdown("---")
+            suggested_questions = [
+                "What are the 5 phases?",
+                "How do I add evidence in Phase 2?",
+                "How do I create a decision tree in Phase 3?",
+            ]
+            
+            for i, question in enumerate(suggested_questions):
+                if st.button(question, key=f"suggested_q_{i}"):
+                    # Append suggested question as user message
+                    st.session_state["chat_messages"].append({
+                        "role": "user",
+                        "content": question
+                    })
+                    # Generate response
+                    response = get_carepathiq_scoped_response(question)
+                    st.session_state["chat_messages"].append({
+                        "role": "assistant",
+                        "content": response
+                    })
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # Chat input for user questions
+        if user_input := st.chat_input("Ask about CarePathIQ..."):
+            st.session_state["chat_messages"].append({
+                "role": "user",
+                "content": user_input
+            })
+            
+            # Generate scoped response
+            response = get_carepathiq_scoped_response(user_input)
+            st.session_state["chat_messages"].append({
+                "role": "assistant",
+                "content": response
+            })
+            
+            st.rerun()
+    
+    # Help us improve - plain text, no icon
+    with st.expander("Help us improve!", expanded=False):
+        st.markdown("How satisfied are you with this app?")
+        
+        rating = st.slider(
+            "Rating",
+            min_value=0,
+            max_value=10,
+            value=5,
+            step=1,
+            help="0=Not Satisfied, 10=Very Satisfied",
+            key="sidebar_feedback_rating"
+        )
+        
+        feedback_text = st.text_area(
+            "Additional feedback (optional)",
+            placeholder="Tell us what you think...",
+            height=80,
+            key="sidebar_feedback_text"
+        )
+        
+        if st.button("Submit Feedback", key="sidebar_submit_feedback"):
+            if rating or feedback_text.strip():
+                save_feedback_response(rating, feedback_text, "sidebar")
+                st.success("✅ Thank you for your feedback!")
+            else:
+                st.info("Please provide a rating or feedback")
+    
+    load_admin_feedback_dashboard()
 
 # LANDING PAGE LOGIC — SHOW WELCOME INSTEAD OF BLANK STOP
 if not gemini_api_key:
@@ -2178,7 +2502,7 @@ if "Scope" in phase:
 
             spacer, submit_col = st.columns([5, 2])
             with submit_col:
-                submitted = st.form_submit_button("Apply Refinements", use_container_width=True)
+                submitted = st.form_submit_button("Regenerate", use_container_width=True, type="secondary")
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -2598,18 +2922,80 @@ elif "Decision" in phase or "Tree" in phase:
     # Display pathway metrics with evidence enrichment
     node_count = len(st.session_state.data['phase3']['nodes'])
 
+    def fingerprint_nodes(nodes: list) -> str:
+        return hashlib.md5(json.dumps(nodes, sort_keys=True).encode("utf-8")).hexdigest()
+
+    def auto_fix_problematic_end_nodes(problematic_ends: list) -> bool:
+        """Attempt to auto-convert End nodes containing OR logic into explicit Decision branches."""
+        current_nodes = st.session_state.data['phase3']['nodes']
+        current_fp = fingerprint_nodes(current_nodes)
+        last_attempt_fp = st.session_state.data['phase3'].get('or_fix_attempt_fp')
+
+        # Avoid re-entering while an in-flight attempt is running
+        if st.session_state.data['phase3'].get('or_fix_inflight'):
+            styled_info("<b>Auto-fix:</b> Converting OR End nodes to Decision branches…")
+            return True
+
+        # If we've already tried for this exact snapshot, surface the warning instead
+        if last_attempt_fp == current_fp:
+            return False
+
+        st.session_state.data['phase3']['or_fix_inflight'] = True
+        ev_context = "\n".join([
+            f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}"
+            for e in evidence_list[:20]
+        ])
+        with ai_activity("Auto-fixing OR logic in End nodes…"):
+            prompt = f"""
+            You are updating a clinical decision tree. Some End nodes incorrectly include OR logic in their labels.
+
+            Task: rewrite the JSON list so that every End node containing "or" in its label is replaced with a Decision
+            node that branches into explicit End outcomes. Keep the rest of the pathway intact.
+
+            Current pathway (JSON):
+            {json.dumps(current_nodes, indent=2)}
+
+            Evidence for reference (do not invent new IDs):
+            {ev_context}
+
+            Requirements:
+            - Preserve fields: type, label, evidence.
+            - For each problematic End node, create a Decision node summarizing the choice, followed immediately by explicit End nodes (one outcome per End node).
+            - Copy any evidence from the original End node to its derived Decision/End nodes when appropriate; otherwise use "N/A".
+            - Do not add new fields; keep Start/Decision/Process/End types only.
+            - Keep the sequence logical and avoid duplicates.
+            - Return JSON only.
+            """
+            fixed_nodes = get_gemini_response(prompt, json_mode=True)
+
+        st.session_state.data['phase3']['or_fix_inflight'] = False
+        st.session_state.data['phase3']['or_fix_attempt_fp'] = current_fp
+
+        if isinstance(fixed_nodes, list) and fixed_nodes:
+            st.session_state.data['phase3']['nodes'] = fixed_nodes
+            st.session_state.data['phase3']['or_fix_success_fp'] = fingerprint_nodes(fixed_nodes)
+            st.success("Automatically converted OR End nodes into explicit Decision branches.")
+            st.rerun()
+
+        # Auto-fix failed to return usable content; allow fallback warning
+        return False
+
     # Flag problematic terminal nodes that include OR logic
     problematic_ends = [
         (idx + 1, n.get('label', ''))
         for idx, n in enumerate(st.session_state.data['phase3']['nodes'])
         if n.get('type') == 'End' and ' or ' in n.get('label', '').lower()
     ]
+
+    auto_fix_triggered = False
     if problematic_ends:
-        preview = "; ".join([f"{i}: {lbl[:80]}" for i, lbl in problematic_ends[:3]])
-        st.warning(
-            f"End nodes should be single outcomes. Found OR logic in: {preview}. "
-            "Convert these to Decision nodes with explicit branches (e.g., 'Discharge vs Admit')."
-        )
+        auto_fix_triggered = auto_fix_problematic_end_nodes(problematic_ends)
+        if not auto_fix_triggered:
+            preview = "; ".join([f"{i}: {lbl[:80]}" for i, lbl in problematic_ends[:3]])
+            st.warning(
+                f"End nodes should be single outcomes. Found OR logic in: {preview}. "
+                "Convert these to Decision nodes with explicit branches (e.g., 'Discharge vs Admit')."
+            )
     
     # Extract all PMIDs from Phase 3 nodes
     phase3_pmids = extract_pmids_from_nodes(st.session_state.data['phase3']['nodes'])
@@ -2725,12 +3111,28 @@ elif "Decision" in phase or "Tree" in phase:
                 with st.expander("File Review", expanded=True):
                     st.markdown(file_result["review"])
 
+    col_file, col_text = st.columns([1, 2])
+    with col_file:
+        st.caption("Supporting Document (optional)")
+        p3_uploaded = st.file_uploader(
+            "Drag & drop or browse",
+            key="p3_refine_upload",
+            accept_multiple_files=False,
+            label_visibility="collapsed",
+            help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
+        )
+        if p3_uploaded:
+            file_result = upload_and_review_file(p3_uploaded, "p3_refine", "pathway")
+            if file_result:
+                with st.expander("File Review", expanded=False):
+                    st.markdown(file_result["review"])
+
     with col_text:
         st.text_area(
             "Refinement Notes",
-            placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
+            placeholder="Clarify inclusion criteria; tighten scope; align objectives",
             key="p3_refine_input",
-            height=80
+            height=90
         )
     
     # Reset refinement applied flag if text area content changes
@@ -2744,11 +3146,11 @@ elif "Decision" in phase or "Tree" in phase:
     
     # Check if refinements were just applied
     p3_refinement_applied = st.session_state.get('p3_refinement_applied', False)
-    
-    # Determine button type and label
-    refine_button_type = "primary" if p3_refinement_applied else "secondary"
-    refine_button_label = "Applied" if p3_refinement_applied else "Apply Refinements"
-    
+
+    # Always present a brown secondary regenerate button
+    refine_button_type = "secondary"
+    refine_button_label = "Regenerate"
+
     if st.button(refine_button_label, type=refine_button_type, key="p3_apply_refine_btn"):
         if not p3_refinement_applied:
             refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -2792,6 +3194,8 @@ elif "Decision" in phase or "Tree" in phase:
                         st.session_state['p3_refinement_applied'] = True
                         st.success("Refinements applied")
                         st.rerun()
+        else:
+            st.info("Refinements already applied. Edit notes to regenerate again.")
     
     render_bottom_navigation()
     st.stop()
@@ -2913,7 +3317,7 @@ elif "Interface" in phase or "UI" in phase:
                     }}
 
                     function apply() {{
-                      inner.style.transform = `scale(${scale})`;
+                                            inner.style.transform = `scale(${{scale}})`;
                     }}
 
                     document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); apply(); }};
@@ -2955,7 +3359,7 @@ elif "Interface" in phase or "UI" in phase:
                 st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
 
             regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
-            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", use_container_width=True, disabled=regen_disabled):
+            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", use_container_width=True, disabled=regen_disabled, type="secondary"):
                 p4_state['viz_cache'] = {}
                 st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
                 st.rerun()
@@ -2969,11 +3373,11 @@ elif "Interface" in phase or "UI" in phase:
             with col_file:
                 st.caption("Supporting Document (optional)")
                 uploaded = st.file_uploader(
-                    "Drag and drop file here",
+                    "Drag & drop or browse",
                     key="p4_upload",
                     accept_multiple_files=False,
                     label_visibility="collapsed",
-                    help="Limit 200MB per file"
+                    help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
                 )
                 if uploaded:
                     file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
@@ -2984,14 +3388,14 @@ elif "Interface" in phase or "UI" in phase:
             with col_text:
                 refine_notes = st.text_area(
                     "Refinement Notes",
-                    placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
+                    placeholder="Clarify inclusion criteria; tighten scope; align objectives",
                     key="p4_refine_notes",
-                    height=120,
+                    height=90,
                     label_visibility="visible"
                 )
 
             apply_disabled = not refine_notes and not st.session_state.get("file_p4_refine_file")
-            if st.button("Apply Refinements", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled):
+            if st.button("Regenerate", key="p4_apply_refine", use_container_width=True, disabled=apply_disabled, type="secondary"):
                 with st.spinner("Applying refinements..."):
                     refine_with_file = refine_notes
                     if st.session_state.get("file_p4_refine_file"):
@@ -3144,7 +3548,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "Drag & drop or browse",
                 key="p5_expert_upload",
                 accept_multiple_files=False,
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
             )
             if p5e_uploaded:
                 file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback form")
@@ -3155,12 +3560,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
         with col_text:
             refine_expert = st.text_area(
                 "Refinement Notes",
-                placeholder="Add usability metrics; clarify scenarios; shorten steps",
+                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
                 key="p5_refine_expert",
                 height=90,
                 label_visibility="visible"
             )
-        if refine_expert and st.button("Apply Refinements", key="regen_expert", use_container_width=True):
+        if refine_expert and st.button("Regenerate", key="regen_expert", use_container_width=True, type="secondary"):
             with st.spinner("Refining..."):
                 refine_with_file = refine_expert
                 if st.session_state.get("file_p5_expert_review"):
@@ -3222,7 +3627,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "Drag & drop or browse",
                 key="p5_beta_upload",
                 accept_multiple_files=False,
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
             )
             if p5b_uploaded:
                 file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
@@ -3232,12 +3638,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         refine_beta = st.text_area(
             "Refinement Notes",
-            placeholder="Add usability metrics; clarify scenarios; shorten steps",
+            placeholder="Clarify inclusion criteria; tighten scope; align objectives",
             key="p5_refine_beta",
             height=90,
             label_visibility="visible"
         )
-        if refine_beta and st.button("Apply Refinements", key="regen_beta", use_container_width=True):
+        if refine_beta and st.button("Regenerate", key="regen_beta", use_container_width=True, type="secondary"):
             with st.spinner("Refining..."):
                 refine_with_file = refine_beta
                 if st.session_state.get("file_p5_beta_review"):
@@ -3435,7 +3841,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "Drag & drop or browse",
                 key="p5_edu_upload",
                 accept_multiple_files=False,
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
             )
             if p5ed_uploaded:
                 file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
@@ -3447,12 +3854,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
         with col_text:
             refine_edu = st.text_area(
                 "Refinement Notes",
-                placeholder="Add case studies; include quick checks; simplify objectives",
+                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
                 key="p5_refine_edu",
                 height=90,
                 label_visibility="visible"
             )
-        if refine_edu and st.button("Apply Refinements", key="regen_edu", use_container_width=True):
+        if refine_edu and st.button("Regenerate", key="regen_edu", use_container_width=True, type="secondary"):
             with st.spinner("Refining..."):
                 # Include file context
                 refine_with_file = refine_edu
@@ -3652,7 +4059,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "Drag & drop or browse",
                 key="p5_exec_upload",
                 accept_multiple_files=False,
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                help="Attach a PDF/DOCX; the agent auto-summarizes it for context."
             )
             if p5ex_uploaded:
                 file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
@@ -3664,12 +4072,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
         with col_text:
             refine_exec = st.text_area(
                 "Refinement Notes",
-                placeholder="Focus on cost‑benefit; shorten narrative; highlight outcomes",
+                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
                 key="p5_refine_exec",
                 height=90,
                 label_visibility="visible"
             )
-        if refine_exec and st.button("Apply Refinements", key="regen_exec", use_container_width=True):
+        if refine_exec and st.button("Regenerate", key="regen_exec", use_container_width=True, type="secondary"):
             with st.spinner("Refining..."):
                 refine_with_file = refine_exec
                 if st.session_state.get("file_p5_exec_review"):
