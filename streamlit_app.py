@@ -643,7 +643,8 @@ HEURISTIC_CATEGORIES = {
     "pathway_actionable": {
         "H2": "Language clarity (replace medical jargon with patient-friendly terms where appropriate)",
         "H4": "Consistency (standardize terminology and node types across pathway)",
-        "H5": "Error prevention (add critical alerts, validation rules, and edge case handling)"
+        "H5": "Error prevention (add critical alerts, validation rules, and edge case handling)",
+        "H9": "Error recovery (surface critical checks earlier; add recovery steps in the flow)"
     },
     "ui_design_only": {
         "H1": "Status visibility (implement progress indicators and highlighting in the interface)",
@@ -651,7 +652,6 @@ HEURISTIC_CATEGORIES = {
         "H6": "Recognition not recall (use visual icons and clear labels instead of hidden menus)",
         "H7": "Efficiency accelerators (add keyboard shortcuts and quick actions for power users)",
         "H8": "Minimalist design (remove clutter and non-essential information from interface)",
-        "H9": "Error recovery (display clear, plain-language error messages and recovery steps)",
         "H10": "Help & docs (provide in-app tooltips, FAQs, and guided walkthroughs)"
     }
 }
@@ -1506,11 +1506,11 @@ def format_citation_line(entry, style="APA"):
 
 def apply_pathway_heuristic_improvements(nodes, heuristics_data, extra_ui_insights=None):
     """
-    Apply pathway-actionable heuristics (H2, H4, H5) and optionally selected UI heuristics
+    Apply pathway-actionable heuristics (H2, H4, H5, H9) and optionally selected UI heuristics
     that the user explicitly opted into. Guardrails prevent unsafe edits.
     Returns: Updated nodes list or None if LLM fails
     """
-    actionable_keys = ["H2", "H4", "H5"]
+    actionable_keys = ["H2", "H4", "H5", "H9"]
     insights = {k: heuristics_data.get(k, "") for k in actionable_keys if k in heuristics_data}
     extra_ui_insights = extra_ui_insights or {}
 
@@ -1539,7 +1539,8 @@ Required improvements:
 1. H2 (Language): Replace medical jargon with plain language where appropriate; keep necessary clinical terms.
 2. H4 (Consistency): Standardize terminology and ensure similar decisions share structure.
 3. H5 (Error Prevention): Add specific alerts, validation checkpoints, or warning conditions to prevent common errors.
-4. If optional UI heuristics are provided, translate them into pathway-safe adjustments only when they align to existing steps.
+4. H9 (Error Recovery): Move critical checks earlier when appropriate; add clear recovery steps tied to existing nodes.
+5. If optional UI heuristics are provided, translate them into pathway-safe adjustments only when they align to existing steps.
 
 {guardrails}
 
@@ -3748,14 +3749,14 @@ elif "Interface" in phase or "UI" in phase:
             # SUMMARY CARD
             st.info(f"""
 **Heuristics Summary:**
-- **{len(actionable_h)} pathway improvements** ready to apply collectively (H2, H4, H5)
-- **{len(ui_only_h)} design recommendations** to review for UI implementation (H1, H3, H6-H10)
+- **{len(actionable_h)} pathway improvements** ready to apply collectively (H2, H4, H5, H9)
+- **{len(ui_only_h)} design recommendations** to review for UI implementation (H1, H3, H6, H7, H8, H10)
 """)
             
             # SECTION 1: ACTIONABLE PATHWAY IMPROVEMENTS
             if actionable_h:
                 st.markdown("### 🔧 Pathway Improvements (Actionable)")
-                st.caption("These heuristics can improve your clinical pathway structure and clarity. They will be applied collectively.")
+                st.caption("These heuristics can improve your clinical pathway structure and clarity. They will be applied collectively (H2, H4, H5, H9).")
                 
                 for heuristic_key in sorted(actionable_h.keys()):
                     insight = actionable_h[heuristic_key]
@@ -3774,7 +3775,7 @@ elif "Interface" in phase or "UI" in phase:
             # SECTION 2: UI DESIGN RECOMMENDATIONS (REVIEW-ONLY)
             if ui_only_h:
                 st.markdown("### 🎨 Design Recommendations (UI/UX - For Your Designer)")
-                st.caption("These are interface design improvements. Optionally select ones that should also adjust the pathway with guardrails.")
+                st.caption("These are interface design improvements. Optionally select ones to also adjust the pathway with guardrails.")
                 
                 for heuristic_key in sorted(ui_only_h.keys()):
                     insight = ui_only_h[heuristic_key]
