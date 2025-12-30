@@ -159,6 +159,45 @@ Result: User clicks button, sees results in 5-10 seconds ✅
 
 ---
 
+## Clinical Pathway Structure: DAG with Escalation
+
+All clinical pathways are **directed acyclic graphs (DAG)** - no loops or cycles allowed. This reflects real clinical practice:
+
+### Why DAG-Only?
+- **Clinical reality**: Treatments escalate (1st → 2nd → 3rd line), they don't cycle
+- **Clear progression**: Each reassessment moves forward to next decision point
+- **Explicit disposition**: After treatment attempts, pathway terminates with admission/discharge/transfer
+- **Auditable**: Linear progression easier to review and validate
+
+### Escalation Pattern (Not Loops)
+When clinical reassessment is needed, model as **sequential decision branches**:
+
+```
+Initial assessment
+  ├─ High risk → Admit immediately (Terminal)
+  └─ Moderate risk → 1st line treatment
+                     ├─ Response? → Discharge (Terminal)
+                     └─ No response → Reassess symptoms (Decision)
+                                      ├─ Stable → 2nd line treatment
+                                      │           ├─ Response? → Discharge
+                                      │           └─ No response → 3rd line
+                                      │                          └─ Failed all → Admit
+                                      └─ Deteriorating → Escalate to admission
+```
+
+### Node Types
+- **Decision** (pink diamond): Branch point based on clinical criteria
+- **Process** (light yellow box): Action, treatment, or assessment
+- **Start/End** (light green oval): Entry and exit points
+
+### Key Principle
+If you're tempted to create a loop:
+1. Ask: "Is this really escalation through treatment options?"
+2. Model as: Decision → Treatment A → Reassess (Decision) → Treatment B → etc.
+3. Always terminate with disposition (admit/discharge/transfer)
+
+---
+
 ## UI Layout: Before vs After
 
 ### BEFORE (Confusing)

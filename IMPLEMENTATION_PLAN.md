@@ -5,6 +5,16 @@ The fix has already been implemented in the current `streamlit_app.py`, but this
 
 ---
 
+## Pathway Structure: DAG-Only (No Loops)
+
+- All pathways are **directed acyclic graphs (DAG)** - no cycles allowed.
+- Clinical reassessment is modeled as **escalation through decision branches**, not loops.
+- Example: 1st line treatment → Reassess (Decision) → 2nd line treatment → Reassess (Decision) → 3rd line treatment → Disposition
+- Every pathway terminates with explicit disposition (admit/discharge/transfer/refer).
+- AI agent validates DAG structure during generation and flags any cycles for restructuring.
+
+---
+
 ## Risk Assessment: What Could Go Wrong
 
 ### HIGH RISK Areas

@@ -236,3 +236,25 @@ User can see changes immediately
 3. ✅ Refine & regenerate updates the decision flowchart and triggers immediate UI refresh
 
 The app is ready for end-to-end testing with real data!
+
+---
+
+## Pathway Structure: DAG-Only
+
+All clinical pathways must be **directed acyclic graphs (DAG)** - no loops or cycles.
+
+### Why No Loops?
+- **Clinical accuracy**: Real treatment flows escalate (1st/2nd/3rd line), not cycle
+- **Clear audit trail**: Linear progression easier to validate and review
+- **Explicit outcomes**: Every path terminates with disposition (admit/discharge/transfer)
+
+### Verification
+The AI agent validates during generation:
+- No cycles detected → pathway is valid DAG
+- Cycles detected → agent restructures as escalation pattern
+- All branches terminate at End/Terminal nodes
+
+### Common Misconception
+"Reassessment" ≠ "Loop back"
+- ❌ Wrong: Assessment → Treatment → Loop back to Assessment
+- ✅ Right: Assessment → Treatment → Reassessment (new Decision node) → Next treatment or disposition
