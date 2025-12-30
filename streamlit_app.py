@@ -422,6 +422,11 @@ st.markdown("""
     [data-testid="stHorizontalBlock"] div[data-testid="stColumn"] {
         align-items: center !important;
     }
+    /* Ensure the inner vertical block centers content within horizontal rows */
+    [data-testid="stHorizontalBlock"] div[data-testid="stColumn"] > div > div[data-testid="stVerticalBlock"] {
+        justify-content: center !important;
+        align-items: center !important;
+    }
     
     button, input, select, textarea, label {
         vertical-align: middle !important;
@@ -563,7 +568,7 @@ st.markdown("""
     }
     
     /* Make navigation buttons more compact */
-    [data-testid="stHorizontalBlock"] > div[data-testid="column"] button {
+    [data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] button {
         font-size: 0.9rem !important;
         padding: 10px 8px !important;
         white-space: nowrap !important;
@@ -1700,6 +1705,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             ntype = n.get('type', 'Process')
             if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
             elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
+            elif ntype == 'Reevaluation': shape, fill = 'box', '#FFCC80'
             else: shape, fill = 'box', '#FFF2CC'
             fill = _role_fill(n.get('role', ''), fill)
             lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
@@ -1758,6 +1764,7 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 ntype = n.get('type', 'Process')
                 if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
                 elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
+                elif ntype == 'Reevaluation': shape, fill = 'box', '#FFCC80'
                 else: shape, fill = 'box', '#FFF2CC'
                 fill = _role_fill(n.get('role', ''), fill)
                 c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
@@ -2817,57 +2824,6 @@ if "Scope" in phase:
                 {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
                 {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
                 {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-                {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
-                {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
-                {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
-                {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
-            ]
-        
-        df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-        edited_sched = st.data_editor(
-            df_sched,
-            num_rows="dynamic",
-            width="stretch",
-            key="sched_editor",
-            column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")}
-        )
-
-        # Update session state with edited data and force a single rerun when changes occur
-        if not edited_sched.empty:
-            new_records = edited_sched.to_dict('records')
-            if new_records != st.session_state.data['phase1'].get('schedule', []):
-                st.session_state.data['phase1']['schedule'] = new_records
-                st.rerun()
-            else:
-                st.session_state.data['phase1']['schedule'] = new_records
-
-        # Always render chart from the latest session data for reliability
-        chart_data = pd.DataFrame(st.session_state.data['phase1']['schedule']).copy()
-        chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
-        
-        if not chart_data.empty:
-            try:
-                chart_data['Start'] = pd.to_datetime(chart_data['Start'])
-                chart_data['End'] = pd.to_datetime(chart_data['End'])
-                
-                # Define consistent color scheme for all owners
-                owner_colors = {
-                    'PM': '#5f9ea0',           # Cadet blue
-                    'Clinical Lead': '#4169e1',  # Royal blue
-                    'Expert Panel': '#b0c4de',   # Light steel blue
-                    'IT': '#dc143c',             # Crimson
-                    'Ops': '#ffb6c1',            # Light pink
-                    'Quality': '#5D4037'         # Brown (consistent with brand)
-                }
-                
-                chart = alt.Chart(chart_data).mark_bar().encode(
-                    x=alt.X('Start:T', title='Date'),
-                    x2='End:T',
-                    y=alt.Y('Stage:N', sort=None, title='Stage'),
-                    color=alt.Color('Owner:N', 
-                        scale=alt.Scale(
-                            domain=list(owner_colors.keys()),
-                            range=list(owner_colors.values())
                         ),
                         legend=alt.Legend(title='Owner')
                     ),
@@ -3662,6 +3618,9 @@ elif "Interface" in phase or "UI" in phase:
     # Also decode SVG to string for direct embedding
     svg_str = svg_bytes.decode('utf-8') if svg_bytes else ""
 
+    # Always prepare DOT source as a client-side fallback via Viz.js
+    dot_src = dot_from_nodes(nodes_for_viz, "TD")
+
     # DEBUG: Log SVG generation status
     debug_log(f"SVG generation - graphviz: {graphviz is not None}, svg_bytes: {svg_bytes is not None}, svg_b64 len: {len(svg_b64)}, svg_str len: {len(svg_str)}")
 
@@ -3670,63 +3629,15 @@ elif "Interface" in phase or "UI" in phase:
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
         st.subheader("Pathway Visualization")
-        if svg_str:  # Use svg_str instead of svg_b64 to check if we have SVG data
-            with st.expander("Open Preview", expanded=False):
-                preview_html = f"""
-                <div id="cpq-preview" style="border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
-                  <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;">
-                    <button id="cpq-zoom-out" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">-</button>
-                    <button id="cpq-zoom-in" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">+</button>
-                    <button id="cpq-fit" style="padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;">Fit</button>
-                  </div>
-                  <div id="cpq-canvas" style="width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;">
-                    {svg_str}
-                  </div>
-                </div>
-                <script>
-                  (function() {{
-                    const canvas = document.getElementById('cpq-canvas');
-                    const svg = canvas.querySelector('svg');
-                    if (!svg) return;
-                    
-                    let scale = 1;
-                    const initialViewBox = svg.getAttribute('viewBox') || svg.getAttribute('viewbox');
-                    
-                    function fitToWidth() {{
-                      if (!svg) return;
-                      const rect = svg.getBoundingClientRect();
-                      const naturalWidth = rect.width || svg.clientWidth;
-                      const available = canvas.clientWidth - 24;
-                      if (naturalWidth > 0 && available > 0) {{
-                        scale = Math.min(1, available / naturalWidth);
-                        apply();
-                      }}
-                    }}
-
-                    function apply() {{
-                      svg.style.transform = 'scale(' + scale + ')';
-                      svg.style.transformOrigin = 'top left';
-                    }}
-
-                    document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); apply(); }};
-                    document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); apply(); }};
-                    document.getElementById('cpq-fit').onclick = () => fitToWidth();
-                    
-                    // Fit on load
-                    setTimeout(fitToWidth, 100);
-                    window.addEventListener('resize', fitToWidth);
-                  }})();
-                </script>
-                """
-                components.html(preview_html, height=520)
-
-            c1, c2 = columns_top([1, 1])
-            with c1:
-                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
-            with c2:
-                st.caption("Click 'Open Preview' above to view and zoom the pathway diagram.")
-        else:
-            st.warning("Unable to render pathway visualization")
+                styled_info("<b>Tip:</b> Inline preview is disabled. After any edits in the decision tree table or settings, download the updated SVG below to view changes.")
+                if svg_bytes:
+                        c1, c2 = columns_top([1, 1])
+                        with c1:
+                                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
+                        with c2:
+                                st.caption("Re‑download the SVG after each edit to see updates.")
+                else:
+                        st.warning("SVG unavailable. Install Graphviz on the server and retry.")
 
         st.divider()
 
@@ -3988,7 +3899,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         ]
                         g = build_graphviz_from_nodes(nodes_for_viz, "TD")
                         svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-                        if svg_bytes:
+                        if False and svg_bytes:
                                 import base64
                                 svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
                                 with st.expander("View Pathway", expanded=False):
@@ -4122,7 +4033,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             ]
             g = build_graphviz_from_nodes(nodes_for_viz, "TD")
             svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-            if svg_bytes:
+            if False and svg_bytes:
                 import base64
                 svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
                 with st.expander("View Pathway", expanded=False):
@@ -4414,7 +4325,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             ]
             g = build_graphviz_from_nodes(nodes_for_viz, "TD")
             svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-            if svg_bytes:
+            if False and svg_bytes:
                 import base64
                 svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
                 with st.expander("View Pathway", expanded=False):
