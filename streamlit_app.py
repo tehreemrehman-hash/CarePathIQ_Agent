@@ -3638,7 +3638,6 @@ elif "Interface" in phase or "UI" in phase:
     # LEFT: Fullscreen open + manual edit + refine/regenerate
     with col_left:
         st.subheader("Pathway Visualization")
-        styled_info("<b>Tip:</b> Inline preview is disabled. After any edits in the decision tree table or settings, download the updated SVG below to view changes.")
         if svg_bytes:
             c1, c2 = columns_top([1, 1])
             with c1:
