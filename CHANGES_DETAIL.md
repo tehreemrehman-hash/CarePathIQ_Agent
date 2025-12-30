@@ -1,3 +1,28 @@
+## Pathway Visualization: Dual Rendering Path
+
+- **Server-side Graphviz (preferred):** When the `dot` binary is available, the app builds SVG on the server for deterministic layout and reliable downloads. This path is active automatically when Graphviz is installed.
+- **Client-side Viz.js fallback:** If Graphviz isn’t present, the app generates DOT and renders it in the browser via Viz.js. This ensures the preview works in any environment.
+
+### Why
+- **Consistency:** Native `dot` yields stable layouts across machines.
+- **Resilience:** Viz.js keeps previews working when server Graphviz isn’t available or restricted.
+
+### Install Graphviz (optional)
+```
+apt-get update -y
+apt-get install -y graphviz
+which dot && dot -V
+```
+
+### Try It
+- Run: `streamlit run streamlit_app.py --server.headless true`
+- Open the preview under “Pathway Visualization”.
+- Downloads: SVG (server-rendered when available) and DOT (always available).
+
+### Notes
+- If CDNs are blocked, we can vendor Viz.js locally to avoid external script loading.
+- The app selects the best path at runtime; no user toggle required.
+
 # Code Changes Summary - Nielsen's Heuristics Fix
 
 ## Files Modified: 1
