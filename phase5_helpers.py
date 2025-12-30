@@ -1506,6 +1506,24 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
         detail_level = audience_metadata.get('detail_level', 'moderate')
         emphasis_areas = audience_metadata.get('emphasis_areas', [])
 
+        # Build SMART objectives scaffold from Phase 1 objectives text
+        smart_source = objectives_text if objectives_text and objectives_text != 'Not provided' else "Clarify objectives in Phase 1 to align with SMART criteria."
+        smart_objectives = [
+            f"Specific: {smart_source}",
+            "Measurable: Define baseline and target metrics (safety events, LOS, throughput, readmissions).",
+            "Achievable: Resource plan and staffing validated through stakeholder review.",
+            "Relevant: Aligned to organizational quality, safety, and access priorities.",
+            "Time-bound: Go-live timeline with 30/60/90 day checkpoints and quarterly reviews."
+        ]
+
+        # Phase status snapshot for quick exec visibility
+        phase_inputs = [
+            "Phase 1 Charter captured" if p1_data else "Phase 1 Charter pending",
+            f"Phase 2 Evidence items: {len(p2_data.get('evidence', []))}" if p2_data.get('evidence') else "Phase 2 Evidence pending",
+            f"Phase 3 Pathway nodes: {len(p3_data.get('nodes', []))}" if p3_data.get('nodes') else "Phase 3 Pathway design pending",
+            "Phase 4 Usability: completed" if p4_data.get('heuristics_data') else "Phase 4 Usability review pending"
+        ]
+
         setting_text = p1_data.get('setting', '')
         population = p1_data.get('population', 'N/A') or 'N/A'
         problem_text = p1_data.get('problem', 'Not provided')
@@ -1522,6 +1540,11 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
         subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
         subtitle.runs[0].font.size = Pt(11)
         subtitle.runs[0].font.italic = True
+
+        if emphasis_areas:
+            emphasis_line = doc.add_paragraph(f"Audience focus: {', '.join(emphasis_areas)}")
+            emphasis_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            emphasis_line.runs[0].font.size = Pt(10)
         
         # AUDIENCE-ADAPTIVE CONTENT STRUCTURE
         
@@ -1537,6 +1560,14 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
             doc.add_paragraph(
                 f"Problem: {problem_text}"
             )
+
+            doc.add_heading("SMART Objectives", level=1)
+            for item in smart_objectives:
+                doc.add_paragraph(item, style='List Bullet')
+
+            doc.add_heading("Phase Inputs Synthesized (Phases 1-4)", level=1)
+            for item in phase_inputs:
+                doc.add_paragraph(item, style='List Bullet')
             
             # Extract ROI/impact-related metrics from objectives
             doc.add_paragraph("Key Benefits:", style='List Bullet')
@@ -1617,6 +1648,14 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
                 "Outcome focus: safer, faster care delivery with clear resource stewardship in the specified care setting.",
                 style='List Bullet'
             )
+
+            doc.add_heading("SMART Objectives", level=1)
+            for item in smart_objectives:
+                doc.add_paragraph(item, style='List Bullet')
+
+            doc.add_heading("Phase Inputs Synthesized (Phases 1-4)", level=1)
+            for item in phase_inputs:
+                doc.add_paragraph(item, style='List Bullet')
             
             # Evidence Summary (operational - detail level determines depth)
             doc.add_heading("Evidence Summary", level=1)
