@@ -682,6 +682,7 @@ def generate_beta_form_html(
     audience_metadata = infer_audience_from_description(audience, genai_client)
     detail_level = audience_metadata.get('detail_level', 'moderate')
     emphasis_areas = audience_metadata.get('emphasis_areas', [])
+    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
     condition_clean = (condition or "Pathway").strip()
