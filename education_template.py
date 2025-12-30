@@ -958,8 +958,38 @@ def create_education_module_template(
         let currentModuleIdx = -1;
         let allAnswered = {{}};
 
+        // Fallback: ensure at least one module exists even if upstream provided none
+        function ensureTopics() {{
+            if (!Array.isArray(TOPICS) || TOPICS.length === 0) {{
+                // reset and push a minimal default module
+                while (TOPICS.length) {{ TOPICS.pop(); }}
+                TOPICS.push({{
+                    title: `Module 1: ${{CONDITION}} overview`,
+                    content: `<p>Overview of the ${{CONDITION}} pathway.</p>`,
+                    learning_objectives: [
+                        `Describe the goals of the ${{CONDITION}} pathway`,
+                        `Outline the care flow for ${{CONDITION}}`,
+                        `Identify supporting tools and documentation`
+                    ],
+                    quiz: [{
+                        question: `What is the primary aim of this pathway?`,
+                        options: [
+                            "Standardize care and improve safety",
+                            "Increase paperwork",
+                            "Delay treatment",
+                            "Remove clinical judgment"
+                        ],
+                        correct: 0,
+                        explanation: "Clinical pathways standardize high-quality care and improve safety/throughput."
+                    }],
+                    time_minutes: 5
+                }});
+            }
+        }}
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {{
+            ensureTopics();
             initializeCourse();
             generateCertificateID();
         }});
