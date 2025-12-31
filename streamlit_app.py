@@ -2867,8 +2867,7 @@ if "Scope" in phase:
                 x=alt.X('Start:T', title='Start Date'),
                 x2='End:T',
                 y=alt.Y('Stage:N', title='Project Stage'),
-                color=alt.Color('Owner:N', title='Owner'),
-                legend=alt.Legend(title='Owner')
+                color=alt.Color('Owner:N', title='Owner', legend=alt.Legend(title='Owner'))
             ).properties(height=300).interactive()
             
             st.altair_chart(chart, use_container_width=True)
@@ -3961,51 +3960,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 {"label": "Add nodes in Phase 3", "type": "Process"},
                                 {"label": "End", "type": "End"},
                         ]
-                        g = build_graphviz_from_nodes(nodes_for_viz, "TD")
-                        svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-                        if False and svg_bytes:
-                                import base64
-                                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
-                                with st.expander("View Pathway", expanded=False):
-                                        preview_html = f"""
-                                        <div id=\"cpq-preview\" style=\"border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);\">
-                                            <div style=\"display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;\">
-                                                <button id=\"cpq-zoom-out\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">-</button>
-                                                <button id=\"cpq-zoom-in\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">+</button>
-                                                <button id=\"cpq-fit\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">Fit</button>
-                                            </div>
-                                            <div id=\"cpq-canvas\" style=\"width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;\">
-                                                <div id=\"cpq-inner\" style=\"transform-origin: top left;\">
-                                                    <img id=\"cpq-svg\" src=\"data:image/svg+xml;base64,{svg_b64}\" style=\"display:block;\" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <script>
-                                            (function() {{
-                                                const img = document.getElementById('cpq-svg');
-                                                const inner = document.getElementById('cpq-inner');
-                                                const canvas = document.getElementById('cpq-canvas');
-                                                let scale = 1;
-                                                function fitToWidth() {{
-                                                    if (!img.complete) return;
-                                                    const naturalWidth = img.naturalWidth || img.width;
-                                                    const available = canvas.clientWidth - 24;
-                                                    if (naturalWidth > 0 && available > 0) {{
-                                                        scale = Math.min(1, available / naturalWidth);
-                                                        inner.style.transform = 'scale(' + scale + ')';
-                                                    }}
-                                                }}
-                                                document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); inner.style.transform = 'scale(' + scale + ')'; }};
-                                                document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); inner.style.transform = 'scale(' + scale + ')'; }};
-                                                document.getElementById('cpq-fit').onclick = () => fitToWidth();
-                                                img.onload = fitToWidth;
-                                                if (img.complete) fitToWidth();
-                                                window.addEventListener('resize', fitToWidth);
-                                            }})();
-                                        </script>
-                                        """
-                                        components.html(preview_html, height=520)
-
         # Refine section (collapsible, notes on the left for natural flow)
         with st.expander("Refine & Regenerate", expanded=False):
             st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
@@ -4089,57 +4043,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     
                 )
 
-            # Inline pathway preview for beta testing context
-            nodes_for_viz = nodes if nodes else [
-                {"label": "Start", "type": "Start"},
-                {"label": "Add nodes in Phase 3", "type": "Process"},
-                {"label": "End", "type": "End"},
-            ]
-            g = build_graphviz_from_nodes(nodes_for_viz, "TD")
-            svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-            if False and svg_bytes:
-                import base64
-                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
-                with st.expander("View Pathway", expanded=False):
-                    preview_html = f"""
-                    <div id=\"cpq-preview\" style=\"border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);\">
-                      <div style=\"display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;\">
-                        <button id=\"cpq-zoom-out\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">-</button>
-                        <button id=\"cpq-zoom-in\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">+</button>
-                        <button id=\"cpq-fit\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">Fit</button>
-                      </div>
-                      <div id=\"cpq-canvas\" style=\"width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;\">
-                        <div id=\"cpq-inner\" style=\"transform-origin: top left;\">
-                          <img id=\"cpq-svg\" src=\"data:image/svg+xml;base64,{svg_b64}\" style=\"display:block;\" />
-                        </div>
-                      </div>
-                    </div>
-                    <script>
-                    (function() {{
-                      const img = document.getElementById('cpq-svg');
-                      const inner = document.getElementById('cpq-inner');
-                      const canvas = document.getElementById('cpq-canvas');
-                      let scale = 1;
-                      function fitToWidth() {{
-                        if (!img.complete) return;
-                        const naturalWidth = img.naturalWidth || img.width;
-                        const available = canvas.clientWidth - 24;
-                        if (naturalWidth > 0 && available > 0) {{
-                          scale = Math.min(1, available / naturalWidth);
-                          inner.style.transform = 'scale(' + scale + ')';
-                        }}
-                      }}
-                      document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); inner.style.transform = 'scale(' + scale + ')'; }};
-                      document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); inner.style.transform = 'scale(' + scale + ')'; }};
-                      document.getElementById('cpq-fit').onclick = () => fitToWidth();
-                      img.onload = fitToWidth;
-                      if (img.complete) fitToWidth();
-                      window.addEventListener('resize', fitToWidth);
-                    }})();
-                    </script>
-                    """
-                    components.html(preview_html, height=520)
-        
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
             st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
@@ -4381,57 +4284,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     
                 )
 
-            # Inline pathway preview for education context
-            nodes_for_viz = nodes if nodes else [
-                {"label": "Start", "type": "Start"},
-                {"label": "Add nodes in Phase 3", "type": "Process"},
-                {"label": "End", "type": "End"},
-            ]
-            g = build_graphviz_from_nodes(nodes_for_viz, "TD")
-            svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-            if False and svg_bytes:
-                import base64
-                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8')
-                with st.expander("View Pathway", expanded=False):
-                    preview_html = f"""
-                    <div id=\"cpq-preview\" style=\"border:1px solid #ddd;border-radius:8px;padding:8px;background:#fdfdfd;box-shadow:0 2px 6px rgba(0,0,0,0.08);\">
-                      <div style=\"display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px;\">
-                        <button id=\"cpq-zoom-out\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">-</button>
-                        <button id=\"cpq-zoom-in\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">+</button>
-                        <button id=\"cpq-fit\" style=\"padding:6px 10px;border:1px solid #ccc;border-radius:6px;background:#fff;cursor:pointer;\">Fit</button>
-                      </div>
-                      <div id=\"cpq-canvas\" style=\"width:100%;height:420px;overflow:auto;background:#fafafa;border:1px solid #eee;border-radius:6px;display:flex;justify-content:center;align-items:flex-start;\">
-                        <div id=\"cpq-inner\" style=\"transform-origin: top left;\">
-                          <img id=\"cpq-svg\" src=\"data:image/svg+xml;base64,{svg_b64}\" style=\"display:block;\" />
-                        </div>
-                      </div>
-                    </div>
-                    <script>
-                    (function() {{
-                      const img = document.getElementById('cpq-svg');
-                      const inner = document.getElementById('cpq-inner');
-                      const canvas = document.getElementById('cpq-canvas');
-                      let scale = 1;
-                      function fitToWidth() {{
-                        if (!img.complete) return;
-                        const naturalWidth = img.naturalWidth || img.width;
-                        const available = canvas.clientWidth - 24;
-                        if (naturalWidth > 0 && available > 0) {{
-                          scale = Math.min(1, available / naturalWidth);
-                          inner.style.transform = 'scale(' + scale + ')';
-                        }}
-                      }}
-                      document.getElementById('cpq-zoom-in').onclick = () => {{ scale = Math.min(scale + 0.1, 3); inner.style.transform = 'scale(' + scale + ')'; }};
-                      document.getElementById('cpq-zoom-out').onclick = () => {{ scale = Math.max(scale - 0.1, 0.2); inner.style.transform = 'scale(' + scale + ')'; }};
-                      document.getElementById('cpq-fit').onclick = () => fitToWidth();
-                      img.onload = fitToWidth;
-                      if (img.complete) fitToWidth();
-                      window.addEventListener('resize', fitToWidth);
-                    }})();
-                    </script>
-                    """
-                    components.html(preview_html, height=520)
-        
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
             st.caption("Tip: Use natural language for micro‑refinements; optionally attach a supporting document. Click Regenerate to apply.")
