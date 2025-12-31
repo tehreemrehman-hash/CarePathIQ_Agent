@@ -1549,6 +1549,28 @@ Return ONLY a valid JSON array of updated nodes. If unsure, return the original 
     new_nodes = get_gemini_response(prompt, json_mode=True)
     return new_nodes if new_nodes and isinstance(new_nodes, list) else None
 
+
+def apply_actionable_heuristics_incremental(nodes, heuristics_data):
+    """
+    Apply all provided heuristics one by one (H1-H10), with guardrails.
+    Returns: (updated_nodes, applied_keys, skipped_keys)
+    """
+    ordered_keys = sorted(heuristics_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
+    applied = []
+    skipped = []
+    current_nodes = copy.deepcopy(nodes)
+
+    for key in ordered_keys:
+        single_payload = {key: heuristics_data.get(key, "")}
+        improved = apply_pathway_heuristic_improvements(current_nodes, single_payload, {})
+        if improved and improved != current_nodes:
+            applied.append(key)
+            current_nodes = improved
+        else:
+            skipped.append(key)
+
+    return current_nodes, applied, skipped
+
 def create_references_docx(citations, style="APA"):
     """Create Word document with citations. Supports preset styles and custom style names."""
     if Document is None or not citations:
@@ -2910,7 +2932,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Regenerate to automatically update all Phase 1 content and charter data.")
+        st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update all Phase 1 content and downloads")
         with st.form("p1_refine_form"):
             col_text, col_file = columns_top([2, 1])
             with col_text:
@@ -2938,7 +2960,9 @@ Return clean JSON ONLY. No markdown, no explanation."""
                             with st.expander(f"Review: {file_result['filename']}", expanded=False):
                                 st.markdown(file_result["review"])
 
-            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -3151,7 +3175,7 @@ elif "Evidence" in phase or "Appraise" in phase:
             df_ev.insert(0, "new", df_ev["is_new"].astype(bool))
 
             # Neutral tip without Phase 3 reference
-            styled_info("<b>Tip:</b> New evidence is marked with a checked box in the first table column. Review the auto-graded GRADE and rationale. Hover over the top right of the table for more options including CSV download.")
+            styled_info("<b>Tip:</b> New evidence is marked with a checked box in the first table column. Review the auto-generated GRADE and rationale. Hover over the top right of the table for more options including CSV download.")
 
             edited_ev = st.data_editor(
                 df_ev[["new", "id", "title", "grade", "rationale", "url"]], 
@@ -3364,7 +3388,21 @@ elif "Decision" in phase or "Tree" in phase:
 
     # Extract all PMIDs from Phase 3 nodes
     phase3_pmids = extract_pmids_from_nodes(st.session_state.data['phase3']['nodes'])
-    phase2_pmids = set([e['id'] for e in evidence_list])
+    
+    # De-duplicate Phase 2 evidence first (in case there are existing duplicates)
+    seen_pmids = set()
+    deduplicated_evidence = []
+    for e in evidence_list:
+        pmid = e.get('id')
+        if pmid not in seen_pmids:
+            seen_pmids.add(pmid)
+            deduplicated_evidence.append(e)
+    
+    # Update Phase 2 evidence list with deduplicated version
+    st.session_state.data['phase2']['evidence'] = deduplicated_evidence
+    evidence_list = deduplicated_evidence
+    
+    phase2_pmids = seen_pmids
     
     # Identify new PMIDs in Phase 3 not yet in Phase 2
     new_pmids_in_phase3 = phase3_pmids - phase2_pmids
@@ -3463,7 +3501,7 @@ elif "Decision" in phase or "Tree" in phase:
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Regenerate to automatically update the pathway above.")
+        st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update all Phase 3 content and downloads")
         with st.form("p3_refine_form"):
             col_text, col_file = columns_top([2, 1])
             with col_text:
@@ -3491,7 +3529,9 @@ elif "Decision" in phase or "Tree" in phase:
                             with st.expander(f"Review: {file_result['filename']}", expanded=False):
                                 st.markdown(file_result["review"])
 
-            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -3566,6 +3606,8 @@ elif "Interface" in phase or "UI" in phase:
     p4_state.setdefault('heuristics_data', {})
     p4_state.setdefault('auto_heuristics_done', False)
     p4_state.setdefault('ui_apply_flags', {})
+    p4_state.setdefault('applied_status', False)
+    p4_state.setdefault('applied_summary', "")
 
     # Detect pathway changes and allow heuristics to re-run
     try:
@@ -3577,6 +3619,8 @@ elif "Interface" in phase or "UI" in phase:
         # Clear prior heuristics to refresh recommendations on next render
         p4_state['heuristics_data'] = {}
         p4_state['auto_heuristics_done'] = False
+        p4_state['applied_status'] = False
+        p4_state['applied_summary'] = ""
 
     # If heuristics never populated but auto-run flagged as done, allow rerun
     if not p4_state['heuristics_data'] and p4_state.get('auto_heuristics_done'):
@@ -3684,7 +3728,7 @@ elif "Interface" in phase or "UI" in phase:
         # REFINE AND REGENERATE SECTION (collapsed for cleaner UI)
         h_data = p4_state.get('heuristics_data', {})
         with st.expander("Refine & Regenerate", expanded=False):
-            st.caption("Tip: Use natural language to micro‑refine the pathway. Optionally upload a supporting document. Click Regenerate to apply.")
+            st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 4 content and downloads.")
             with st.form("p4_refine_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
@@ -3711,7 +3755,9 @@ elif "Interface" in phase or "UI" in phase:
                             with st.expander("File Review", expanded=False):
                                 st.markdown(file_result["review"])
 
-                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
+                col_form_gap, col_form_btn = st.columns([3, 1])
+                with col_form_btn:
+                    submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
             if submitted:
                 refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
@@ -3739,85 +3785,83 @@ elif "Interface" in phase or "UI" in phase:
             # Separate actionable from UI-only heuristics
             actionable_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["pathway_actionable"]}
             ui_only_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["ui_design_only"]}
-            
+
             # SUMMARY CARD
             st.info(f"""
-**Heuristics Summary:**
-- **{len(actionable_h)} pathway improvements** ready to apply collectively (H2, H4, H5, H9)
-- **{len(ui_only_h)} design recommendations** to review for UI implementation (H1, H3, H6, H7, H8, H10)
+**Actionable Recommendations:** Will attempt all heuristics (H1–H10) with guardrails; unsafe ones will be skipped.
+**UI/UX-heavy items ({len(ui_only_h)}):** Often need a UI/UX engineer (H1, H3, H6, H7, H8, H10).
 """)
-            
-            # SECTION 1: ACTIONABLE PATHWAY IMPROVEMENTS
-            if actionable_h:
-                st.markdown("### 🔧 Pathway Improvements (Actionable)")
-                st.caption("These heuristics can improve your clinical pathway structure and clarity. They will be applied collectively (H2, H4, H5, H9).")
-                
-                for heuristic_key in sorted(actionable_h.keys()):
-                    insight = actionable_h[heuristic_key]
-                    category_desc = HEURISTIC_CATEGORIES["pathway_actionable"].get(heuristic_key, "")
-                    
-                    with st.expander(f"**{heuristic_key}** - {category_desc.split(' (')[0]}", expanded=False):
-                        st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
-                        st.divider()
-                        st.markdown(f"**AI Assessment for Your Pathway:**")
-                        st.markdown(
-                            f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;'>{insight}</div>",
-                            unsafe_allow_html=True
-                        )
-                st.divider()
-            
-            # SECTION 2: UI DESIGN RECOMMENDATIONS (REVIEW-ONLY)
-            if ui_only_h:
-                st.markdown("### 🎨 Design Recommendations (UI/UX - For Your Designer)")
-                st.caption("These are interface design improvements. Optionally select ones to also adjust the pathway with guardrails.")
-                
-                for heuristic_key in sorted(ui_only_h.keys()):
-                    insight = ui_only_h[heuristic_key]
-                    category_desc = HEURISTIC_CATEGORIES["ui_design_only"].get(heuristic_key, "")
-                    
-                    with st.expander(f"**{heuristic_key}** - {category_desc.split(' (')[0]}", expanded=False):
-                        st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
-                        st.divider()
-                        st.markdown(f"**Recommendation for Your Interface:**")
-                        st.markdown(
-                            f"<div style='background-color: #f0f7ff; color: #001a4d; padding: 12px; border-radius: 5px; border-left: 4px solid #0066cc; margin-bottom: 10px;'>{insight}</div>",
-                            unsafe_allow_html=True
-                        )
-                        apply_key = f"ui_apply_{heuristic_key}"
-                        current_choice = p4_state['ui_apply_flags'].get(heuristic_key, False)
-                        chosen = st.checkbox("Include in Apply to pathway (guardrails enforced)", value=current_choice, key=apply_key)
-                        p4_state['ui_apply_flags'][heuristic_key] = chosen
-                        st.caption("💡 Implementation tip: Discuss with your design team. If checked, Gemini will try to map this to existing steps while preserving IDs.")
 
-            # APPLY + UNDO (after both sections so selections are captured)
-            selected_ui_apply = {k: ui_only_h.get(k, "") for k, v in p4_state['ui_apply_flags'].items() if v and k in ui_only_h}
+            # SINGLE ORDERED LIST OF HEURISTICS (H1–H10)
+            ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
+            st.markdown("### 📋 Heuristics (H1–H10)")
+            st.caption("Review each heuristic. Apply will attempt all with guardrails; skipped items will be listed.")
+
+            for heuristic_key in ordered_keys:
+                insight = h_data.get(heuristic_key, "")
+                is_actionable = heuristic_key in actionable_h
+                is_ui = heuristic_key in ui_only_h
+                category_desc = HEURISTIC_CATEGORIES["pathway_actionable"].get(heuristic_key, "") if is_actionable else HEURISTIC_CATEGORIES["ui_design_only"].get(heuristic_key, "")
+                label_stub = category_desc.split(' (')[0] if category_desc else HEURISTIC_DEFS.get(heuristic_key, "")
+
+                with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
+                    st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
+                    st.divider()
+                    st.markdown("**AI Assessment for Your Pathway:**")
+                    st.markdown(
+                        f"<div style='background-color: {'white' if is_actionable else '#f0f7ff'}; color: {'black' if is_actionable else '#001a4d'}; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px; border-left: 4px solid {'#5D4037' if is_actionable else '#0066cc'};'>{insight}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                    if is_actionable:
+                        st.caption("Will be applied when you click Apply Recommendations.")
+                    elif is_ui:
+                        st.caption("Not auto-applied here; typically requires a UI/UX engineer.")
+
+            # APPLY + UNDO (after selections are captured)
+            selected_ui_apply = {}  # UI items no longer auto-mapped; informational only
             has_actionable = bool(actionable_h)
             if has_actionable:
-                st.markdown("### ✅ Apply Pathway Improvements")
-                st.caption("Will apply H2/H4/H5 plus any UI recommendations you selected above, with guardrails to preserve IDs and logic.")
-                col_apply, col_space = st.columns([1, 1])
+                st.markdown("### ✅ Actionable Recommendations")
+                st.caption("Will apply H2/H4/H5/H9 now. Remaining heuristics are noted for UI/UX follow-up.")
+                if p4_state.get('applied_status') and p4_state.get('applied_summary'):
+                    st.success(p4_state['applied_summary'])
+                col_apply, col_undo = st.columns([1, 1])
                 with col_apply:
-                    if st.button("✓ Apply Improvements", key="p4_apply_all_actionable", type="primary"):
+                    btn_applied = p4_state.get('applied_status', False)
+                    btn_label = "Applied" if btn_applied else "Apply Recommendations"
+                    btn_type = "primary" if btn_applied else "secondary"  # pink when applied, brown otherwise
+                    if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
                         p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
                         with ai_activity("Applying pathway improvements with guardrails…"):
-                            improved_nodes = apply_pathway_heuristic_improvements(nodes, actionable_h, selected_ui_apply)
+                            improved_nodes, applied_keys, skipped_keys = apply_actionable_heuristics_incremental(nodes, actionable_h)
                             if improved_nodes:
                                 st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
                                 p4_state['viz_cache'] = {}
-                                st.success("✓ Applied pathway improvements. Visualization and nodes updated.")
+                                applied_str = ", ".join(applied_keys) if applied_keys else "None"
+                                skipped_str = ", ".join(skipped_keys) if skipped_keys else "None"
+                                p4_state['applied_status'] = True if applied_keys else False
+                                p4_state['applied_summary'] = (
+                                    f"Applied heuristics → {applied_str}. "
+                                    f"Skipped (no safe change) → {skipped_str}."
+                                )
+                                st.success("✓ Processed recommendations. Visualization and nodes updated.")
                                 st.rerun()
                             else:
                                 st.error("Could not process improvements. Please try again.")
 
-                if st.button("↶ Undo Last Changes", key="p4_undo_all"):
-                    if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
-                        prev_nodes = p4_state['nodes_history'].pop()
-                        st.session_state.data['phase3']['nodes'] = prev_nodes
-                        p4_state['viz_cache'] = {}
-                        st.success("Undid last improvement batch")
-                        st.rerun()
-                    else:
-                        st.info("No changes to undo")
+                with col_undo:
+                    if st.button("Undo Last Changes", key="p4_undo_all", type="secondary"):
+                        if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
+                            prev_nodes = p4_state['nodes_history'].pop()
+                            st.session_state.data['phase3']['nodes'] = prev_nodes
+                            p4_state['viz_cache'] = {}
+                            p4_state['applied_status'] = False
+                            p4_state['applied_summary'] = ""
+                            st.success("Undid last improvement batch")
+                            st.rerun()
+                        else:
+                            st.info("No changes to undo")
 
     render_bottom_navigation()
     st.stop()

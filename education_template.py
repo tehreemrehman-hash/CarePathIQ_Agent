@@ -120,7 +120,7 @@ def create_education_module_template(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     
-    html = f"""<!DOCTYPE html>
+    html = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1269,6 +1269,16 @@ def create_education_module_template(
         }}
     </script>
 </body>
-</html>"""
+</html>""".format(
+        header_display=header_display,
+        course_intro_statement=course_intro_statement,
+        total_time_minutes=total_time_minutes,
+        topics=len(topics),
+        topics_json=topics_json,
+        obj_json=obj_json,
+        condition=condition,
+        organization=organization,
+        timestamp=timestamp
+    )
     
     return html
