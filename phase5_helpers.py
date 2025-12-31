@@ -1508,6 +1508,12 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
         detail_level = audience_metadata.get('detail_level', 'moderate')
         emphasis_areas = audience_metadata.get('emphasis_areas', [])
 
+        # Extract Phase 1 data early for SMART objectives
+        setting_text = p1_data.get('setting', '')
+        population = p1_data.get('population', 'N/A') or 'N/A'
+        problem_text = p1_data.get('problem', 'Not provided')
+        objectives_text = p1_data.get('objectives', 'Not provided')
+
         # Build SMART objectives scaffold from Phase 1 objectives text
         smart_source = objectives_text if objectives_text and objectives_text != 'Not provided' else "Clarify objectives in Phase 1 to align with SMART criteria."
         smart_objectives = [
@@ -1525,11 +1531,6 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
             f"Phase 3 Pathway nodes: {len(p3_data.get('nodes', []))}" if p3_data.get('nodes') else "Phase 3 Pathway design pending",
             "Phase 4 Usability: completed" if p4_data.get('heuristics_data') else "Phase 4 Usability review pending"
         ]
-
-        setting_text = p1_data.get('setting', '')
-        population = p1_data.get('population', 'N/A') or 'N/A'
-        problem_text = p1_data.get('problem', 'Not provided')
-        objectives_text = p1_data.get('objectives', 'Not provided')
 
         # Title reflects clinical condition and care setting
         setting_suffix = f" - {setting_text}" if setting_text else ""
