@@ -113,8 +113,10 @@ def create_education_module_template(
             "Communicate effectively with the healthcare team"
         ]
     
-    topics_json = json.dumps(topics)
-    obj_json = json.dumps(learning_objectives)
+    # Safely serialize to JSON - use separators to avoid extra whitespace
+    # Ensure ASCII to avoid unicode issues in JavaScript
+    topics_json = json.dumps(topics, ensure_ascii=True, separators=(',', ':'))
+    obj_json = json.dumps(learning_objectives, ensure_ascii=True, separators=(',', ':'))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     
