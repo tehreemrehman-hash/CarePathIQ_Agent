@@ -705,6 +705,10 @@ def generate_beta_form_html(
 <title>{page_title}</title>
 <style>
 {SHARED_CSS}
+.info-grid {{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}}
+@media (max-width: 768px) {{
+    .info-grid {{grid-template-columns:1fr}}
+}}
 .scenario-card {{background:#fff;border:2px solid var(--border-gray);border-radius:8px;padding:20px;margin-bottom:20px}}
 .scenario-card h3 {{color:var(--brown-dark);margin:0 0 10px 0}}
 .scenario-card p {{margin:8px 0;color:#555}}
@@ -747,11 +751,11 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 
 <form id="betaForm">
 <!-- Tester Info -->
+<div class="info-grid">
 <div class="form-group">
 <label for="tester_name">Your Name *</label>
 <input type="text" id="tester_name" required placeholder="Full name">
 </div>
-<div class="form-row">
 <div class="form-group">
 <label for="tester_email">Email *</label>
 <input type="email" id="tester_email" required placeholder="email@example.com">
