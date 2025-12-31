@@ -874,7 +874,7 @@ def create_education_module_template(
                         </p>
 
                         <p style="margin: 20px 0; color: #666;">
-                            <strong>Time to Complete:</strong> {total_time_minutes} minutes ({len(topics)} modules)
+                            <strong>Time to Complete:</strong> {total_time_minutes} minutes ({topics} modules)
                         </p>
 
                         <button class="nav-button" onclick="startCourse()" style="width: auto; margin-top: 20px;">
