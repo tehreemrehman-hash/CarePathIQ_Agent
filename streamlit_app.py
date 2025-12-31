@@ -711,7 +711,7 @@ def render_bottom_navigation():
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", type="secondary"):
+                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", type="secondary", use_container_width=True):
                     st.session_state.current_phase_label = prev_phase
                     st.rerun()
         else:
@@ -728,7 +728,7 @@ def render_bottom_navigation():
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", type="primary"):
+                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", type="primary", use_container_width=True):
                     st.session_state.current_phase_label = next_phase
                     st.rerun()
         # Always render brand/licensing footer before any phase stop()
@@ -2910,7 +2910,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Apply to automatically update all Phase 1 content and charter data.")
+        st.caption("Tip: Describe any desired modifications in natural language and optionally attach supporting documents. Click Regenerate to automatically update all Phase 1 content and charter data.")
         with st.form("p1_refine_form"):
             col_text, col_file = columns_top([2, 1])
             with col_text:
@@ -2938,9 +2938,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
                             with st.expander(f"Review: {file_result['filename']}", expanded=False):
                                 st.markdown(file_result["review"])
 
-            spacer, submit_col = columns_top([5, 2])
-            with submit_col:
-                submitted = st.form_submit_button("Regenerate", type="secondary")
+            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -3493,9 +3491,7 @@ elif "Decision" in phase or "Tree" in phase:
                             with st.expander(f"Review: {file_result['filename']}", expanded=False):
                                 st.markdown(file_result["review"])
 
-            spacer, submit_col = columns_top([5, 2])
-            with submit_col:
-                submitted = st.form_submit_button("Regenerate", type="secondary")
+            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -3715,9 +3711,7 @@ elif "Interface" in phase or "UI" in phase:
                             with st.expander("File Review", expanded=False):
                                 st.markdown(file_result["review"])
 
-                spacer, submit_col = columns_top([5, 2])
-                with submit_col:
-                    submitted = st.form_submit_button("Regenerate", type="secondary")
+                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
 
             if submitted:
                 refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
@@ -4420,9 +4414,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         if file_result:
                             with st.expander("File Review", expanded=False):
                                 st.markdown(file_result["review"])
-                spacer, submit_col = columns_top([5, 2])
-                with submit_col:
-                    submitted_edu = st.form_submit_button("Regenerate", type="secondary")
+                
+                submitted_edu = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
             
             if submitted_edu:
                 with st.spinner("Refining..."):
@@ -4646,9 +4639,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         if file_result:
                             with st.expander("File Review", expanded=False):
                                 st.markdown(file_result["review"])
-                spacer, submit_col = columns_top([5, 2])
-                with submit_col:
-                    submitted_exec = st.form_submit_button("Regenerate", type="secondary")
+                
+                submitted_exec = st.form_submit_button("Regenerate", type="secondary", use_container_width=False)
 
             if submitted_exec:
                 refine_exec = st.session_state.get('p5_refine_exec', '').strip()
