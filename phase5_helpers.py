@@ -470,7 +470,6 @@ def generate_expert_form_html(
             <h1>Expert Panel Feedback</h1>
             <p style="font-size: 1.05em; color: var(--brown-dark); margin-bottom: 8px; line-height: 1.6;">{pathway_title}</p>
             <p style="font-size:0.9em;margin-top:5px;color:#666;">Target Audience: {audience} | {organization}</p>
-            <p style="font-size:0.85em;margin-top:2px;color:#777;">Detail: {detail_level.title()} {(' | Emphasis: ' + emphasis_text) if emphasis_text else ''}</p>
             {pathway_button_html}
         </div>
 
@@ -743,7 +742,6 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <h1>Beta Testing Guide</h1>
 <p style="margin-top:8px;font-size:1.1em">{pathway_title}</p>
 <p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
-<p style="font-size:0.85em;margin-top:2px;color:#777;">Detail: {detail_level.title()} {(' | Emphasis: ' + emphasis_text) if emphasis_text else ''}</p>
 {pathway_button_html}
 </div>
 
