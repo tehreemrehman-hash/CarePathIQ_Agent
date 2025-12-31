@@ -1096,10 +1096,13 @@ def create_education_module_template(
         }}
 
         function startCourse() {{
-            if (TOPICS.length === 0) {{
-                alert('No modules available yet. Please add modules to start the course.');
+            console.log('Start Course clicked. TOPICS:', TOPICS);
+            if (!TOPICS || !Array.isArray(TOPICS) || TOPICS.length === 0) {{
+                console.error('No topics available:', TOPICS);
+                alert('No modules available yet. The course needs at least one module to start. Please ensure Phase 3 (pathway nodes) is complete.');
                 return;
             }}
+            console.log('Starting course with', TOPICS.length, 'modules');
             document.getElementById('courseIntro').classList.remove('active');
             switchModule(0);
         }}
