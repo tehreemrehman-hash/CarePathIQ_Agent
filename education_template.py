@@ -823,9 +823,6 @@ def create_education_module_template(
             <div class="header">
                 <h1>{header_display}</h1>
                 <div class="header-subtitle">Interactive Pathway-Based Learning Module</div>
-                <div class="header-subtitle" style="font-size:0.9em;color:#555;">
-                    Detail: {detail_level.title()} {(' | Emphasis: ' + emphasis_text) if emphasis_text else ''}
-                </div>
             </div>
 
             <!-- Progress Section -->
