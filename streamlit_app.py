@@ -3940,7 +3940,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
-                st.success("Generated!")
 
                 if st.session_state.data['phase5'].get('expert_html'):
                         exp_html = st.session_state.data['phase5']['expert_html']
@@ -4033,7 +4032,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
-            st.success("Generated!")
         
         # Download centered
         if st.session_state.data['phase5'].get('beta_html'):
@@ -4279,7 +4277,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
-            st.success("Generated!")
         
         # Download centered
         if st.session_state.data['phase5'].get('edu_html'):
@@ -4499,7 +4496,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
             with st.spinner("Generating summary..."):
                 exec_summary = f"Executive Summary for {cond} - Prepared for {aud_exec}"
                 st.session_state.data['phase5']['exec_summary'] = exec_summary
-            st.success("Generated!")
         
         # Download centered
         if st.session_state.data['phase5'].get('exec_summary'):
