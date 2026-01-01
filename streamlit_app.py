@@ -116,11 +116,13 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
             except Exception:
                 continue
         if bullet_lines:
-            heuristics_summary = "\nHeuristics guidance:\n" + "\n".join(bullet_lines[:5])
+            heuristics_summary = "\nHeuristics guidance (PRESERVE clinical complexity while applying):\n" + "\n".join(bullet_lines[:5])
 
     prompt = f"""
-    Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request.
+    Act as a CLINICAL DECISION SCIENTIST. Refine the EXISTING pathway based on the user's request.
 
+    CRITICAL: Apply refinements while PRESERVING and potentially ENHANCING clinical complexity.
+    
     Current pathway for {cond} in {setting}:
     {json.dumps(nodes, indent=2)}
 
@@ -130,21 +132,43 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     User's refinement request: "{refine_text}"
     {heuristics_summary}
 
-    Apply the requested changes while maintaining:
-    - CGT/Ad/it principles and Medical Decision Analysis best practices
-    - Coverage of: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
-    - Actionable steps with medical acronyms for brevity
-    - Specific discharge details (prescriptions with dose/route, referrals)
-    - Evidence citations (PMIDs where applicable)
-
-    Output: Complete revised JSON array of nodes with fields: type, label, evidence.
+    MANDATORY PRESERVATION RULES:
+    
+    1. MAINTAIN DECISION SCIENCE FRAMEWORK:
+       - Keep CGT/Ad/it principles and Medical Decision Analysis structure intact
+       - Preserve or enhance benefit/harm trade-offs at decision points
+       - Maintain evidence-based reasoning (cite PMIDs)
+    
+    2. PRESERVE DECISION DIVERGENCE:
+       - Do NOT collapse multiple branches into linear sequences
+       - Keep distinct pathways separate until final disposition
+       - If refining convergence points, make them explicit with new Decision nodes
+    
+    3. PRESERVE CLINICAL COVERAGE:
+       - All 4 stages must remain: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+       - Do NOT remove edge cases or special population considerations
+       - If refining, EXPAND specificity (e.g., "treat infection" → "vancomycin 15-20 mg/kg IV q8-12h")
+    
+    4. ENHANCE DEPTH, NOT REDUCE:
+       - When applying refinements, consider adding detail (more nodes, more branches)
+       - If user asks to "simplify," interpret as "make more understandable" (clearer labels, better organization)
+       - NOT "remove clinical branches"
+       - Prefer 30+ well-organized nodes over 10 oversimplified ones
+    
+    5. MAINTAIN DAG STRUCTURE:
+       - No cycles, backward loops, or reconvergent branches
+       - Escalation moves forward (ED → ICU, not back)
+       - All paths must terminate in explicit End nodes
+    
+    OUTPUT: Complete revised JSON array of nodes with fields: type, label, evidence, (optional) detail
     Rules:
-    - type in [Start, Decision, Process, End]
+    - type: "Start" | "Decision" | "Process" | "End"
     - First node: type "Start", label "patient present to {setting} with {cond}"
-    - NO node count limit - build complete clinical flow
-    - If >20 nodes, organize into sections or sub-pathways
-    - End nodes must be terminal single outcomes (no "or" phrasing)
-    - Consecutive decision nodes are allowed when logic requires it
+    - NO artificial node count limit—maintain complexity needed for clinical accuracy
+    - End nodes must be TERMINAL single outcomes (no "or" phrasing)
+    - Consecutive Decision nodes are allowed and encouraged for true clinical branching
+    - Include benefit/harm trade-offs in Decision node labels or detail fields
+    - Evidence citations (PMIDs) on clinically important steps
     """
 
     return get_gemini_response(prompt, json_mode=True)
@@ -1506,8 +1530,9 @@ def format_citation_line(entry, style="APA"):
 
 def apply_pathway_heuristic_improvements(nodes, heuristics_data, extra_ui_insights=None):
     """
-    Intelligently apply all feasible heuristics (H1-H10) to the pathway nodes.
-    The AI evaluates each heuristic and applies only those that can meaningfully improve the pathway.
+    Intelligently apply feasible heuristics (H1-H10) to pathway nodes.
+    CRITICAL: Preserves and enhances clinical complexity, does NOT reduce it.
+    The AI evaluates each heuristic and applies only those that improve without compromising decision science.
     Returns: (updated_nodes, applied_heuristics_list, summary_text) or (None, [], "")
     """
     if not heuristics_data:
@@ -1516,61 +1541,63 @@ def apply_pathway_heuristic_improvements(nodes, heuristics_data, extra_ui_insigh
     # Include all heuristics in the analysis
     insights_text = "\n".join([f"{k}: {v}" for k, v in sorted(heuristics_data.items())])
 
-    guardrails = """Safety rules:
-1) Preserve all node IDs and existing branching logic
-2) Only modify text, add safety annotations, or reorder steps; add new nodes only if critical for safety
-3) Keep labels concise and clinical; do not hallucinate new clinical content
-4) For each heuristic you apply, include it in the applied_heuristics list with brief reason"""
+    guardrails = """Safety rules (MANDATORY):
+1) PRESERVE all clinical complexity and decision branches—never simplify away clinical logic
+2) Do NOT reduce decision divergence or collapse distinct pathways
+3) Do NOT remove edge cases or special population considerations
+4) Preserve all node IDs, branching structure, and evidence citations
+5) Add detail and specificity—do NOT generalize clinical steps
+6) Only modify text clarity, add safety annotations, or improve organization
+7) Add new nodes ONLY if critical for safety or decision clarity
+8) For each heuristic applied, explain how it enhances (not reduces) the pathway"""
 
-    prompt = f"""You are a clinical pathway expert and decision scientist. Your task is to intelligently apply Nielsen's 10 Usability Heuristics to improve this clinical decision pathway while preserving all decision-science integrity.
+    prompt = f"""You are a CLINICAL DECISION SCIENTIST with expertise in Medical Decision Analysis and Nielsen's Usability Heuristics.
 
-CRITICAL CONSTRAINTS (must preserve):
-1. CGT/Ad/it principles and Users' Guide to Medical Decision Analysis framework
-2. DAG structure only - NO CYCLES (escalation via decision branches, never loops)
-3. Terminal nodes must be explicit single outcomes (no "or" in End node labels)
-4. All node types must remain valid: Start, Decision, Process, End (no new types)
-5. All evidence citations must reference PMIDs from original nodes
-6. Benefit/harm trade-offs must be highlighted at Decision nodes
-7. All 4 clinical stages should be represented: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+TASK: Apply feasible heuristics to improve this clinical decision pathway while PRESERVING AND ENHANCING decision-science integrity.
 
-Current pathway nodes: {json.dumps(nodes)}
+CRITICAL PRINCIPLE: This is NOT about simplification. Improvements should make the pathway MORE usable, more complete, and more clinically rigorous—not less complex.
 
-All heuristics to consider:
+Current pathway ({len(nodes)} nodes):
+{json.dumps(nodes)}
+
+Heuristic Assessment:
 {insights_text}
 
-Your task:
-1. Review each heuristic (H1-H10) and evaluate if it can be meaningfully applied WITHOUT violating constraints above
-2. Apply ONLY the heuristics that improve the pathway while preserving clinical logic and decision-science principles
-3. Modify node labels, add safety notes, restructure branches, or consolidate redundancy as needed
-
-Guidelines for each heuristic (respecting constraints):
-- H1 (Status visibility): Can add checkpoint descriptions or status labels to nodes (e.g., "Check vital signs - alarm if SBP <90")
-- H2 (Language clarity): Replace jargon with plain language; keep clinical terms necessary for safety
-- H3 (User control): Can add escape branches or alternative paths to key decisions (respecting DAG)
-- H4 (Consistency): Standardize similar decision node structures and terminology across the pathway
-- H5 (Error prevention): Add specific alerts, validation rules, or edge case handling to prevent common errors
-- H6 (Recognition not recall): Use consistent, clear labels and node categories across the pathway
-- H7 (Efficiency): Consolidate redundant steps or streamline long sequences WITHOUT losing clinical content
-- H8 (Minimalist): Remove unnecessary intermediate nodes; simplify overly complex branching (respect DAG)
-- H9 (Error recovery): Move critical checks earlier when appropriate; add recovery steps in existing flow
-- H10 (Help & docs): Can add clarifying evidence citations or rationale notes to nodes
+APPLICATION STRATEGY:
+- H1 (Status visibility): ADD checkpoint descriptions and alarm thresholds (enhances clinical specificity)
+- H2 (Language clarity): Clarify terminology WITHOUT removing medical precision needed for safety
+- H3 (User control): ADD escape routes/alternative pathways (increases decision options)
+- H4 (Consistency): Standardize decision structures AND expand them uniformly
+- H5 (Error prevention): ADD validation rules and edge case handling (increases complexity beneficially)
+- H6 (Recognition not recall): Improve labeling clarity while preserving all decision detail
+- H7 (Efficiency): Remove ONLY redundant steps; keep clinical content and decision branches
+- H8 (Minimalist): Consolidate presentation, NOT clinical content; respect DAG and decision divergence
+- H9 (Error recovery): Move critical checks EARLIER and ADD recovery pathways (increases safety)
+- H10 (Help & docs): ADD evidence citations and rationale annotations to decision nodes
 
 {guardrails}
 
-Return ONLY valid JSON with exactly these keys:
+BEFORE/AFTER RULE:
+- Evaluate: Does this improvement ADD clinical value, clarity, or safety?
+- If yes: Apply it and include in applied_heuristics list
+- If no: Skip it
+- NEVER: Reduce complexity, remove branches, generalize clinical steps, or simplify decision trees
+
+Return ONLY valid JSON:
 {{
-  "updated_nodes": [array of modified node objects with all original fields intact],
-  "applied_heuristics": ["H2", "H4", "H5", ...list of heuristics you actually applied],
-  "applied_summary": "Brief explanation of what was improved and why"
+  "updated_nodes": [array of modified node objects with enhanced detail and annotations],
+  "applied_heuristics": ["H2", "H4", "H5", ...list of heuristics that genuinely improved the pathway],
+  "applied_summary": "Detailed explanation of improvements made and how each enhances clinical decision-making"
 }}
 
-VALIDATION BEFORE RETURNING:
-- Verify all nodes preserve their evidence citations
-- Verify DAG structure (no cycles, all branches point forward)
-- Verify End nodes do NOT contain "or" statements
-- Verify node types are only: Start, Decision, Process, End
-
-Be selective—only include heuristics in applied_heuristics if you actually changed the pathway for that heuristic."""
+VALIDATION CHECKLIST BEFORE RETURNING:
+- Node count maintained or INCREASED (not decreased)
+- All Decision node branches still present and distinct
+- Evidence citations preserved on all applicable nodes
+- No "or" statements in End nodes
+- DAG structure maintained (no cycles)
+- All 4 clinical stages still represented: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
+- Clinical depth enhanced, not reduced"""
 
     response = get_gemini_response(prompt, json_mode=True)
     
@@ -1580,6 +1607,11 @@ Be selective—only include heuristics in applied_heuristics if you actually cha
         summary = response.get("applied_summary", "")
         
         if updated_nodes and isinstance(updated_nodes, list) and isinstance(applied, list):
+            # Optionally validate the returned nodes meet our standards
+            validation = validate_decision_science_pathway(updated_nodes)
+            if validation['complexity']['complexity_level'] != 'comprehensive':
+                # If heuristics reduced complexity, log warning but still return
+                st.warning(f"⚠️ Heuristic application reduced pathway complexity. Original: {len(nodes)} nodes, Updated: {len(updated_nodes)} nodes. Review the changes.")
             return updated_nodes, applied, summary
     
     return None, [], ""
@@ -1829,6 +1861,244 @@ def normalize_or_logic(nodes_list):
         final_result.append(final_node)
     
     return final_result
+
+def assess_clinical_complexity(nodes_list):
+    """
+    Assess whether a pathway has appropriate clinical complexity per decision science standards.
+    
+    Returns: dict with complexity metrics
+    {
+        'node_count': int,
+        'complexity_level': 'minimal' | 'moderate' | 'comprehensive',
+        'decision_count': int,
+        'decision_divergence_ratio': float (how much branches stay separate),
+        'evidence_coverage': float (% nodes with PMIDs),
+        'clinical_stage_coverage': dict (which 4 stages are represented),
+        'recommendations': [str]
+    }
+    """
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return {'complexity_level': 'minimal', 'recommendations': ['Pathway is empty']}
+    
+    metrics = {
+        'node_count': len(nodes_list),
+        'decision_count': 0,
+        'process_count': 0,
+        'end_count': 0,
+        'decision_divergence_ratio': 0.0,
+        'evidence_coverage': 0.0,
+        'clinical_stage_coverage': {},
+        'recommendations': []
+    }
+    
+    # Count node types and stage coverage
+    stages = {
+        'initial_evaluation': False,
+        'diagnosis_treatment': False,
+        're_evaluation': False,
+        'final_disposition': False
+    }
+    
+    stage_keywords = {
+        'initial_evaluation': ['initial', 'assess', 'vital', 'exam', 'presentation', 'triage'],
+        'diagnosis_treatment': ['diagnos', 'treat', 'interven', 'medic', 'workup', 'order'],
+        're_evaluation': ['recheck', 'monitor', 'response', 'follow', 'escalat', 're-evaluat'],
+        'final_disposition': ['discharg', 'admit', 'transfer', 'disposition', 'prescri', 'referral']
+    }
+    
+    pmid_nodes = 0
+    for node in nodes_list:
+        if not isinstance(node, dict):
+            continue
+        
+        ntype = node.get('type', 'Process')
+        if ntype == 'Decision':
+            metrics['decision_count'] += 1
+        elif ntype == 'Process':
+            metrics['process_count'] += 1
+        elif ntype == 'End':
+            metrics['end_count'] += 1
+        
+        # Check stage coverage
+        label_lower = (node.get('label', '') or '').lower()
+        for stage, keywords in stage_keywords.items():
+            if any(kw in label_lower for kw in keywords):
+                stages[stage] = True
+        
+        # Check evidence coverage
+        if node.get('evidence') and node.get('evidence') != 'N/A':
+            pmid_nodes += 1
+    
+    metrics['clinical_stage_coverage'] = stages
+    metrics['evidence_coverage'] = pmid_nodes / len(nodes_list) if nodes_list else 0.0
+    
+    # Assess divergence: check if Decision nodes lead to distinct downstream paths
+    divergent_decisions = 0
+    for i, node in enumerate(nodes_list):
+        if not isinstance(node, dict) or node.get('type') != 'Decision':
+            continue
+        branches = node.get('branches', [])
+        if len(branches) >= 2:
+            # Check if branches lead to truly different sequences (not immediate reconvergence)
+            branch_targets = [b.get('target') for b in branches if isinstance(b.get('target'), (int, float))]
+            if len(set(branch_targets)) == len(branch_targets):  # All unique targets
+                divergent_decisions += 1
+    
+    metrics['decision_divergence_ratio'] = divergent_decisions / max(1, metrics['decision_count'])
+    
+    # Determine complexity level
+    if metrics['node_count'] < 12:
+        metrics['complexity_level'] = 'minimal'
+        metrics['recommendations'].append('⚠️ Pathway may be oversimplified. Consider adding more decision branches and edge cases.')
+    elif metrics['node_count'] < 20:
+        metrics['complexity_level'] = 'moderate'
+        metrics['recommendations'].append('Pathway has moderate complexity. Consider adding edge cases or special populations.')
+    else:
+        metrics['complexity_level'] = 'comprehensive'
+        metrics['recommendations'].append('✓ Pathway has appropriate complexity for evidence-based decision science.')
+    
+    # Check stage coverage
+    stages_covered = sum(1 for v in stages.values() if v)
+    if stages_covered < 4:
+        metrics['recommendations'].append(f'⚠️ Missing clinical stages: {", ".join([k.replace("_", " ").title() for k, v in stages.items() if not v])}')
+    
+    # Check evidence coverage
+    if metrics['evidence_coverage'] < 0.3:
+        metrics['recommendations'].append(f'⚠️ Low evidence coverage ({metrics["evidence_coverage"]:.0%}). Add PMID citations to key clinical steps.')
+    
+    # Check decision divergence
+    if metrics['decision_divergence_ratio'] < 0.5:
+        metrics['recommendations'].append('⚠️ Many Decision nodes reconverge quickly. Consider keeping branches more distinct.')
+    
+    if metrics['end_count'] < 2:
+        metrics['recommendations'].append('⚠️ Pathway has few distinct end points. Clinical reality typically has multiple outcomes.')
+    
+    return metrics
+
+def assess_decision_science_integrity(nodes_list):
+    """
+    Assess whether pathway follows decision science best practices per Medical Decision Analysis framework.
+    
+    Returns: dict with integrity metrics and violations
+    {
+        'is_dag': bool (directed acyclic graph - no cycles),
+        'terminal_end_nodes': bool (all End nodes are terminal),
+        'no_or_logic': bool (no "or" statements in End nodes),
+        'benefit_harm_annotated': bool (Decision nodes mention trade-offs),
+        'evidence_cited': bool (key steps have PMIDs),
+        'violations': [str]
+    }
+    """
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return {'violations': ['Empty pathway']}
+    
+    integrity = {
+        'is_dag': True,
+        'terminal_end_nodes': True,
+        'no_or_logic': True,
+        'benefit_harm_annotated': False,
+        'evidence_cited': False,
+        'violations': []
+    }
+    
+    # Check for cycles (simple reachability check)
+    visited = set()
+    def has_cycle(node_idx, path):
+        if node_idx in path:
+            return True
+        if node_idx in visited:
+            return False
+        visited.add(node_idx)
+        path.add(node_idx)
+        
+        node = nodes_list[node_idx] if 0 <= node_idx < len(nodes_list) else None
+        if not node or not isinstance(node, dict):
+            return False
+        
+        if node.get('type') == 'Decision':
+            for branch in node.get('branches', []):
+                target = branch.get('target')
+                if isinstance(target, (int, float)) and has_cycle(int(target), path.copy()):
+                    return True
+        elif node_idx + 1 < len(nodes_list):
+            if has_cycle(node_idx + 1, path.copy()):
+                return True
+        
+        return False
+    
+    if has_cycle(0, set()):
+        integrity['is_dag'] = False
+        integrity['violations'].append('🔄 Cycle detected: pathway has backward loops')
+    
+    # Check End nodes are terminal (nothing after them)
+    for i, node in enumerate(nodes_list):
+        if not isinstance(node, dict):
+            continue
+        if node.get('type') == 'End' and i + 1 < len(nodes_list):
+            next_node = nodes_list[i + 1]
+            if isinstance(next_node, dict) and next_node.get('type') not in ('End', None):
+                integrity['terminal_end_nodes'] = False
+                integrity['violations'].append(f"Node {i} is End but followed by {next_node.get('type')} at index {i+1}")
+    
+    # Check for OR logic in End nodes
+    for i, node in enumerate(nodes_list):
+        if not isinstance(node, dict):
+            continue
+        if node.get('type') == 'End':
+            label = (node.get('label') or '').lower()
+            if ' or ' in label:
+                integrity['no_or_logic'] = False
+                integrity['violations'].append(f"Node {i} (End): Contains 'or' logic: '{node.get('label')}'. Split into Decision branches.")
+    
+    # Check for benefit/harm trade-off annotations
+    benefit_harm_keywords = ['trade', 'vs', 'benefit', 'risk', 'harm', 'weigh', 'consider']
+    harm_annotated_count = 0
+    for node in nodes_list:
+        if not isinstance(node, dict) or node.get('type') != 'Decision':
+            continue
+        label = (node.get('label', '') or '').lower()
+        detail = (node.get('detail', '') or '').lower()
+        full_text = label + ' ' + detail
+        if any(kw in full_text for kw in benefit_harm_keywords):
+            harm_annotated_count += 1
+    
+    if harm_annotated_count >= max(1, nodes_list.__len__() // 5):
+        integrity['benefit_harm_annotated'] = True
+    else:
+        integrity['violations'].append(f"⚠️ Few Decision nodes annotate benefit/harm trade-offs ({harm_annotated_count}). Consider adding rationale.")
+    
+    # Check evidence coverage
+    pmid_count = sum(1 for n in nodes_list if isinstance(n, dict) and n.get('evidence') and n.get('evidence') != 'N/A')
+    if pmid_count >= len(nodes_list) * 0.3:
+        integrity['evidence_cited'] = True
+    else:
+        integrity['violations'].append(f"⚠️ Low PMID coverage ({pmid_count}/{len(nodes_list)}). Cite evidence for key clinical steps.")
+    
+    return integrity
+
+def validate_decision_science_pathway(nodes_list):
+    """
+    Comprehensive validation: combines complexity assessment and integrity check.
+    Returns: dict with detailed diagnostic info
+    """
+    complexity = assess_clinical_complexity(nodes_list)
+    integrity = assess_decision_science_integrity(nodes_list)
+    flow_valid, flow_issues = validate_pathway_flow(nodes_list)
+    
+    return {
+        'complexity': complexity,
+        'integrity': integrity,
+        'flow_valid': flow_valid,
+        'flow_issues': flow_issues,
+        'overall_quality': sum([
+            complexity['complexity_level'] == 'comprehensive',
+            integrity['is_dag'],
+            integrity['terminal_end_nodes'],
+            integrity['no_or_logic'],
+            integrity['evidence_cited'],
+            flow_valid
+        ]) / 6
+    }
 
 def generate_mermaid_code(nodes, orientation="TD"):
     """Legacy function - now redirects to DOT format for compatibility."""
@@ -3467,37 +3737,110 @@ elif "Decision" in phase or "Tree" in phase:
     if not st.session_state.data['phase3']['nodes'] and cond:
         ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
         prompt = f"""
-        Act as a Clinical Decision Scientist. Build a comprehensive decision-science pathway for managing patients with {cond} in {setting}.
+        Act as a CLINICAL DECISION SCIENTIST with expertise in Medical Decision Analysis and evidence-based medicine.
         
-        Ground the design in CGT/Ad/it principles and the Users' Guide to Medical Decision Analysis (Dobler et al., Mayo Clin Proc 2021): separate structure from content, make decision/chance/terminal flows explicit, trade off benefits vs harms, and rely on evidence-based probabilities and utilities.
+        TASK: Build a SOPHISTICATED, COMPREHENSIVE decision-science pathway for managing {cond} in {setting}.
+        
+        FOUNDATIONAL FRAMEWORK (MANDATORY - Preserve All Principles):
+        - CGT/Ad/it principles: Explicit decision structure, separate content from form
+        - Users' Guide to Medical Decision Analysis (Dobler et al., Mayo Clin Proc 2021):
+          * Make decision/chance/terminal flows EXPLICIT through DAG structure
+          * Trade off BENEFITS vs HARMS at every decision point with evidence-backed rationales
+          * Use evidence-based probabilities and utilities to guide branching
+        - Ensure pathway reflects real clinical uncertainty and decision complexity
 
-        Available Evidence:
+        Available Evidence Base:
         {ev_context}
         
-        The pathway MUST cover these clinical stages:
-        1. Initial Evaluation (presenting symptoms, vital signs, initial assessment)
-        2. Diagnosis and Treatment (diagnostic workup, interventions, medications)
-        3. Re-evaluation (response to treatment, monitoring criteria)
-        4. Final Disposition (discharge with prescriptions/referrals, observe, admit, transfer to higher level of care)
+        REQUIRED CLINICAL COVERAGE (4 Mandatory Stages - Each MUST Have Complexity):
+        1. Initial Evaluation:
+           - Chief complaint and symptom characterization
+           - Vital signs assessment (with abnormality thresholds)
+           - Physical examination findings and risk stratification
+           - Early diagnostic workup (labs, imaging, monitoring)
         
-        Output: JSON array of nodes. Each object must have:
-        - "type": one of "Start", "Decision", "Process", "End"
-        - "label": concise, actionable clinical step using medical acronyms where appropriate (e.g., BP, HR, CBC, CXR, IV, PO, etc.)
-        - "evidence": PMID from evidence list when step is evidence-backed; otherwise "N/A"
+        2. Diagnosis and Treatment:
+           - Differential diagnosis decision trees (what tests rule in/out?)
+           - Therapeutic interventions (medications with dose/route, procedures, supportive care)
+           - Risk-benefit analysis for major therapeutic choices
+           - Edge cases and special populations (pregnant, elderly, immunocompromised, etc.)
         
-        Rules:
-        - First node: type "Start", label "patient present to {setting} with {cond}"
-        - Decision nodes create DIVERGENT pathways - Yes/No branches should lead to DIFFERENT clinical outcomes, never reconverge to the same next step
-        - Once a Decision splits the pathway, the branches must remain separate until each reaches its own End node
-        - End nodes are TERMINAL - nothing comes after an End node. Each pathway branch must end with its own End node.
-        - Consecutive decision nodes are allowed when logic requires back-to-back branching (do NOT force a process node between decisions)
-        - End nodes must be single-outcome statements; NEVER include "or" (e.g., "discharge OR admit"). If alternatives exist, create a Decision node with explicit branches.
-        - Focus on ACTION and SPECIFICITY (e.g., "Order CBC, BMP, troponin" not "Order labs")
-        - Use BREVITY with standard medical abbreviations
-        - Include discharge details: specific prescriptions (drug, dose, route) and outpatient referrals when applicable
-        - NO arbitrary node count limit - build as many nodes as needed for complete clinical flow
-        - Prefer evidence-backed steps; cite PMIDs where available
-        - Highlight benefit/harm trade-offs at decision points
+        3. Re-evaluation:
+           - Monitoring criteria and frequency (vital signs, labs, imaging follow-ups)
+           - Response to treatment assessment (improving vs. unchanged vs. deteriorating)
+           - Escalation triggers and de-escalation pathways
+           - When to repeat diagnostic testing or change therapy
+        
+        4. Final Disposition:
+           - Specific discharge instructions (medications with dose/route/duration, activity restrictions, dietary changes)
+           - Outpatient follow-up (which specialist, timing, what triggers urgent return)
+           - Admit/observation criteria with clear thresholds
+           - Transfer to higher level of care (ICU, specialty unit) triggers
+        
+        OUTPUT FORMAT: JSON array of nodes with THESE EXACT FIELDS:
+        - "type": "Start" | "Decision" | "Process" | "End" (no other types)
+        - "label": Concise, specific clinical step using medical abbreviations (e.g., "ECG, troponin x2 at 0h/3h, IV access")
+        - "evidence": PMID citation OR "N/A"
+        - "detail": (optional) Extended description of rationale or threshold (e.g., "escalate if SBP <90 or altered mental status")
+        
+        CRITICAL CONSTRAINTS (PRESERVE DECISION SCIENCE INTEGRITY):
+        
+        1. DECISION DIVERGENCE - Every Decision creates DISTINCT branches:
+           - "Is patient hemodynamically stable?" YES→Observation pathway | NO→ICU-level resuscitation
+           - "Does EKG show STEMI?" YES→Cath lab pathway | NO→Serial troponin pathway
+           - Branches MUST lead to different clinical sequences (never reconverge)
+           - If branches must eventually converge, make it explicit with another Decision point
+        
+        2. TERMINAL END NODES - Each pathway branch ends ONLY with End nodes:
+           - No content after an End node
+           - End nodes represent final disposition: "Discharged on aspirin/metoprolol x90 days with PCP follow-up"
+           - Each clinical outcome gets its own End node; DO NOT use "or" (e.g., BAD: "Admit or ICU")
+           - Even similar outcomes get separate End nodes if they represent distinct pathways
+        
+        3. BENEFIT/HARM TRADE-OFFS (Decision-point rationales):
+           - At every Decision node, annotate the label or detail with trade-off thinking:
+             "Stress test vs. CT angiography? (test sensitivity vs. radiation dose vs. time to diagnosis)"
+           - Include thresholds: "If troponin >99th percentile → activate cath lab (high MI risk outweighs procedural risk)"
+           - Cite PMIDs when evidence supports the decision
+        
+        4. EVIDENCE-BACKED STEPS:
+           - Every Process and Decision node should have a PMID when available (from evidence list above)
+           - If multiple PMIDs support a step, use one representative citation
+           - Do NOT hallucinate PMIDs—use "N/A" if no supporting evidence in list
+        
+        5. COMPLEXITY AND SPECIFICITY:
+           - Build 20-40+ nodes (more nodes = more explicit decision logic)
+           - Include edge cases: pregnancy, renal failure, drug allergies, age extremes
+           - Specific medications with doses/routes, not vague "treat symptomatically"
+           - Examples:
+             ✓ "Order vancomycin 15-20 mg/kg q8-12h IV (adjust for renal function) + meropenem"
+             ✗ "Treat with antibiotics"
+           - Include monitoring intervals: "Recheck troponin q3h x 2, then daily troponin x 2 if negative"
+        
+        6. DAG STRUCTURE (No cycles):
+           - Pathway is a directed acyclic graph (DAG)—never loop back
+           - Escalation only moves forward (ICU-bound patients don't move back to ED)
+           - De-escalation is explicit: "Stable x 24h→Transfer to med/surg bed from ICU"
+        
+        7. ACTIONABILITY AND CLINICAL REALISM:
+           - Every node represents an action or decision a clinician takes in real time
+           - Include realistic clinical decision points: "Vitals stable x 2h" or "Troponin rising vs. falling?"
+           - Timestamps and criteria matter: "Admit if BP <90 persistently AFTER 2L fluid bolus"
+        
+        Rules for Node Structure:
+        - First node: type "Start", label "Patient present to {setting} with {cond}"
+        - Last nodes: All type "End" (no Process/Decision after End)
+        - Consecutive Decision nodes are OK (do NOT force Process nodes between them)
+        - Use compound labels for clarity: "Assess troponin, CXR, EKG—any abnormality?" (Decision)
+        - Detail field can explain thresholds or rationale (e.g., detail: "escalate if HR>110 or RR>22")
+        
+        Node Count Guidance:
+        - MINIMUM 15 nodes (simple pathway structure)
+        - TYPICAL 25-35 nodes (comprehensive with main branches)
+        - MAXIMUM 50+ nodes (complex with edge cases, special populations, escalation/de-escalation)
+        - Aim for depth over breadth: prefer explicit decision trees over oversimplification
+        
+        Generate a pathway that respects real clinical complexity and decision uncertainty. This is NOT a linear checklist—it's a decision tree that branches and evolves based on patient presentation and test results.
         
         CRITICAL: Each Decision branch must lead to a unique sequence ending in its own End node. Do NOT make branches reconverge.
         """
@@ -3550,6 +3893,48 @@ elif "Decision" in phase or "Tree" in phase:
     )
     # Auto-save on edit
     st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
+    
+    # QUALITY ENFORCEMENT: Validate decision science integrity
+    current_nodes = st.session_state.data['phase3']['nodes']
+    if current_nodes and len(current_nodes) > 1:  # Skip validation for empty/minimal setup
+        validation = validate_decision_science_pathway(current_nodes)
+        complexity = validation['complexity']
+        
+        # Auto-enforce quality standards
+        if complexity['complexity_level'] == 'minimal' and len(current_nodes) >= 5:
+            st.error("⚠️ **Oversimplified Pathway Detected**")
+            st.markdown(f"""
+            This pathway has **only {len(current_nodes)} nodes**, which is insufficient for clinical decision science:
+            - **Required**: 20-35+ nodes for comprehensive care pathways
+            - **Missing**: {', '.join([k.replace('_', ' ').title() for k, v in complexity['clinical_stage_coverage'].items() if not v])}
+            - **Evidence Coverage**: {complexity['evidence_coverage']:.0%} (target: 30%+)
+            """)
+            
+            if st.button("🔧 Auto-Enhance Pathway", type="primary", key="p3_auto_enhance"):
+                with ai_activity("Enhancing pathway to meet decision science standards..."):
+                    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']}" for e in evidence_list[:20]])
+                    enhance_prompt = f"""
+                    The current pathway for {cond} in {setting} is oversimplified ({len(current_nodes)} nodes).
+                    
+                    Current pathway: {json.dumps(current_nodes, indent=2)}
+                    
+                    Evidence: {ev_context}
+                    
+                    EXPAND this into a comprehensive clinical decision pathway (25-35+ nodes) that covers:
+                    1. Initial Evaluation (vitals, exam, initial workup)
+                    2. Diagnosis/Treatment (diagnostic tests, medications with doses, interventions)
+                    3. Re-evaluation (monitoring, response assessment, escalation criteria)
+                    4. Final Disposition (discharge instructions, admit criteria, transfer criteria)
+                    
+                    Add decision branches, edge cases, and specific clinical details. DO NOT simplify—EXPAND.
+                    """
+                    enhanced_nodes = get_gemini_response(enhance_prompt, json_mode=True)
+                    if isinstance(enhanced_nodes, list) and len(enhanced_nodes) > len(current_nodes):
+                        st.session_state.data['phase3']['nodes'] = normalize_or_logic(fix_decision_flow_issues(enhanced_nodes))
+                        st.success(f"✓ Pathway enhanced: {len(current_nodes)} → {len(enhanced_nodes)} nodes")
+                        st.rerun()
+    
+    st.divider()
     
     # Display pathway metrics with evidence enrichment
     node_count = len(st.session_state.data['phase3']['nodes'])
@@ -4073,53 +4458,53 @@ elif "Interface" in phase or "UI" in phase:
                 p4_state['auto_heuristics_done'] = False
                 st.rerun()
         else:
-            # Separate actionable from UI-only heuristics
-            actionable_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["pathway_actionable"]}
-            ui_only_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["ui_design_only"]}
-
-            # SINGLE ORDERED LIST OF HEURISTICS (H1–H10)
+            # Display ALL heuristics H1-H10 without pre-filtering
+            # AI will intelligently evaluate each and apply only those that improve the pathway
             ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
             st.markdown("### Heuristics (H1–H10)")
-            st.caption("Review each heuristic. Apply will attempt all with guardrails; skipped items will be listed.")
+            st.caption("Review each heuristic. AI will evaluate all and apply those that improve pathway structure. Results will show what was applied and what was skipped.")
 
             for heuristic_key in ordered_keys:
                 insight = h_data.get(heuristic_key, "")
-                is_actionable = heuristic_key in actionable_h
-                is_ui = heuristic_key in ui_only_h
-                category_desc = HEURISTIC_CATEGORIES["pathway_actionable"].get(heuristic_key, "") if is_actionable else HEURISTIC_CATEGORIES["ui_design_only"].get(heuristic_key, "")
-                label_stub = category_desc.split(' (')[0] if category_desc else HEURISTIC_DEFS.get(heuristic_key, "")
+                # Get label from HEURISTIC_DEFS
+                label_stub = HEURISTIC_DEFS.get(heuristic_key, "Heuristic").split(' (')[0].split(':')[0]
 
                 with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
                     st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
                     st.divider()
                     st.markdown("**AI Assessment for Your Pathway:**")
                     st.markdown(
-                        f"<div style='background-color: {'white' if is_actionable else '#f0f7ff'}; color: {'black' if is_actionable else '#001a4d'}; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px; border-left: 4px solid {'#5D4037' if is_actionable else '#0066cc'};'>{insight}</div>",
+                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px; border-left: 4px solid #5D4037;'>{insight}</div>",
                         unsafe_allow_html=True
                     )
+                    st.caption("AI will determine if this can be meaningfully applied to pathway nodes.")
 
-                    if is_actionable:
-                        st.caption("Will be applied when you click Apply Recommendations.")
-                    elif is_ui:
-                        st.caption("Not auto-applied here; typically requires a UI/UX engineer.")
-
-            # APPLY + UNDO (after selections are captured)
-            selected_ui_apply = {}  # UI items no longer auto-mapped; informational only
-            has_actionable = bool(actionable_h)
-            if has_actionable:
-                st.markdown("### Recommendations")
-                st.caption("Apply will update the pathway with H2 (clarity), H4 (consistency), H5 (error prevention), and H9 (error recovery). UI/UX items noted for follow-up.")
+            # APPLY + UNDO BUTTONS
+            has_heuristics = bool(h_data)
+            if has_heuristics:
+                st.markdown("### Apply Heuristics")
+                st.caption("AI will evaluate ALL H1-H10 heuristics and apply those that meaningfully improve your pathway structure. AI determines applicability intelligently.")
+                
                 if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
                     st.success("✓ Heuristics applied successfully")
-                    with st.expander("View changes", expanded=False):
+                    with st.expander("View detailed changes", expanded=False):
                         if p4_state.get('applied_heuristics'):
-                            st.markdown(f"**Applied:** {', '.join(p4_state['applied_heuristics'])}")
+                            applied_list = p4_state['applied_heuristics']
+                            st.markdown(f"**✅ Applied:** {', '.join(applied_list)}")
+                            
+                            # Show skipped heuristics
+                            all_h = set([f"H{i}" for i in range(1, 11)])
+                            skipped = sorted(list(all_h - set(applied_list)), key=lambda x: int(x[1:]))
+                            if skipped:
+                                st.markdown(f"**⊘ Skipped:** {', '.join(skipped)} (not applicable to pathway structure)")
+                        st.divider()
+                        st.markdown("**Changes Summary:**")
                         st.markdown(p4_state['applied_summary_detail'])
                 
                 col_apply, col_undo = st.columns([1, 1])
                 with col_apply:
                     btn_applied = p4_state.get('applied_status', False)
-                    btn_label = "Applied" if btn_applied else "Apply Recommendations"
+                    btn_label = "Applied ✓" if btn_applied else "Apply All Heuristics"
                     btn_type = "primary" if btn_applied else "secondary"
                     if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
                         # Initialize history if needed
@@ -4130,7 +4515,7 @@ elif "Interface" in phase or "UI" in phase:
                         p4_state['nodes_history'].append(copy.deepcopy(nodes))
                         p4_state['applying_heuristics'] = True  # Set flag to prevent re-analysis
                         
-                        with ai_activity("Evaluating and applying all feasible heuristics…"):
+                        with ai_activity("AI evaluating ALL H1-H10 heuristics and applying those that improve pathway…"):
                             improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
                             if improved_nodes and len(improved_nodes) > 0:
                                 st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)

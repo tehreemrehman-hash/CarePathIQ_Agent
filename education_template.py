@@ -963,11 +963,12 @@ def create_education_module_template(
                 // reset and push a minimal default module
                 while (TOPICS.length) {{ TOPICS.pop(); }}
                 TOPICS.push({{
-                    title: `Module 1: ${{CONDITION}} overview`,
-                    content: `<p>Overview of the ${{CONDITION}} pathway.</p>`,
+                    title: `Module 1: ${{{{CONDITION}}}} overview`,
+                    content: `<p>Overview of the ${{{{CONDITION}}}} pathway.</p>`,
                     learning_objectives: [
-                        `Describe the goals of the ${{CONDITION}} pathway`,
-                        `Outline the care flow for ${{CONDITION}}`,
+                        `Describe the goals of the ${{{{CONDITION}}}} pathway`,
+                        `Outline the care flow for ${{{{CONDITION}}}}`,
+
                         `Identify supporting tools and documentation`
                     ],
                     quiz: [{{
@@ -983,7 +984,7 @@ def create_education_module_template(
                     }}],
                     time_minutes: 5
                 }});
-            }
+            }}
         }}
 
         // Initialize on page load
@@ -1011,8 +1012,8 @@ def create_education_module_template(
                 const li = document.createElement('li');
                 li.className = 'module-item';
                 li.innerHTML = `
-                    <div class="module-status" id="status_${{idx}}">${{idx + 1}}</div>
-                    <span id="label_${{idx}}">Module ${{idx + 1}}</span>
+                    <div class="module-status" id="status_${{{{idx}}}}">${{{{idx + 1}}}}</div>
+                    <span id="label_${{{{idx}}}}">Module ${{{{idx + 1}}}}</span>
                 `;
                 li.onclick = () => switchModule(idx);
                 moduleList.appendChild(li);
@@ -1020,15 +1021,15 @@ def create_education_module_template(
                 // Create module content
                 const moduleDiv = document.createElement('div');
                 moduleDiv.className = 'module-content';
-                moduleDiv.id = `module_${{idx}}`;
+                moduleDiv.id = `module_${{{{idx}}}}`;
 
                 let content = `
-                    <div class="completion-banner" id="banner_${{idx}}">
+                    <div class="completion-banner" id="banner_${{{{idx}}}}">
                         ✓ Module Completed!
                     </div>
 
                     <div class="module-header">
-                        <h2>${{topic.title}}</h2>
+                        <h2>${{{{topic.title}}}}</h2>
                     </div>
                 `;
 
@@ -1037,7 +1038,7 @@ def create_education_module_template(
                         <div class="learning-objectives">
                             <h3>Learning Objectives for This Module</h3>
                             <ul>
-                                ${{topic.learning_objectives.map(obj => `<li>${{obj}}</li>`).join('')}}
+                                ${{{{topic.learning_objectives.map(obj => `<li>${{{{obj}}}}</li>`).join('')}}}}
                             </ul>
                         </div>
                     `;
@@ -1045,30 +1046,30 @@ def create_education_module_template(
 
                 content += `
                     <div class="content-body">
-                        ${{topic.content || 'No content provided'}}
+                        ${{{{topic.content || 'No content provided'}}}}
                     </div>
                 `;
 
                 if (topic.quiz && topic.quiz.length > 0) {{
                     content += '<div class="quiz-section"><h3>Assessment</h3>';
                     topic.quiz.forEach((q, qIdx) => {{
-                        const qId = `q_${{idx}}_${{qIdx}}`;
+                        const qId = `q_${{{{idx}}}}_${{{{qIdx}}}}`;
                         content += `
-                            <div class="quiz-question" id="qc_${{qId}}">
-                                <div class="question-text">${{q.question}}</div>
+                            <div class="quiz-question" id="qc_${{{{qId}}}}">
+                                <div class="question-text">${{{{q.question}}}}</div>
                                 <div class="quiz-options">
                         `;
                         q.options.forEach((opt, optIdx) => {{
                             content += `
                                 <div class="quiz-option">
-                                    <input type="radio" id="${{qId}}_${{optIdx}}" name="${{qId}}" value="${{optIdx}}" onchange="checkAnswer('${{qId}}', ${{optIdx}}, ${{q.correct}})">
-                                    <label for="${{qId}}_${{optIdx}}">${{opt}}</label>
+                                    <input type="radio" id="${{{{qId}}}}_${{{{optIdx}}}}" name="${{{{qId}}}}" value="${{{{optIdx}}}}" onchange="checkAnswer('${{{{qId}}}}', ${{{{optIdx}}}}, ${{{{q.correct}}}})">
+                                    <label for="${{{{qId}}}}_${{{{optIdx}}}}">${{{{opt}}}}</label>
                                 </div>
                             `;
                         }});
                         content += `
                                 </div>
-                                <div class="quiz-feedback" id="fb_${{qId}}"></div>
+                                <div class="quiz-feedback" id="fb_${{{{qId}}}}"></div>
                             </div>
                         `;
                     }});
@@ -1080,10 +1081,10 @@ def create_education_module_template(
 
                 content += `
                     <div class="navigation">
-                        <button class="nav-button" onclick="previousModule()" ${{idx === 0 ? 'disabled' : ''}}>
+                        <button class="nav-button" onclick="previousModule()" ${{{{idx === 0 ? 'disabled' : ''}}}}>
                             ← Previous
                         </button>
-                        <button class="nav-button" onclick="nextModule()" ${{idx === TOPICS.length - 1 ? 'disabled' : ''}}>
+                        <button class="nav-button" onclick="nextModule()" ${{{{idx === TOPICS.length - 1 ? 'disabled' : ''}}}}>
                             Next →
                         </button>
                     </div>
@@ -1120,7 +1121,7 @@ def create_education_module_template(
             document.getElementById('certificateSection').classList.remove('active');
 
             // Show selected module
-            document.getElementById(`module_${{idx}}`).classList.add('active');
+            document.getElementById(`module_${{{{idx}}}}`).classList.add('active');
             currentModuleIdx = idx;
 
             // Update sidebar
@@ -1129,7 +1130,7 @@ def create_education_module_template(
             }});
 
             // Update breadcrumb
-            document.getElementById('breadcrumbTitle').textContent = `Module ${{idx + 1}}: ${{TOPICS[idx].title}}`;
+            document.getElementById('breadcrumbTitle').textContent = `Module ${{{{idx + 1}}}}: ${{{{TOPICS[idx].title}}}}`;
 
             window.scrollTo(0, 0);
         }}
@@ -1147,8 +1148,8 @@ def create_education_module_template(
         }}
 
         function checkAnswer(qId, selectedIdx, correctIdx) {{
-            const feedback = document.getElementById(`fb_${{qId}}`);
-            const questionContainer = document.getElementById(`qc_${{qId}}`);
+            const feedback = document.getElementById(`fb_${{{{qId}}}}`);
+            const questionContainer = document.getElementById(`qc_${{{{qId}}}}`);
             
             feedback.classList.add('show');
             questionContainer.classList.add('answered');
@@ -1181,7 +1182,7 @@ def create_education_module_template(
 
             // Update module status in sidebar
             TOPICS.forEach((_, idx) => {{
-                const statusEl = document.getElementById(`status_${{idx}}`);
+                const statusEl = document.getElementById(`status_${{{{idx}}}}`);
                 if (completedModules[idx]) {{
                     statusEl.classList.add('completed');
                     statusEl.textContent = '✓';
@@ -1192,7 +1193,7 @@ def create_education_module_template(
 
                 // Show completion banner
                 if (completedModules[idx] && currentModuleIdx === idx) {{
-                    document.getElementById(`banner_${{idx}}`).classList.add('show');
+                    document.getElementById(`banner_${{{{idx}}}}`).classList.add('show');
                 }}
             }});
 
@@ -1239,14 +1240,14 @@ def create_education_module_template(
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
   <defs>
     <style>
-            ${{Array.from(document.styleSheets).map(sheet => {{
+            ${{{{Array.from(document.styleSheets).map(sheet => {{
                 try {{ return Array.from(sheet.cssRules || []).map(rule => rule.cssText).join('\n'); }}
                 catch {{ return ''; }}
-            }}}}).join('\n')}}
+            }}}}).join('\n')}}}}
     </style>
   </defs>
     <foreignObject width="800" height="600" x="0" y="0">
-        <div xmlns="http://www.w3.org/1999/xhtml">${{certContent.innerHTML}}</div>
+        <div xmlns="http://www.w3.org/1999/xhtml">${{{{certContent.innerHTML}}}}</div>
     </foreignObject>
 </svg>`;
             
@@ -1264,7 +1265,7 @@ def create_education_module_template(
         function emailCertificate() {{
             const name = document.getElementById('recipientName').value;
             const certId = document.getElementById('certId').textContent;
-            const mailto = `mailto:?subject=Education Certificate: ${{CONDITION}}&body=Your certificate ID is: ${{certId}}`;
+            const mailto = `mailto:?subject=Education Certificate: ${{{{CONDITION}}}}&body=Your certificate ID is: ${{{{certId}}}}`;
             window.open(mailto);
         }}
     </script>
