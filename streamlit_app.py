@@ -3688,9 +3688,18 @@ elif "Interface" in phase or "UI" in phase:
             if res and isinstance(res, dict) and len(res) >= 10:
                 p4_state['heuristics_data'] = res
                 p4_state['auto_heuristics_done'] = True
+                st.rerun()  # Rerun to display heuristics immediately
             else:
-                # Mark as attempted to allow manual retry
-                p4_state['auto_heuristics_done'] = True
+                # Don't mark as done so it retries on next interaction
+                st.warning(f"Heuristics generation incomplete. Received {len(res) if res else 0} of 10. Please try again or navigate away and back.")
+    elif not nodes:
+        # Debug: show why heuristics aren't generating
+        st.info("Waiting for pathway nodes from Phase 3...")
+    elif p4_state.get('auto_heuristics_done') and not p4_state.get('heuristics_data'):
+        # Debug: generation was attempted but failed
+        st.warning("Heuristics generation failed. Retrying...")
+        p4_state['auto_heuristics_done'] = False
+        st.rerun()
 
     # Prepare nodes for visualization with a lightweight cache
     nodes_for_viz = nodes if nodes else [
@@ -3823,6 +3832,10 @@ elif "Interface" in phase or "UI" in phase:
 
         if not h_data:
             styled_info("Heuristics are generated automatically. They will appear here shortly.")
+            # Add manual retry button if auto-generation hasn't completed
+            if nodes and st.button("Generate Heuristics Now", key="p4_manual_heuristics", type="secondary"):
+                p4_state['auto_heuristics_done'] = False
+                st.rerun()
         else:
             # Separate actionable from UI-only heuristics
             actionable_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["pathway_actionable"]}
