@@ -1506,70 +1506,93 @@ def format_citation_line(entry, style="APA"):
 
 def apply_pathway_heuristic_improvements(nodes, heuristics_data, extra_ui_insights=None):
     """
-    Apply pathway-actionable heuristics (H2, H4, H5, H9) and optionally selected UI heuristics
-    that the user explicitly opted into. Guardrails prevent unsafe edits.
-    Returns: Updated nodes list or None if LLM fails
+    Intelligently apply all feasible heuristics (H1-H10) to the pathway nodes.
+    The AI evaluates each heuristic and applies only those that can meaningfully improve the pathway.
+    Returns: (updated_nodes, applied_heuristics_list, summary_text) or (None, [], "")
     """
-    actionable_keys = ["H2", "H4", "H5", "H9"]
-    insights = {k: heuristics_data.get(k, "") for k in actionable_keys if k in heuristics_data}
-    extra_ui_insights = extra_ui_insights or {}
+    if not heuristics_data:
+        return None, [], ""
 
-    if not insights and not extra_ui_insights:
-        return None
-
-    insights_text = "\n".join([f"{k}: {v}" for k, v in insights.items()])
-    extra_text = "\n".join([f"{k}: {v}" for k, v in extra_ui_insights.items()]) if extra_ui_insights else ""
+    # Include all heuristics in the analysis
+    insights_text = "\n".join([f"{k}: {v}" for k, v in sorted(heuristics_data.items())])
 
     guardrails = """Safety rules:
 1) Preserve all node IDs and existing branching logic
-2) Only reorder or annotate existing steps; add new nodes only if clearly required for safety/alerts
-3) Keep labels concise and clinical; do not hallucinate new clinical content"""
+2) Only modify text, add safety annotations, or reorder steps; add new nodes only if critical for safety
+3) Keep labels concise and clinical; do not hallucinate new clinical content
+4) For each heuristic you apply, include it in the applied_heuristics list with brief reason"""
 
-    prompt = f"""You are a clinical pathway expert. Improve the pathway using the inputs below.
+    prompt = f"""You are a clinical pathway expert and decision scientist. Your task is to intelligently apply Nielsen's 10 Usability Heuristics to improve this clinical decision pathway while preserving all decision-science integrity.
 
-Actionable heuristics (apply):
-{insights_text or '- none provided'}
-
-Optional UI heuristics selected by user (apply only if they map cleanly to existing steps):
-{extra_text or '- none provided'}
+CRITICAL CONSTRAINTS (must preserve):
+1. CGT/Ad/it principles and Users' Guide to Medical Decision Analysis framework
+2. DAG structure only - NO CYCLES (escalation via decision branches, never loops)
+3. Terminal nodes must be explicit single outcomes (no "or" in End node labels)
+4. All node types must remain valid: Start, Decision, Process, End (no new types)
+5. All evidence citations must reference PMIDs from original nodes
+6. Benefit/harm trade-offs must be highlighted at Decision nodes
+7. All 4 clinical stages should be represented: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
 
 Current pathway nodes: {json.dumps(nodes)}
 
-Required improvements:
-1. H2 (Language): Replace medical jargon with plain language where appropriate; keep necessary clinical terms.
-2. H4 (Consistency): Standardize terminology and ensure similar decisions share structure.
-3. H5 (Error Prevention): Add specific alerts, validation checkpoints, or warning conditions to prevent common errors.
-4. H9 (Error Recovery): Move critical checks earlier when appropriate; add clear recovery steps tied to existing nodes.
-5. If optional UI heuristics are provided, translate them into pathway-safe adjustments only when they align to existing steps.
+All heuristics to consider:
+{insights_text}
+
+Your task:
+1. Review each heuristic (H1-H10) and evaluate if it can be meaningfully applied WITHOUT violating constraints above
+2. Apply ONLY the heuristics that improve the pathway while preserving clinical logic and decision-science principles
+3. Modify node labels, add safety notes, restructure branches, or consolidate redundancy as needed
+
+Guidelines for each heuristic (respecting constraints):
+- H1 (Status visibility): Can add checkpoint descriptions or status labels to nodes (e.g., "Check vital signs - alarm if SBP <90")
+- H2 (Language clarity): Replace jargon with plain language; keep clinical terms necessary for safety
+- H3 (User control): Can add escape branches or alternative paths to key decisions (respecting DAG)
+- H4 (Consistency): Standardize similar decision node structures and terminology across the pathway
+- H5 (Error prevention): Add specific alerts, validation rules, or edge case handling to prevent common errors
+- H6 (Recognition not recall): Use consistent, clear labels and node categories across the pathway
+- H7 (Efficiency): Consolidate redundant steps or streamline long sequences WITHOUT losing clinical content
+- H8 (Minimalist): Remove unnecessary intermediate nodes; simplify overly complex branching (respect DAG)
+- H9 (Error recovery): Move critical checks earlier when appropriate; add recovery steps in existing flow
+- H10 (Help & docs): Can add clarifying evidence citations or rationale notes to nodes
 
 {guardrails}
 
-Return ONLY a valid JSON array of updated nodes. If unsure, return the original nodes unchanged."""
+Return ONLY valid JSON with exactly these keys:
+{{
+  "updated_nodes": [array of modified node objects with all original fields intact],
+  "applied_heuristics": ["H2", "H4", "H5", ...list of heuristics you actually applied],
+  "applied_summary": "Brief explanation of what was improved and why"
+}}
 
-    new_nodes = get_gemini_response(prompt, json_mode=True)
-    return new_nodes if new_nodes and isinstance(new_nodes, list) else None
+VALIDATION BEFORE RETURNING:
+- Verify all nodes preserve their evidence citations
+- Verify DAG structure (no cycles, all branches point forward)
+- Verify End nodes do NOT contain "or" statements
+- Verify node types are only: Start, Decision, Process, End
+
+Be selective—only include heuristics in applied_heuristics if you actually changed the pathway for that heuristic."""
+
+    response = get_gemini_response(prompt, json_mode=True)
+    
+    if response and isinstance(response, dict):
+        updated_nodes = response.get("updated_nodes")
+        applied = response.get("applied_heuristics", [])
+        summary = response.get("applied_summary", "")
+        
+        if updated_nodes and isinstance(updated_nodes, list) and isinstance(applied, list):
+            return updated_nodes, applied, summary
+    
+    return None, [], ""
 
 
 def apply_actionable_heuristics_incremental(nodes, heuristics_data):
     """
-    Apply all provided heuristics one by one (H1-H10), with guardrails.
-    Returns: (updated_nodes, applied_keys, skipped_keys)
+    Intelligently apply all feasible heuristics to the pathway.
+    The AI evaluates all H1-H10 and applies only those that work for pathway nodes.
+    Returns: (updated_nodes, applied_heuristics_list, summary_text)
     """
-    ordered_keys = sorted(heuristics_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
-    applied = []
-    skipped = []
-    current_nodes = copy.deepcopy(nodes)
-
-    for key in ordered_keys:
-        single_payload = {key: heuristics_data.get(key, "")}
-        improved = apply_pathway_heuristic_improvements(current_nodes, single_payload, {})
-        if improved and improved != current_nodes:
-            applied.append(key)
-            current_nodes = improved
-        else:
-            skipped.append(key)
-
-    return current_nodes, applied, skipped
+    updated_nodes, applied_list, summary = apply_pathway_heuristic_improvements(nodes, heuristics_data, {})
+    return updated_nodes, applied_list, summary
 
 def create_references_docx(citations, style="APA"):
     """Create Word document with citations. Supports preset styles and custom style names."""
@@ -2842,39 +2865,59 @@ if "Scope" in phase:
         st.text_area("Project Goals", key="p1_obj", height=compute_textarea_height(st.session_state.get('p1_obj',''), 14), on_change=sync_p1_widgets, label_visibility="collapsed")
 
     st.divider()
-    
-    with st.expander("5. Project Timeline (Gantt Chart)", expanded=False):
-        styled_info("<b>Tip:</b> Edit the timeline table below to adjust start/end dates and task owners. The chart updates automatically. Hover over the chart to download.")
-        if not st.session_state.data['phase1']['schedule']:
-            today = date.today()
-            def add_weeks(start, w): return start + timedelta(weeks=w)
-            d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
-            d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
-            st.session_state.data['phase1']['schedule'] = [
-                {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
-                {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
-                {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
-                {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
-                {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
-            ]
-        
-        try:
-            df = pd.DataFrame(st.session_state.data['phase1']['schedule'])
-            df['Start'] = pd.to_datetime(df['Start'])
-            df['End'] = pd.to_datetime(df['End'])
+    st.subheader("5. Project Timeline (Gantt Chart)")
+    styled_info("<b>Tip:</b> Hover over the top right of the chart to download the image or table. You can also directly edit the timeline table below to adjust start/end dates and task owners.")
+    if not st.session_state.data['phase1']['schedule']:
+        today = date.today()
+        def add_weeks(start, w): return start + timedelta(weeks=w)
+        d1 = add_weeks(today, 2); d2 = add_weeks(d1, 4); d3 = add_weeks(d2, 2); d4 = add_weeks(d3, 2)
+        d5 = add_weeks(d4, 4); d6 = add_weeks(d5, 4); d7 = add_weeks(d6, 2); d8 = add_weeks(d7, 4)
+        st.session_state.data['phase1']['schedule'] = [
+            {"Stage": "1. Project Charter", "Owner": "PM", "Start": today, "End": d1},
+            {"Stage": "2. Pathway Draft", "Owner": "Clinical Lead", "Start": d1, "End": d2},
+            {"Stage": "3. Expert Panel", "Owner": "Expert Panel", "Start": d2, "End": d3},
+            {"Stage": "4. Iterative Design", "Owner": "Clinical Lead", "Start": d3, "End": d4},
+            {"Stage": "5. Informatics Build", "Owner": "IT", "Start": d4, "End": d5},
+            {"Stage": "6. Beta Testing", "Owner": "Quality", "Start": d5, "End": d6},
+            {"Stage": "7. Go-Live", "Owner": "Ops", "Start": d6, "End": d7},
+            {"Stage": "8. Optimization", "Owner": "Clinical Lead", "Start": d7, "End": d8},
+            {"Stage": "9. Monitoring", "Owner": "Quality", "Start": d8, "End": add_weeks(d8, 12)}
+        ]
+    df_sched = pd.DataFrame(st.session_state.data['phase1']['schedule'])
+    edited_sched = st.data_editor(df_sched, num_rows="dynamic", width="stretch", key="sched_editor", column_config={"Stage": st.column_config.TextColumn("Stage", width="medium")})
+    if not edited_sched.empty:
+        st.session_state.data['phase1']['schedule'] = edited_sched.to_dict('records')
+        chart_data = edited_sched.copy()
+        chart_data.dropna(subset=['Start', 'End', 'Stage'], inplace=True)
+        chart_data['Start'] = pd.to_datetime(chart_data['Start'])
+        chart_data['End'] = pd.to_datetime(chart_data['End'])
+        if not chart_data.empty:
+            # Define consistent color scheme for all owners
+            owner_colors = {
+                'PM': '#5f9ea0',           # Cadet blue
+                'Clinical Lead': '#4169e1',  # Royal blue
+                'Expert Panel': '#b0c4de',   # Light steel blue
+                'IT': '#dc143c',             # Crimson
+                'Ops': '#ffb6c1',            # Light pink
+                'Quality': '#5D4037'         # Brown (consistent with brand)
+            }
             
-            chart = alt.Chart(df).mark_bar().encode(
-                x=alt.X('Start:T', title='Start Date'),
-                x2='End:T',
-                y=alt.Y('Stage:N', title='Project Stage'),
-                color=alt.Color('Owner:N', title='Owner', legend=alt.Legend(title='Owner'))
+            chart = alt.Chart(chart_data).mark_bar().encode(
+                x=alt.X('Start', title='Date'),
+                x2='End',
+                y=alt.Y('Stage', sort=None),
+                color=alt.Color('Owner', 
+                    scale=alt.Scale(
+                        domain=list(owner_colors.keys()),
+                        range=list(owner_colors.values())
+                    ),
+                    legend=alt.Legend(title='Owner')
+                ),
+                tooltip=['Stage', 'Start', 'End', 'Owner']
             ).properties(height=300).interactive()
-            
-            st.altair_chart(chart, use_container_width=True)
-        except Exception as e:
-            st.warning(f"Chart rendering issue: {e}. Please ensure dates are valid.")
-        else:
-            st.info("Add timeline entries to see the Gantt chart.")
+            st.altair_chart(chart, width="stretch")
+    else:
+        st.info("Add timeline entries to see the Gantt chart.")
 
     st.divider()
     
@@ -3785,15 +3828,9 @@ elif "Interface" in phase or "UI" in phase:
             actionable_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["pathway_actionable"]}
             ui_only_h = {k: v for k, v in h_data.items() if k in HEURISTIC_CATEGORIES["ui_design_only"]}
 
-            # SUMMARY CARD
-            st.info(f"""
-**Actionable Recommendations:** Will attempt all heuristics (H1–H10) with guardrails; unsafe ones will be skipped.
-**UI/UX-heavy items ({len(ui_only_h)}):** Often need a UI/UX engineer (H1, H3, H6, H7, H8, H10).
-""")
-
             # SINGLE ORDERED LIST OF HEURISTICS (H1–H10)
             ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
-            st.markdown("### 📋 Heuristics (H1–H10)")
+            st.markdown("### Heuristics (H1–H10)")
             st.caption("Review each heuristic. Apply will attempt all with guardrails; skipped items will be listed.")
 
             for heuristic_key in ordered_keys:
@@ -3821,33 +3858,36 @@ elif "Interface" in phase or "UI" in phase:
             selected_ui_apply = {}  # UI items no longer auto-mapped; informational only
             has_actionable = bool(actionable_h)
             if has_actionable:
-                st.markdown("### ✅ Actionable Recommendations")
-                st.caption("Will apply H2/H4/H5/H9 now. Remaining heuristics are noted for UI/UX follow-up.")
+                st.markdown("### Recommendations")
+                st.caption("Apply will update the pathway with H2 (clarity), H4 (consistency), H5 (error prevention), and H9 (error recovery). UI/UX items noted for follow-up.")
                 if p4_state.get('applied_status') and p4_state.get('applied_summary'):
                     st.success(p4_state['applied_summary'])
                 col_apply, col_undo = st.columns([1, 1])
                 with col_apply:
                     btn_applied = p4_state.get('applied_status', False)
                     btn_label = "Applied" if btn_applied else "Apply Recommendations"
-                    btn_type = "primary" if btn_applied else "secondary"  # pink when applied, brown otherwise
+                    btn_type = "primary" if btn_applied else "secondary"
                     if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
                         p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
-                        with ai_activity("Applying pathway improvements with guardrails…"):
-                            improved_nodes, applied_keys, skipped_keys = apply_actionable_heuristics_incremental(nodes, actionable_h)
+                        with ai_activity("Evaluating and applying all feasible heuristics…"):
+                            improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
                             if improved_nodes:
                                 st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
                                 p4_state['viz_cache'] = {}
-                                applied_str = ", ".join(applied_keys) if applied_keys else "None"
-                                skipped_str = ", ".join(skipped_keys) if skipped_keys else "None"
-                                p4_state['applied_status'] = True if applied_keys else False
-                                p4_state['applied_summary'] = (
-                                    f"Applied heuristics → {applied_str}. "
-                                    f"Skipped (no safe change) → {skipped_str}."
-                                )
-                                st.success("✓ Processed recommendations. Visualization and nodes updated.")
+                                p4_state['applied_status'] = True
+                                p4_state['applied_heuristics'] = applied_heuristics
+                                p4_state['applied_summary_detail'] = apply_summary
+                                
+                                # Show results
+                                st.success(f"✓ Applied {len(applied_heuristics)} heuristics")
+                                with st.expander("View applied heuristics and changes", expanded=True):
+                                    if applied_heuristics:
+                                        st.markdown(f"**Applied:** {', '.join(applied_heuristics)}")
+                                    st.markdown(f"**Changes:** {apply_summary}")
+                                
                                 st.rerun()
                             else:
-                                st.error("Could not process improvements. Please try again.")
+                                st.error("Could not process recommendations. Please try again.")
 
                 with col_undo:
                     if st.button("Undo Last Changes", key="p4_undo_all", type="secondary"):
