@@ -3650,19 +3650,26 @@ elif "Interface" in phase or "UI" in phase:
     p4_state.setdefault('ui_apply_flags', {})
     p4_state.setdefault('applied_status', False)
     p4_state.setdefault('applied_summary', "")
+    p4_state.setdefault('applying_heuristics', False)  # Flag to prevent re-analysis during apply
 
     # Detect pathway changes and allow heuristics to re-run
+    # BUT: Don't clear heuristics if we're currently applying them
     try:
         nodes_hash = hashlib.md5(json.dumps(nodes, sort_keys=True).encode('utf-8')).hexdigest()
     except Exception:
         nodes_hash = str(len(nodes))
-    if p4_state.get('last_nodes_hash') != nodes_hash:
+    
+    if p4_state.get('last_nodes_hash') != nodes_hash and not p4_state.get('applying_heuristics'):
         p4_state['last_nodes_hash'] = nodes_hash
-        # Clear prior heuristics to refresh recommendations on next render
+        # Clear prior heuristics to refresh recommendations only if nodes changed externally (not from applying heuristics)
         p4_state['heuristics_data'] = {}
         p4_state['auto_heuristics_done'] = False
         p4_state['applied_status'] = False
         p4_state['applied_summary'] = ""
+    elif p4_state.get('applying_heuristics'):
+        # We just applied heuristics, update hash but keep heuristics data
+        p4_state['last_nodes_hash'] = nodes_hash
+        p4_state['applying_heuristics'] = False  # Reset flag
 
     # If heuristics never populated but auto-run flagged as done, allow rerun
     if not p4_state['heuristics_data'] and p4_state.get('auto_heuristics_done'):
@@ -3882,6 +3889,7 @@ elif "Interface" in phase or "UI" in phase:
                     btn_type = "primary" if btn_applied else "secondary"
                     if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
                         p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        p4_state['applying_heuristics'] = True  # Set flag to prevent re-analysis
                         with ai_activity("Evaluating and applying all feasible heuristics…"):
                             improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
                             if improved_nodes:
