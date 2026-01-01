@@ -99,7 +99,7 @@ Respond ONLY with valid JSON, no other text."""
         audience_lower = audience_text.lower()
         
         # Simple keyword-based fallback
-        if any(word in audience_lower for word in ["board", "executive", "ceo", "cfo", "leadership", "hospital", "administration"]):
+        if any(word in audience_lower for word in ["board", "executive", "ceo", "cfo", "leadership", "hospital", "administration", "chair", "chairman", "chief"]):
             return {
                 "audience_type": "executive",
                 "strategic_focus": True,
@@ -109,7 +109,7 @@ Respond ONLY with valid JSON, no other text."""
                 "emphasis_areas": ["ROI", "risk_mitigation", "compliance", "strategic_alignment"],
                 "tone": "executive_brief"
             }
-        elif any(word in audience_lower for word in ["clinical leader", "physician", "director", "quality", "safety"]):
+        elif any(word in audience_lower for word in ["clinical leader", "physician", "director", "quality", "safety", "medical director", "department head"]):
             return {
                 "audience_type": "clinical_leadership",
                 "strategic_focus": False,
@@ -1552,83 +1552,91 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
         # AUDIENCE-ADAPTIVE CONTENT STRUCTURE
         
         if is_executive:
-            # === EXECUTIVE SUMMARY (C-SUITE FOCUS) ===
-            doc.add_heading("Strategic Overview", level=1)
-            doc.add_paragraph(
-                f"This {condition} clinical pathway addresses a critical gap in {setting_text or 'clinical'} practice, "
-                f"enabling standardized, evidence-based care delivery that improves patient outcomes while optimizing resource utilization."
-            )
+            # === EXECUTIVE SUMMARY (C-SUITE FOCUS) - NARRATIVE PROSE ===
+            doc.add_heading("Executive Overview", level=1)
             
-            doc.add_heading("Business Case & Value Proposition", level=1)
-            doc.add_paragraph(
-                f"Problem: {problem_text}"
-            )
-
-            doc.add_heading("SMART Objectives", level=1)
-            for item in smart_objectives:
-                doc.add_paragraph(item, style='List Bullet')
-
-            doc.add_heading("Phase Inputs Synthesized (Phases 1-4)", level=1)
-            for item in phase_inputs:
-                doc.add_paragraph(item, style='List Bullet')
-            
-            # Extract ROI/impact-related metrics from objectives
-            doc.add_paragraph("Key Benefits:", style='List Bullet')
-            doc.add_paragraph("Improved patient safety and outcomes through evidence-based decision-making", style='List Bullet 2')
-            doc.add_paragraph("Reduced variation in care practices across providers and shifts", style='List Bullet 2')
-            doc.add_paragraph("Optimized resource utilization and reduced unnecessary testing/admissions", style='List Bullet 2')
-            doc.add_paragraph("Enhanced staff competency through standardized education and onboarding", style='List Bullet 2')
-            doc.add_paragraph("Improved patient experience and satisfaction", style='List Bullet 2')
-            
-            # Evidence Summary (executive brief - counts only)
-            doc.add_heading("Evidence Foundation", level=1)
             evidence = p2_data.get('evidence', [])
+            nodes = p3_data.get('nodes', [])
+            
+            # Opening paragraph - value proposition
+            doc.add_paragraph(
+                f"This executive summary presents a comprehensive clinical decision pathway for {condition} management "
+                f"in {setting_text or 'the clinical setting'}. The pathway represents a strategic initiative to standardize "
+                f"care delivery, improve patient outcomes, and optimize resource utilization through evidence-based clinical "
+                f"decision-making. Built on a foundation of {len(evidence)} peer-reviewed evidence sources and structured "
+                f"across {len(nodes)} decision points, this pathway addresses a critical opportunity to reduce practice variation "
+                f"while enhancing both clinical quality and operational efficiency."
+            )
+            
+            doc.add_heading("Strategic Rationale", level=1)
+            doc.add_paragraph(
+                f"The current state presents significant challenges: {problem_text} This variability not only compromises "
+                f"patient safety and outcomes but also leads to inefficient resource allocation, extended length of stay, "
+                f"and increased operational costs. The proposed pathway establishes a systematic, evidence-driven approach "
+                f"that aligns clinical practice with organizational strategic priorities for quality, safety, and value-based care."
+            )
+            
+            doc.add_heading("Evidence Foundation & Clinical Rigor", level=1)
             if evidence:
-                doc.add_paragraph(f"This pathway is built on {len(evidence)} peer-reviewed evidence items.")
-                
-                # Grade breakdown
                 grades = {}
                 for e in evidence:
                     grade = e.get('grade', 'Un-graded')
                     grades[grade] = grades.get(grade, 0) + 1
-                
                 high_quality = sum(count for grade, count in grades.items() if grade in ['A', 'High', 'Level 1'])
-                doc.add_paragraph(f"Quality distribution: {high_quality} high-quality articles provide strong evidence base", style='List Bullet')
+                
+                doc.add_paragraph(
+                    f"The pathway integrates current best evidence from {len(evidence)} peer-reviewed publications, with "
+                    f"{high_quality} high-quality systematic reviews and clinical trials providing Level A evidence. This rigorous "
+                    f"evidence base ensures that clinical recommendations reflect the most current understanding of optimal "
+                    f"{condition} management, reducing liability exposure while supporting quality reporting and accreditation standards."
+                )
+            else:
+                doc.add_paragraph(
+                    "The pathway design incorporates current clinical guidelines and evidence-based practices, with structured "
+                    "opportunities for expert review and validation prior to implementation."
+                )
             
-            # Implementation Scope (summary only)
-            doc.add_heading("Implementation Scope", level=1)
-            nodes = p3_data.get('nodes', [])
-            doc.add_paragraph(f"Pathway includes {len(nodes)} care decision points and clinical actions") if nodes else doc.add_paragraph("Pathway design in progress")
-            doc.add_paragraph(f"Target population: {population}", style='List Bullet')
-            doc.add_paragraph(f"Clinical setting: {setting_text}", style='List Bullet')
-            
-            # Readiness Assessment
-            doc.add_heading("Readiness for Implementation", level=1)
-            doc.add_paragraph("Design and Validation:", style='List Bullet')
-            doc.add_paragraph("Clinical pathway design completed and reviewed for feasibility", style='List Bullet 2')
-            doc.add_paragraph("Usability testing conducted with target users" if p4_data.get('heuristics_data') else "Usability testing planned", style='List Bullet 2')
-            
-            doc.add_paragraph("Stakeholder Engagement:", style='List Bullet')
-            doc.add_paragraph("Expert panel feedback: " + ("Completed and integrated" if p5_data.get('expert_html') else "Scheduled"), style='List Bullet 2')
-            doc.add_paragraph("Beta testing: " + ("Completed" if p5_data.get('beta_html') else "Planned"), style='List Bullet 2')
-            
-            # Next Steps (Executive Focused)
-            doc.add_heading("Executive Action Items", level=1)
+            doc.add_heading("Value Proposition & Expected Outcomes", level=1)
             doc.add_paragraph(
-                "Approve final pathway design and authorize stakeholder engagement activities",
-                style='List Number'
+                f"Implementation of this standardized pathway is projected to deliver measurable value across multiple dimensions. "
+                f"From a quality perspective, the pathway promotes consistent application of evidence-based interventions, reducing "
+                f"diagnostic errors and ensuring appropriate escalation of care when indicated. Operationally, standardization "
+                f"enables more predictable resource utilization, reducing unnecessary testing and procedures while maintaining or "
+                f"improving clinical outcomes. The pathway also supports workforce development through clear protocols that enhance "
+                f"staff confidence and competency, particularly valuable for training programs and onboarding new providers."
             )
+            
+            doc.add_heading("Implementation Readiness", level=1)
+            usability_status = "completed rigorous usability testing" if p4_data.get('heuristics_data') else "planned comprehensive usability evaluation"
+            expert_status = "completed expert panel review with integrated feedback" if p5_data.get('expert_html') else "scheduled expert panel validation"
+            beta_status = "completed beta testing in the target environment" if p5_data.get('beta_html') else "planned pilot testing"
+            
             doc.add_paragraph(
-                "Allocate resources for implementation (staff education, system integration, monitoring)",
-                style='List Number'
+                f"The pathway has {usability_status}, ensuring alignment with clinical workflow and practitioner needs. "
+                f"Stakeholder engagement includes {expert_status} and {beta_status}, creating a robust validation process "
+                f"that mitigates implementation risk. A comprehensive education module has been developed to support staff "
+                f"onboarding, competency assessment, and ongoing training, ensuring smooth adoption and sustained adherence."
             )
+            
+            doc.add_heading("Strategic Objectives & Success Metrics", level=1)
             doc.add_paragraph(
-                "Establish governance structure for ongoing pathway monitoring and improvement",
-                style='List Number'
+                f"The pathway is designed to achieve specific, measurable objectives aligned with organizational priorities: "
+                f"{objectives_text} Success will be monitored through defined metrics including clinical outcomes (safety events, "
+                f"readmission rates, diagnostic accuracy), operational efficiency (length of stay, throughput, resource utilization), "
+                f"and quality measures (adherence rates, patient satisfaction, staff competency). Implementation will proceed in "
+                f"phases with 30/60/90 day checkpoints and quarterly performance reviews to ensure sustained improvement and "
+                f"continuous optimization."
             )
+            
+            doc.add_heading("Recommended Actions", level=1)
             doc.add_paragraph(
-                "Schedule go-live and define success metrics (safety, efficiency, quality outcomes)",
-                style='List Number'
+                f"To advance this initiative, leadership approval is requested for: (1) final pathway validation and sign-off following "
+                f"expert review and beta testing; (2) allocation of implementation resources including staff education time, system "
+                f"integration support, and monitoring infrastructure; (3) establishment of a governance structure with defined "
+                f"accountability for pathway oversight, performance tracking, and continuous improvement; and (4) authorization to "
+                f"proceed with go-live planning, including communication strategy, training rollout, and performance dashboard "
+                f"deployment. These actions position the organization to deliver evidence-based, high-value care that advances "
+                f"both clinical excellence and operational sustainability."
             )
             
         else:
