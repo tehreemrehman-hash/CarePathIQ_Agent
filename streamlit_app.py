@@ -1618,17 +1618,138 @@ def create_references_docx(citations, style="APA"):
     return buffer
 
 def harden_nodes(nodes_list):
+    """Validate and fix node structure, ensuring Decision nodes have proper branches."""
     if not isinstance(nodes_list, list): return []
     validated = []
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict): continue
-        if 'id' not in node or not node['id']: node['id'] = f"{node.get('type', 'P')[0].upper()}{i+1}"
-        if 'type' not in node: node['type'] = 'Process'
+        # Ensure required fields
+        if 'id' not in node or not node['id']: 
+            node['id'] = f"{node.get('type', 'P')[0].upper()}{i+1}"
+        if 'type' not in node: 
+            node['type'] = 'Process'
+        if 'label' not in node or not node.get('label'):
+            node['label'] = f"Step {i+1}"
+        
+        # Validate Decision nodes have branches
         if node['type'] == 'Decision':
-            if 'branches' not in node or not isinstance(node['branches'], list):
-                node['branches'] = [{'label': 'Yes', 'target': i+1}, {'label': 'No', 'target': i+2}]
+            if 'branches' not in node or not isinstance(node['branches'], list) or len(node['branches']) == 0:
+                # Create default branches pointing to next nodes if they exist
+                next_idx = i + 1
+                alt_idx = i + 2 if i + 2 < len(nodes_list) else i + 1
+                node['branches'] = [
+                    {'label': 'Yes', 'target': next_idx}, 
+                    {'label': 'No', 'target': alt_idx}
+                ]
+            # Ensure branches have valid structure and targets are within bounds
+            for branch in node['branches']:
+                if 'label' not in branch:
+                    branch['label'] = 'Option'
+                if 'target' not in branch or not isinstance(branch.get('target'), (int, float)):
+                    branch['target'] = min(i + 1, len(nodes_list) - 1)
+                else:
+                    # Clamp target to valid range
+                    target = int(branch['target'])
+                    branch['target'] = max(0, min(target, len(nodes_list) - 1))
+        
         validated.append(node)
     return validated
+
+def validate_pathway_flow(nodes_list):
+    """
+    Validate pathway for common flow issues:
+    - Unreachable nodes (orphaned)
+    - Invalid branch targets
+    - Missing End nodes
+    - Cycles (if DAG-only enforcement needed)
+    Returns: (is_valid, issues_list)
+    """
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return False, ["Empty pathway"]
+    
+    issues = []
+    n = len(nodes_list)
+    reachable = set([0])  # Start node is always index 0
+    
+    # Build reachability graph
+    for i, node in enumerate(nodes_list):
+        if not isinstance(node, dict):
+            issues.append(f"Node {i}: Invalid node structure")
+            continue
+        
+        node_type = node.get('type', 'Process')
+        
+        if node_type == 'Decision':
+            branches = node.get('branches', [])
+            if not branches:
+                issues.append(f"Node {i} ({node.get('label', 'N/A')}): Decision node has no branches")
+            for branch in branches:
+                target = branch.get('target')
+                if not isinstance(target, (int, float)):
+                    issues.append(f"Node {i}: Branch '{branch.get('label', 'N/A')}' has invalid target: {target}")
+                elif not (0 <= int(target) < n):
+                    issues.append(f"Node {i}: Branch '{branch.get('label', 'N/A')}' points to out-of-bounds index: {target}")
+                else:
+                    reachable.add(int(target))
+        elif i + 1 < n:
+            # Non-decision nodes implicitly connect to next node
+            reachable.add(i + 1)
+    
+    # Check for unreachable nodes (except End nodes which are terminal)
+    unreachable = []
+    for i, node in enumerate(nodes_list):
+        if i not in reachable and node.get('type') != 'End':
+            unreachable.append(f"Node {i} ({node.get('label', 'N/A')})")
+    
+    if unreachable:
+        issues.append(f"Unreachable nodes: {', '.join(unreachable)}")
+    
+    # Check for at least one End node
+    has_end = any(node.get('type') == 'End' for node in nodes_list)
+    if not has_end:
+        issues.append("Pathway has no End nodes")
+    
+    # Check for Start node
+    if nodes_list[0].get('type') != 'Start':
+        issues.append(f"First node should be Start, found: {nodes_list[0].get('type')}")
+    
+    return len(issues) == 0, issues
+
+def fix_decision_flow_issues(nodes_list):
+    """
+    Fix common AI generation issues:
+    1. Remove any nodes that appear after End nodes (End nodes must be terminal)
+    2. Validate Decision node branches point to valid indices
+    3. Detect if Decision branches artificially reconverge (both point to same next node) and keep them separate
+    """
+    if not isinstance(nodes_list, list) or len(nodes_list) == 0:
+        return nodes_list
+    
+    # Find first End node - everything after it should be removed
+    first_end_idx = None
+    for i, node in enumerate(nodes_list):
+        if isinstance(node, dict) and node.get('type') == 'End':
+            first_end_idx = i
+            break
+    
+    # If there's an End node followed by more nodes, truncate
+    if first_end_idx is not None and first_end_idx < len(nodes_list) - 1:
+        nodes_list = nodes_list[:first_end_idx + 1]
+    
+    # Validate Decision node branches
+    for i, node in enumerate(nodes_list):
+        if not isinstance(node, dict):
+            continue
+        if node.get('type') == 'Decision' and 'branches' in node:
+            valid_branches = []
+            for branch in node.get('branches', []):
+                target = branch.get('target')
+                if isinstance(target, (int, float)) and 0 <= int(target) < len(nodes_list):
+                    valid_branches.append(branch)
+            if valid_branches:
+                node['branches'] = valid_branches
+    
+    return nodes_list
 
 def normalize_or_logic(nodes_list):
     """
@@ -3366,21 +3487,26 @@ elif "Decision" in phase or "Tree" in phase:
         
         Rules:
         - First node: type "Start", label "patient present to {setting} with {cond}"
-        - Consecutive decision nodes are allowed when the logic requires back-to-back branching (do NOT force a process node between decision nodes)
-        - End nodes must be terminal single-outcome statements; NEVER include "or" (e.g., "discharge OR admit") in an End label. If alternatives exist, create a Decision node (e.g., "Discharge vs Admit") with explicit branches.
+        - Decision nodes create DIVERGENT pathways - Yes/No branches should lead to DIFFERENT clinical outcomes, never reconverge to the same next step
+        - Once a Decision splits the pathway, the branches must remain separate until each reaches its own End node
+        - End nodes are TERMINAL - nothing comes after an End node. Each pathway branch must end with its own End node.
+        - Consecutive decision nodes are allowed when logic requires back-to-back branching (do NOT force a process node between decisions)
+        - End nodes must be single-outcome statements; NEVER include "or" (e.g., "discharge OR admit"). If alternatives exist, create a Decision node with explicit branches.
         - Focus on ACTION and SPECIFICITY (e.g., "Order CBC, BMP, troponin" not "Order labs")
         - Use BREVITY with standard medical abbreviations
         - Include discharge details: specific prescriptions (drug, dose, route) and outpatient referrals when applicable
         - NO arbitrary node count limit - build as many nodes as needed for complete clinical flow
-        - If pathway exceeds 20 nodes, organize into logical sections or create sub-pathways for special populations
         - Prefer evidence-backed steps; cite PMIDs where available
         - Highlight benefit/harm trade-offs at decision points
+        
+        CRITICAL: Each Decision branch must lead to a unique sequence ending in its own End node. Do NOT make branches reconverge.
         """
         with ai_activity("Auto-generating decision tree from Phase 1 & 2 data..."):
             nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(nodes, list) and len(nodes) > 0:
-            # Silently normalize OR logic in End nodes to proper Decision nodes
-            nodes = normalize_or_logic(nodes)
+            # Clean up common AI generation issues
+            nodes = normalize_or_logic(nodes)  # Fix OR statements in End nodes
+            nodes = fix_decision_flow_issues(nodes)  # Fix reconverging branches and non-terminal End nodes
             st.session_state.data['phase3']['nodes'] = nodes
             st.rerun()
         elif not isinstance(nodes, list):
@@ -3618,8 +3744,9 @@ elif "Decision" in phase or "Tree" in phase:
                     """
                     nodes = get_gemini_response(prompt, json_mode=True)
                     if isinstance(nodes, list) and len(nodes) > 0:
-                        # Silently normalize OR logic in End nodes to proper Decision nodes
+                        # Clean up common AI generation issues
                         nodes = normalize_or_logic(nodes)
+                        nodes = fix_decision_flow_issues(nodes)
                         st.session_state.data['phase3']['nodes'] = nodes
                         # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
                         st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
@@ -3880,48 +4007,59 @@ elif "Interface" in phase or "UI" in phase:
             if has_actionable:
                 st.markdown("### Recommendations")
                 st.caption("Apply will update the pathway with H2 (clarity), H4 (consistency), H5 (error prevention), and H9 (error recovery). UI/UX items noted for follow-up.")
-                if p4_state.get('applied_status') and p4_state.get('applied_summary'):
-                    st.success(p4_state['applied_summary'])
+                if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
+                    st.success("✓ Heuristics applied successfully")
+                    with st.expander("View changes", expanded=False):
+                        if p4_state.get('applied_heuristics'):
+                            st.markdown(f"**Applied:** {', '.join(p4_state['applied_heuristics'])}")
+                        st.markdown(p4_state['applied_summary_detail'])
+                
                 col_apply, col_undo = st.columns([1, 1])
                 with col_apply:
                     btn_applied = p4_state.get('applied_status', False)
                     btn_label = "Applied" if btn_applied else "Apply Recommendations"
                     btn_type = "primary" if btn_applied else "secondary"
                     if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
-                        p4_state.setdefault('nodes_history', []).append(copy.deepcopy(nodes))
+                        # Initialize history if needed
+                        if 'nodes_history' not in p4_state:
+                            p4_state['nodes_history'] = []
+                        
+                        # Save current state to history BEFORE applying
+                        p4_state['nodes_history'].append(copy.deepcopy(nodes))
                         p4_state['applying_heuristics'] = True  # Set flag to prevent re-analysis
+                        
                         with ai_activity("Evaluating and applying all feasible heuristics…"):
                             improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
-                            if improved_nodes:
+                            if improved_nodes and len(improved_nodes) > 0:
                                 st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
                                 p4_state['viz_cache'] = {}
                                 p4_state['applied_status'] = True
                                 p4_state['applied_heuristics'] = applied_heuristics
                                 p4_state['applied_summary_detail'] = apply_summary
-                                
-                                # Show results
-                                st.success(f"✓ Applied {len(applied_heuristics)} heuristics")
-                                with st.expander("View applied heuristics and changes", expanded=True):
-                                    if applied_heuristics:
-                                        st.markdown(f"**Applied:** {', '.join(applied_heuristics)}")
-                                    st.markdown(f"**Changes:** {apply_summary}")
-                                
                                 st.rerun()
                             else:
-                                st.error("Could not process recommendations. Please try again.")
+                                # Remove from history if apply failed
+                                if p4_state.get('nodes_history'):
+                                    p4_state['nodes_history'].pop()
+                                st.error("Could not process recommendations. AI returned no valid nodes. Please try again.")
 
                 with col_undo:
-                    if st.button("Undo Last Changes", key="p4_undo_all", type="secondary"):
+                    history_count = len(p4_state.get('nodes_history', []))
+                    undo_disabled = history_count == 0
+                    if st.button("Undo Last Changes", key="p4_undo_all", type="secondary", disabled=undo_disabled):
                         if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
                             prev_nodes = p4_state['nodes_history'].pop()
                             st.session_state.data['phase3']['nodes'] = prev_nodes
                             p4_state['viz_cache'] = {}
                             p4_state['applied_status'] = False
-                            p4_state['applied_summary'] = ""
-                            st.success("Undid last improvement batch")
+                            p4_state['applied_summary_detail'] = ""
+                            p4_state['applied_heuristics'] = []
+                            st.success(f"✓ Reverted to previous version ({len(prev_nodes)} nodes)")
                             st.rerun()
                         else:
                             st.info("No changes to undo")
+                    if history_count > 0:
+                        st.caption(f"{history_count} version(s) in history")
 
     render_bottom_navigation()
     st.stop()
