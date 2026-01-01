@@ -4716,7 +4716,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 )
         
         # Refine & Regenerate section for Executive Summary
-        with st.expander("Refine & Regenerate Executive Summary", expanded=False):
+        with st.expander("Refine & Regenerate", expanded=False):
             st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 5 content and downloads")
             with st.form("p5_refine_exec_form"):
                 col_text, col_file = columns_top([2, 1])
