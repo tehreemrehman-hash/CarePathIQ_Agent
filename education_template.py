@@ -970,7 +970,7 @@ def create_education_module_template(
                         `Outline the care flow for ${{CONDITION}}`,
                         `Identify supporting tools and documentation`
                     ],
-                    quiz: [{
+                    quiz: [{{
                         question: `What is the primary aim of this pathway?`,
                         options: [
                             "Standardize care and improve safety",
@@ -980,7 +980,7 @@ def create_education_module_template(
                         ],
                         correct: 0,
                         explanation: "Clinical pathways standardize high-quality care and improve safety/throughput."
-                    }],
+                    }}],
                     time_minutes: 5
                 }});
             }
