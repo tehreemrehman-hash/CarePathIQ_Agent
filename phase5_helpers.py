@@ -6,139 +6,410 @@ Plus Word documents for Executive Summaries
 
 import json
 import base64
+import time
+import hashlib
+import re
 from io import BytesIO
 from datetime import datetime
+from difflib import SequenceMatcher
 
 # ==========================================
-# LLM AUDIENCE INFERENCE
+# PDF PATHWAY EXTRACTION FUNCTIONS
 # ==========================================
 
-def infer_audience_from_description(audience_text: str, genai_client=None):
+def extract_json_from_response(response_text: str) -> str:
+    """Extract JSON from LLM response that may include markdown code blocks."""
+    text = response_text.strip()
+    text = text.replace('```json', '').replace('```', '')
+    match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
+    if match:
+        return match.group(0)
+    return text
+
+
+def extract_pathway_from_pdf(file_uri: str, condition: str, setting: str, 
+                             custom_prompt: str = None, 
+                             file_hash: str = None,
+                             progress_callback=None,
+                             genai_client=None) -> dict:
     """
-    Use LLM to infer audience focus areas from free-text target audience input.
+    Extract pathway from PDF with auto-detection, full PDF processing, 
+    PMID extraction, and confidence scoring.
     
     Args:
-        audience_text: Free-text description of target audience (e.g., "Hospital Leadership, CFO, Board Members")
-        genai_client: Optional Google Generative AI client. If None, creates a new one.
+        file_uri: Gemini Files API URI
+        condition: Clinical condition
+        setting: Care setting
+        custom_prompt: Optional custom extraction instructions
+        file_hash: MD5 hash for caching
+        progress_callback: Function(progress_float, status_text)
+        genai_client: Gemini API client
     
     Returns:
-        dict: Structured metadata with:
-            - audience_type: str (e.g., "executive", "clinical_leadership", "implementation_team", "clinical_staff")
-            - strategic_focus: bool (True for C-suite/executive focus)
-            - operational_focus: bool (True for implementation/clinical staff focus)
-            - clinical_focus: bool (True for clinician/clinical staff focus)
-            - detail_level: str ("summary" for executives, "moderate" for leadership, "detailed" for implementation)
-            - emphasis_areas: list of strings (e.g., ["ROI", "risk_mitigation", "patient_safety"])
-            - tone: str ("executive_brief" or "technical_detailed")
+        dict with keys: nodes, source, confidence, doc_type, pmids_extracted, fixes_applied, file_uri
     """
-    import os
+    if not genai_client:
+        from google import genai
+        import os
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        genai_client = genai.Client(api_key=api_key)
     
-    if not audience_text or not audience_text.strip():
-        # Default to implementation team if empty
-        return {
-            "audience_type": "implementation_team",
-            "strategic_focus": False,
-            "operational_focus": True,
-            "clinical_focus": True,
-            "detail_level": "detailed",
-            "emphasis_areas": ["workflow", "safety", "efficiency", "implementation"],
-            "tone": "technical_detailed"
-        }
+    # Check cache
+    import streamlit as st
+    cache_key = f"pdf_cache_{file_hash}" if file_hash else None
+    cached = st.session_state.get(cache_key) if cache_key else None
     
-    try:
-        # Create client if not provided
-        if genai_client is None:
-            from google import genai
-            api_key = os.environ.get("GOOGLE_API_KEY")
-            if not api_key:
-                raise ValueError("GOOGLE_API_KEY environment variable not set")
-            genai_client = genai.Client(api_key=api_key)
-        
-        # LLM prompt for audience inference
-        inference_prompt = f"""Analyze this target audience description and provide a JSON response with the following structure:
-{{
-  "audience_type": "one of: executive, clinical_leadership, implementation_team, clinical_staff, or other",
-  "strategic_focus": true/false (true if audience is C-suite/board/executive leadership),
-  "operational_focus": true/false (true if audience manages operations/implementation),
-  "clinical_focus": true/false (true if audience is clinical staff/practitioners),
-  "detail_level": "summary" for executives (1-2 page overview), "moderate" for leadership, or "detailed" for implementation/clinical,
-  "emphasis_areas": list of 3-5 areas to emphasize (e.g., ["ROI", "patient_safety", "efficiency", "compliance"] for executives; ["workflow", "safety", "implementation", "training"] for clinical staff),
-  "tone": "executive_brief" (formal, high-level) or "technical_detailed" (operational, step-by-step)
-}}
+    # STEP 1/5: Upload (skip if cached)
+    if progress_callback:
+        progress_callback(0.0, "Step 1/5: Uploading PDF to Gemini...")
+    time.sleep(0.3)
+    
+    # STEP 2/5: Detect type
+    if progress_callback:
+        progress_callback(0.2, "Step 2/5: Analyzing document structure...")
+    
+    if cached and not custom_prompt:
+        doc_type = cached["doc_type"]
+    else:
+        detect_prompt = f"""Analyze this PDF about {condition}. Determine:
+1. Content type: text guideline, flowchart diagram, or hybrid
+2. Page count and which pages have flowcharts
+3. Main section headings
 
-Target Audience: {audience_text}
-
-Respond ONLY with valid JSON, no other text."""
+Return JSON: {{"type": "guideline|flowchart|hybrid", 
+              "page_count": N,
+              "flowchart_pages": [page_nums], 
+              "sections": ["section names"]}}"""
         
-        response = genai_client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=inference_prompt
+        try:
+            detection = genai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[{"text": detect_prompt}, {"file_data": {"file_uri": file_uri}}]
+            )
+            doc_type = json.loads(extract_json_from_response(detection.text))
+        except Exception as e:
+            # Fallback: assume guideline
+            doc_type = {"type": "guideline", "page_count": 0, "flowchart_pages": [], "sections": []}
+        
+        # Cache doc_type
+        if cache_key:
+            st.session_state[cache_key] = {"doc_type": doc_type, "file_uri": file_uri}
+    
+    # STEP 3/5: Extract nodes
+    if progress_callback:
+        progress_callback(0.4, "Step 3/5: Extracting pathway nodes...")
+    
+    if doc_type["type"] == "guideline":
+        nodes = extract_guideline_text(file_uri, condition, setting, custom_prompt, genai_client)
+    elif doc_type["type"] == "flowchart":
+        nodes = extract_flowchart_visual(file_uri, condition, setting, custom_prompt, genai_client)
+    elif doc_type["type"] == "hybrid":
+        if progress_callback:
+            progress_callback(0.4, "Step 3/5: Extracting flowchart structure...")
+        flowchart_nodes = extract_flowchart_visual(
+            file_uri, condition, setting, custom_prompt, genai_client,
+            pages=doc_type["flowchart_pages"]
         )
         
-        # Parse JSON response
-        response_text = response.text.strip()
+        if progress_callback:
+            progress_callback(0.5, "Step 3/5: Extracting guideline details...")
+        guideline_nodes = extract_guideline_text(
+            file_uri, condition, setting, custom_prompt, genai_client,
+            sections=doc_type["sections"]
+        )
         
-        # Try to extract JSON from response (in case LLM adds extra text)
-        import re
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        if json_match:
-            response_text = json_match.group(0)
-        
-        result = json.loads(response_text)
-        
-        # Validate response structure
-        required_fields = ["audience_type", "strategic_focus", "operational_focus", "clinical_focus", 
-                          "detail_level", "emphasis_areas", "tone"]
-        if all(field in result for field in required_fields):
-            return result
-        else:
-            raise ValueError("Missing required fields in LLM response")
+        if progress_callback:
+            progress_callback(0.6, "Step 3/5: Merging flowchart & guideline...")
+        nodes = merge_hybrid_intelligently(flowchart_nodes, guideline_nodes)
+    else:
+        nodes = []
     
-    except Exception as e:
-        # Fallback to default inference if LLM fails
-        audience_lower = audience_text.lower()
+    # STEP 4/5: Extract PMIDs
+    if progress_callback:
+        progress_callback(0.7, "Step 4/5: Extracting PMIDs from bibliography...")
+    
+    if cached and not custom_prompt and "pmids" in cached:
+        pmids = cached["pmids"]
+    else:
+        pmid_prompt = """Extract all PubMed citations from references/bibliography.
+For each, identify which section cites it.
+Return JSON: [{"pmid": "12345678", "section": "4.2 Risk Stratification", "title": "..."}]"""
         
-        # Simple keyword-based fallback
-        if any(word in audience_lower for word in ["board", "executive", "ceo", "cfo", "leadership", "hospital", "administration", "chair", "chairman", "chief"]):
-            return {
-                "audience_type": "executive",
-                "strategic_focus": True,
-                "operational_focus": False,
-                "clinical_focus": False,
-                "detail_level": "summary",
-                "emphasis_areas": ["ROI", "risk_mitigation", "compliance", "strategic_alignment"],
-                "tone": "executive_brief"
+        try:
+            pmids_response = genai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[{"text": pmid_prompt}, {"file_data": {"file_uri": file_uri}}]
+            )
+            pmids = json.loads(extract_json_from_response(pmids_response.text))
+        except Exception:
+            pmids = []
+        
+        # Cache PMIDs
+        if cache_key:
+            st.session_state[cache_key]["pmids"] = pmids
+    
+    nodes = enrich_nodes_with_pmids(nodes, pmids)
+    
+    # STEP 5/5: Validate & auto-fix
+    if progress_callback:
+        progress_callback(0.9, "Step 5/5: Validating and auto-fixing...")
+    
+    nodes, fixes_applied = auto_fix_pathway(nodes)
+    
+    confidence = calculate_extraction_confidence(nodes, doc_type)
+    
+    if progress_callback:
+        progress_callback(1.0, "✓ Extraction complete!")
+    
+    return {
+        "nodes": nodes,
+        "source": f"pdf_{doc_type['type']}",
+        "confidence": confidence,
+        "doc_type": doc_type,
+        "pmids_extracted": len(pmids),
+        "fixes_applied": fixes_applied,
+        "file_uri": file_uri
+    }
+
+
+def extract_guideline_text(file_uri, condition, setting, custom_prompt=None, 
+                           genai_client=None, sections=None):
+    """Extract pathway from text-based guidelines (full PDF)."""
+    base_prompt = f"""Extract complete clinical pathway from this guideline for {condition} in {setting}.
+
+Process the ENTIRE PDF to capture:
+- Initial assessment and triage criteria
+- Diagnostic workup steps with thresholds
+- Treatment decisions with explicit criteria
+- Risk stratification logic
+- Disposition criteria
+
+Convert to decision tree with:
+- Start: Initial presentation
+- Process: Diagnostic/therapeutic actions
+- Decision: Clinical decision points with criteria (include exact thresholds, scores)
+- End: Dispositions (discharge, admit to floor/ICU, transfer, etc.)
+
+For Decision nodes:
+- Extract precise criteria (e.g., "Troponin >99th percentile" not "elevated troponin")
+- Create branches with descriptive labels
+- Note benefit/harm trade-offs if mentioned
+
+Return JSON array: [{{"type": "Start|Decision|Process|End", 
+                     "label": "Brief clinical step",
+                     "evidence": "Guideline section or 'N/A'",
+                     "detail": "Extended criteria, thresholds, rationale",
+                     "branches": [{{"label": "...", "target": index}}]}}]"""
+    
+    prompt = custom_prompt if custom_prompt else base_prompt
+    
+    try:
+        response = genai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[{"text": prompt}, {"file_data": {"file_uri": file_uri}}]
+        )
+        return json.loads(extract_json_from_response(response.text))
+    except Exception:
+        return []
+
+
+def extract_flowchart_visual(file_uri, condition, setting, custom_prompt=None, 
+                            genai_client=None, pages=None):
+    """Extract pathway from flowchart diagram using vision."""
+    page_info = f" (focus on pages {pages})" if pages else ""
+    
+    base_prompt = f"""This PDF contains a clinical flowchart for {condition}{page_info}.
+
+Extract the complete decision tree by:
+1. Identifying all boxes/nodes and their types (start, decision, process, end)
+2. Tracing all arrows/connections between nodes
+3. Reading decision criteria from diamond shapes
+4. Capturing branch labels (Yes/No or outcomes)
+
+Return JSON array in decision tree format with:
+- type: "Start" (oval), "Decision" (diamond), "Process" (rectangle), "End" (rounded rectangle)
+- label: Text from the box
+- branches: For Decision nodes, array of {{label, target}} based on arrows
+
+[{{"type": "...", "label": "...", "evidence": "N/A", 
+  "branches": [{{"label": "...", "target": next_index}}]}}]"""
+    
+    prompt = custom_prompt if custom_prompt else base_prompt
+    
+    try:
+        response = genai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[{"text": prompt}, {"file_data": {"file_uri": file_uri}}]
+        )
+        return json.loads(extract_json_from_response(response.text))
+    except Exception:
+        return []
+
+
+def merge_hybrid_intelligently(fc_nodes, gl_nodes):
+    """Merge flowchart + guideline nodes without duplicates."""
+    merged = []
+    used_gl_indices = set()
+    
+    # PHASE 1: Match flowchart nodes to guideline nodes
+    for fc_node in fc_nodes:
+        best_match_idx = None
+        best_score = 0
+        
+        for idx, gl_node in enumerate(gl_nodes):
+            if idx in used_gl_indices:
+                continue
+            
+            label_sim = SequenceMatcher(None, 
+                                       fc_node.get('label', '').lower(), 
+                                       gl_node.get('label', '').lower()).ratio()
+            type_match = 1.0 if fc_node.get('type') == gl_node.get('type') else 0.5
+            score = (label_sim * 0.7) + (type_match * 0.3)
+            
+            if score > best_score:
+                best_score = score
+                best_match_idx = idx
+        
+        # Merge if high similarity (>80%)
+        if best_match_idx is not None and best_score > 0.8:
+            gl_node = gl_nodes[best_match_idx]
+            merged_node = {
+                "type": fc_node.get("type", "Process"),
+                "label": fc_node.get("label", ""),
+                "evidence": gl_node.get("evidence", "N/A"),
+                "detail": gl_node.get("detail", ""),
+                "branches": fc_node.get("branches", [])
             }
-        elif any(word in audience_lower for word in ["clinical leader", "physician", "director", "quality", "safety", "medical director", "department head"]):
-            return {
-                "audience_type": "clinical_leadership",
-                "strategic_focus": False,
-                "operational_focus": True,
-                "clinical_focus": True,
-                "detail_level": "moderate",
-                "emphasis_areas": ["patient_safety", "efficiency", "quality", "outcomes"],
-                "tone": "technical_detailed"
-            }
-        elif any(word in audience_lower for word in ["staff", "nurse", "rn", "clinician", "practitioner", "team", "ed"]):
-            return {
-                "audience_type": "clinical_staff",
-                "strategic_focus": False,
-                "operational_focus": True,
-                "clinical_focus": True,
-                "detail_level": "detailed",
-                "emphasis_areas": ["workflow", "safety", "efficiency", "implementation"],
-                "tone": "technical_detailed"
-            }
+            used_gl_indices.add(best_match_idx)
+        elif best_match_idx is not None and best_score > 0.5:
+            merged_node = fc_node.copy()
+            merged_node["detail"] = merged_node.get("detail", "") + \
+                                   f"\n[Similar to: {gl_nodes[best_match_idx].get('label', '')}]"
         else:
-            return {
-                "audience_type": "implementation_team",
-                "strategic_focus": False,
-                "operational_focus": True,
-                "clinical_focus": False,
-                "detail_level": "detailed",
-                "emphasis_areas": ["workflow", "deployment", "timeline", "resources"],
-                "tone": "technical_detailed"
-            }
+            merged_node = fc_node.copy()
+        
+        merged.append(merged_node)
+    
+    # PHASE 2: Add remaining guideline nodes
+    for idx, gl_node in enumerate(gl_nodes):
+        if idx not in used_gl_indices:
+            merged.append(gl_node)
+    
+    # PHASE 3: Deduplicate
+    seen = set()
+    deduplicated = []
+    for node in merged:
+        key = (node.get('label', '').strip().lower(), node.get('type', ''))
+        if key not in seen:
+            deduplicated.append(node)
+            seen.add(key)
+    
+    # PHASE 4: Reorder
+    return reorder_nodes_topologically(deduplicated)
+
+
+def reorder_nodes_topologically(nodes):
+    """Reorder nodes: Start first, End last."""
+    start_nodes = [n for n in nodes if n.get('type') == 'Start']
+    end_nodes = [n for n in nodes if n.get('type') == 'End']
+    mid_nodes = [n for n in nodes if n.get('type') not in ['Start', 'End']]
+    
+    if not start_nodes:
+        start_nodes = [{"type": "Start", "label": "Patient presents", "evidence": "N/A"}]
+    
+    if not end_nodes:
+        if mid_nodes:
+            mid_nodes[-1]["type"] = "End"
+            end_nodes = [mid_nodes.pop()]
+        else:
+            end_nodes = [{"type": "End", "label": "Disposition", "evidence": "N/A"}]
+    
+    return start_nodes[:1] + mid_nodes + end_nodes
+
+
+def enrich_nodes_with_pmids(nodes, pmids):
+    """Map extracted PMIDs to nodes based on section references."""
+    for node in nodes:
+        node_section = node.get("evidence", "")
+        relevant_pmids = [p.get("pmid", "") for p in pmids 
+                         if p.get("section", "").lower() in node_section.lower()]
+        
+        if relevant_pmids:
+            node["evidence"] = relevant_pmids[0]
+            if len(relevant_pmids) > 1:
+                node["detail"] = node.get("detail", "") + \
+                                f"\n\nAdditional evidence: PMIDs {', '.join(relevant_pmids[1:])}"
+    
+    return nodes
+
+
+def auto_fix_pathway(nodes):
+    """Aggressively fix validation issues."""
+    fixes = []
+    
+    if not nodes:
+        return nodes, fixes
+    
+    # Fix 1: Ensure Start at index 0
+    if nodes[0].get('type') != 'Start':
+        nodes.insert(0, {"type": "Start", "label": "Patient presents", "evidence": "N/A"})
+        fixes.append("Added missing Start node at index 0")
+    
+    # Fix 2: Ensure at least one End
+    if not any(n.get('type') == 'End' for n in nodes):
+        nodes[-1]['type'] = 'End'
+        fixes.append(f"Converted last node to End: {nodes[-1].get('label', 'N/A')}")
+    
+    # Fix 3: Remove invalid branch targets
+    for node in nodes:
+        if 'branches' in node:
+            valid_branches = []
+            for branch in node['branches']:
+                target = branch.get('target')
+                if isinstance(target, int) and 0 <= target < len(nodes):
+                    valid_branches.append(branch)
+                else:
+                    fixes.append(f"Removed invalid branch target {target} from node '{node.get('label', 'N/A')}'")
+            node['branches'] = valid_branches
+    
+    return nodes, fixes
+
+
+def calculate_extraction_confidence(nodes, doc_type):
+    """Score extraction quality (0.0-1.0)."""
+    if not nodes:
+        return 0.0
+    
+    score = 0.0
+    
+    # Node count (ideal: 8-35)
+    if 8 <= len(nodes) <= 35:
+        score += 0.3
+    elif len(nodes) < 8:
+        score += 0.1
+    
+    # Required types
+    types = [n.get("type") for n in nodes]
+    if "Start" in types:
+        score += 0.2
+    if "End" in types:
+        score += 0.2
+    if "Decision" in types:
+        score += 0.1
+    
+    # Decision nodes have branches
+    decision_count = sum(1 for n in nodes if n.get("type") == "Decision")
+    valid_decisions = sum(1 for n in nodes 
+                         if n.get("type") == "Decision" and n.get("branches"))
+    if decision_count > 0:
+        score += 0.1 * (valid_decisions / decision_count)
+    
+    # Evidence coverage
+    with_evidence = sum(1 for n in nodes 
+                       if n.get("evidence") and n["evidence"] != "N/A")
+    score += 0.1 * (with_evidence / len(nodes))
+    
+    return round(score, 2)
 
 
 # ==========================================
@@ -408,25 +679,18 @@ def generate_expert_form_html(
 ) -> str:
     """
     Generate standalone expert panel feedback form with CSV download capability.
-    Content and structure adapt based on LLM inference of target audience focus areas.
     
     Args:
         condition: Clinical condition being reviewed
         nodes: List of pathway nodes (dicts with 'type', 'label', 'evidence')
-        audience: Target audience description (free-text) for LLM-based inference
+        audience: Target audience description (for display only, not used for customization)
         organization: Organization name
         care_setting: Care setting/environment (e.g., "Emergency Department")
-        genai_client: Optional Google Generative AI client for audience inference
+        genai_client: Optional Google Generative AI client (not used)
         
     Returns:
-        Complete standalone HTML string with audience-adapted content
+        Complete standalone HTML string
     """
-    # Infer audience focus to tailor form structure and questions
-    audience_metadata = infer_audience_from_description(audience, genai_client)
-    detail_level = audience_metadata.get('detail_level', 'moderate')
-    emphasis_areas = audience_metadata.get('emphasis_areas', [])
-    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
-    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes)
     condition_clean = (condition or "Pathway").strip()
@@ -664,24 +928,18 @@ def generate_beta_form_html(
     - Nielsen's 10 heuristics evaluation
     - Overall usability feedback
     - CSV export of results
-    Content and structure adapt based on LLM inference of target audience focus areas.
     
     Args:
         condition: Clinical condition being tested
         nodes: List of pathway nodes (for reference)
-        audience: Target audience description (free-text) for LLM-based inference
+        audience: Target audience description (for display only, not used for customization)
         organization: Organization name
         care_setting: Care setting/environment (e.g., "Emergency Department")
-        genai_client: Optional Google Generative AI client for audience inference
+        genai_client: Optional Google Generative AI client (not used)
         
     Returns:
-        Complete standalone HTML string with audience-adapted content
+        Complete standalone HTML string
     """
-    # Infer audience focus to tailor form structure and scenarios
-    audience_metadata = infer_audience_from_description(audience, genai_client)
-    detail_level = audience_metadata.get('detail_level', 'moderate')
-    emphasis_areas = audience_metadata.get('emphasis_areas', [])
-    emphasis_text = ", ".join(emphasis_areas) if emphasis_areas else ""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
     condition_clean = (condition or "Pathway").strip()

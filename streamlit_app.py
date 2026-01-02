@@ -4050,6 +4050,171 @@ elif "Decision" in phase or "Tree" in phase:
 
     st.divider()
 
+    # PDF Pathway Upload (new feature)
+    with st.expander("🔍 Upload Clinical Guideline or Flowchart PDF", expanded=False):
+        st.markdown("**Upload a PDF** containing clinical guidelines or flowchart diagrams. The AI will extract the pathway structure and replace the current pathway.")
+        
+        pdf_upload = st.file_uploader(
+            "Upload PDF (guideline text, flowchart, or both)",
+            type=["pdf"],
+            key="p3_pathway_pdf",
+            help="PDF will be analyzed for clinical decision logic and converted to pathway nodes"
+        )
+        
+        if pdf_upload:
+            # Check file size
+            file_bytes = pdf_upload.read()
+            file_size_mb = len(file_bytes) / (1024 * 1024)
+            est_pages = int(file_size_mb * 20)
+            
+            col_info, col_action = st.columns([2, 1])
+            with col_info:
+                st.info(f"📄 **File:** {pdf_upload.name} ({file_size_mb:.1f} MB, ~{est_pages} pages)")
+                
+                if est_pages > 50:
+                    st.warning("⚠️ Large PDF (>50 pages). Extraction may take 60-90 seconds or fail.")
+            
+            with col_action:
+                extract_btn = st.button("Extract Pathway", type="primary", key="p3_extract_pdf")
+            
+            if extract_btn:
+                # Generate file hash for caching
+                import hashlib
+                from io import BytesIO
+                file_hash = hashlib.md5(file_bytes).hexdigest()
+                st.session_state["pdf_file_hash"] = file_hash
+                
+                # Upload to Gemini
+                with st.spinner("Uploading PDF to Gemini..."):
+                    try:
+                        from phase5_helpers import extract_pathway_from_pdf
+                        file_obj = BytesIO(file_bytes)
+                        uploaded = get_genai_client().files.upload(
+                            file=file_obj,
+                            mime_type='application/pdf',
+                            display_name=pdf_upload.name
+                        )
+                        
+                        # Extract with progress
+                        progress_bar = st.progress(0.0)
+                        progress_text = st.empty()
+                        
+                        def update_progress(value, text):
+                            progress_bar.progress(value)
+                            progress_text.text(text)
+                        
+                        result = extract_pathway_from_pdf(
+                            file_uri=uploaded.uri,
+                            condition=cond,
+                            setting=setting,
+                            file_hash=file_hash,
+                            progress_callback=update_progress,
+                            genai_client=get_genai_client()
+                        )
+                        
+                        progress_bar.empty()
+                        progress_text.empty()
+                        
+                        st.session_state["pdf_extraction"] = result
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"PDF extraction failed: {str(e)}")
+        
+        # Show results if extraction complete
+        if "pdf_extraction" in st.session_state:
+            result = st.session_state["pdf_extraction"]
+            confidence = result["confidence"]
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Nodes", len(result["nodes"]))
+            with col2:
+                st.metric("Confidence", f"{confidence*100:.0f}%")
+            with col3:
+                st.metric("PMIDs", result["pmids_extracted"])
+            with col4:
+                doc_icon = {"guideline": "📄", "flowchart": "📊", "hybrid": "📄+📊"}
+                st.metric("Type", doc_icon.get(result["doc_type"]["type"], "❓"))
+            
+            # Show auto-fixes if any
+            if result.get("fixes_applied"):
+                with st.expander("⚙️ Auto-Fixes Applied", expanded=False):
+                    for fix in result["fixes_applied"]:
+                        st.write(f"- {fix}")
+            
+            # High confidence
+            if confidence >= 0.8:
+                st.success("✅ High-quality extraction")
+                if st.button("✓ Use Extracted Pathway", type="primary", key="p3_use_extraction"):
+                    st.session_state.data['phase3']['nodes'] = result["nodes"]
+                    st.session_state.data['phase4']['viz_cache'] = {}
+                    st.success("✓ Pathway replaced! Scroll down to review.")
+                    del st.session_state["pdf_extraction"]
+                    st.rerun()
+            
+            # Low confidence
+            else:
+                st.warning("⚠️ Moderate confidence — review or refine")
+                
+                with st.form("refine_extraction"):
+                    st.write("**Preview (first 3 nodes):**")
+                    st.json(result["nodes"][:3])
+                    
+                    refined_prompt = st.text_area(
+                        "Refine Extraction Instructions",
+                        placeholder="E.g., 'Focus on pages 8-15', 'Extract exact troponin thresholds', 'Use HEART score criteria'",
+                        height=80,
+                        key="p3_refined_prompt"
+                    )
+                    
+                    col_retry, col_accept, col_cancel = st.columns(3)
+                    with col_retry:
+                        retry = st.form_submit_button("🔄 Retry", type="primary")
+                    with col_accept:
+                        accept = st.form_submit_button("✓ Accept")
+                    with col_cancel:
+                        cancel = st.form_submit_button("✕ Cancel")
+                
+                if retry and refined_prompt:
+                    try:
+                        from phase5_helpers import extract_pathway_from_pdf
+                        progress_bar = st.progress(0.0)
+                        progress_text = st.empty()
+                        
+                        def update_progress(value, text):
+                            progress_bar.progress(value)
+                            progress_text.text(text)
+                        
+                        result = extract_pathway_from_pdf(
+                            file_uri=result["file_uri"],
+                            condition=cond,
+                            setting=setting,
+                            custom_prompt=refined_prompt,
+                            file_hash=st.session_state.get("pdf_file_hash"),
+                            progress_callback=update_progress,
+                            genai_client=get_genai_client()
+                        )
+                        
+                        progress_bar.empty()
+                        progress_text.empty()
+                        st.session_state["pdf_extraction"] = result
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Retry failed: {str(e)}")
+                
+                if accept:
+                    st.session_state.data['phase3']['nodes'] = result["nodes"]
+                    st.session_state.data['phase4']['viz_cache'] = {}
+                    st.info("✓ Pathway accepted. Review in data editor below.")
+                    del st.session_state["pdf_extraction"]
+                    st.rerun()
+                
+                if cancel:
+                    del st.session_state["pdf_extraction"]
+                    if "pdf_file_hash" in st.session_state:
+                        del st.session_state["pdf_file_hash"]
+                    st.rerun()
+
     # Refine & Regenerate (placed below the table)
     st.divider()
     submitted = False
@@ -4268,6 +4433,43 @@ elif "Interface" in phase or "UI" in phase:
         else:
             st.warning("SVG unavailable. Install Graphviz on the server and retry.")
 
+        if svg_str:
+            with st.expander("Open Preview", expanded=False):
+                st.caption("Inline preview with zoom. Use fullscreen or download for the highest fidelity.")
+                preview_html = f"""
+                <div style="border: 1px solid #e0e0e0; padding: 8px; background: white; border-radius: 6px;">
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+                        <button id="cpq-zoom-out" style="padding: 6px 10px;">-</button>
+                        <button id="cpq-zoom-in" style="padding: 6px 10px;">+</button>
+                        <button id="cpq-fit" style="padding: 6px 10px;">Fit</button>
+                        <span style="font-size: 12px; color: #555;">Quick zoom preview (fullscreen/download for production)</span>
+                    </div>
+                    <div id="cpq-canvas" style="transform: scale(1); transform-origin: top left; border: 1px solid #f0f0f0; padding: 6px; overflow: auto; max-height: 520px;">{svg_str}</div>
+                </div>
+                <script>
+                    (function() {{
+                        const canvas = document.getElementById("cpq-canvas");
+                        let scale = 1.0;
+                        function applyScale() {{
+                            canvas.style.transform = `scale(${scale})`;
+                        }}
+                        document.getElementById("cpq-zoom-in").addEventListener("click", function() {{
+                            scale = Math.min(scale + 0.1, 3);
+                            applyScale();
+                        }});
+                        document.getElementById("cpq-zoom-out").addEventListener("click", function() {{
+                            scale = Math.max(scale - 0.1, 0.5);
+                            applyScale();
+                        }});
+                        document.getElementById("cpq-fit").addEventListener("click", function() {{
+                            scale = 1.0;
+                            applyScale();
+                        }});
+                    }})();
+                </script>
+                """
+                st.components.v1.html(preview_html, height=620, scrolling=True)
+
         st.divider()
 
         # EDIT PATHWAY DATA SECTION (immediately below visualization controls)
@@ -4401,6 +4603,7 @@ elif "Interface" in phase or "UI" in phase:
         h_data = p4_state.get('heuristics_data', {})
         with st.expander("Refine & Regenerate", expanded=False):
             st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 4 content and downloads.")
+            regen_submitted = False
             with st.form("p4_refine_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
@@ -4429,9 +4632,11 @@ elif "Interface" in phase or "UI" in phase:
 
                 col_form_gap, col_form_btn = st.columns([3, 1])
                 with col_form_btn:
-                    submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+                    regen_submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
-            if submitted:
+            apply_refine_clicked = st.button("Apply Refinements", key="p4_apply_refine", type="primary", use_container_width=True)
+
+            if regen_submitted or apply_refine_clicked:
                 refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
                 if refine_with_file:
                     if st.session_state.get("file_p4_refine_file"):
