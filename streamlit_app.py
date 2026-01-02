@@ -3728,6 +3728,8 @@ elif "Decision" in phase or "Tree" in phase:
         # Nodes have changed (new entry or edit); reset enrichment to allow re-detection
         st.session_state['p3_enrichment_performed'] = False
         st.session_state['p3_last_nodes_state'] = current_nodes_state
+        # Reset auto-enhance tracking when the pathway changes
+        st.session_state.data['phase3']['auto_enhance_state'] = {"attempted": False, "succeeded": False}
     
     # Auto-generate table on first entry to Phase 3
     cond = st.session_state.data['phase1']['condition']
@@ -3899,40 +3901,38 @@ elif "Decision" in phase or "Tree" in phase:
     if current_nodes and len(current_nodes) > 1:  # Skip validation for empty/minimal setup
         validation = validate_decision_science_pathway(current_nodes)
         complexity = validation['complexity']
-        
-        # Auto-enforce quality standards
-        if complexity['complexity_level'] == 'minimal' and len(current_nodes) >= 5:
-            st.error("⚠️ **Oversimplified Pathway Detected**")
-            st.markdown(f"""
-            This pathway has **only {len(current_nodes)} nodes**, which is insufficient for clinical decision science:
-            - **Required**: 20-35+ nodes for comprehensive care pathways
-            - **Missing**: {', '.join([k.replace('_', ' ').title() for k, v in complexity['clinical_stage_coverage'].items() if not v])}
-            - **Evidence Coverage**: {complexity['evidence_coverage']:.0%} (target: 30%+)
-            """)
+
+        # Silent auto-enhancement for undersized pathways
+        auto_state = st.session_state.data['phase3'].setdefault('auto_enhance_state', {"attempted": False, "succeeded": False})
+        should_enhance = (
+            complexity['complexity_level'] == 'minimal'
+            and len(current_nodes) >= 5
+            and not auto_state.get('attempted')
+        )
+
+        if should_enhance:
+            auto_state['attempted'] = True
+            ev_context = "\n".join([f"- PMID {e['id']}: {e['title']}" for e in evidence_list[:20]])
+            enhance_prompt = f"""
+            The current pathway for {cond} in {setting} is oversimplified ({len(current_nodes)} nodes).
             
-            if st.button("🔧 Auto-Enhance Pathway", type="primary", key="p3_auto_enhance"):
-                with ai_activity("Enhancing pathway to meet decision science standards..."):
-                    ev_context = "\n".join([f"- PMID {e['id']}: {e['title']}" for e in evidence_list[:20]])
-                    enhance_prompt = f"""
-                    The current pathway for {cond} in {setting} is oversimplified ({len(current_nodes)} nodes).
-                    
-                    Current pathway: {json.dumps(current_nodes, indent=2)}
-                    
-                    Evidence: {ev_context}
-                    
-                    EXPAND this into a comprehensive clinical decision pathway (25-35+ nodes) that covers:
-                    1. Initial Evaluation (vitals, exam, initial workup)
-                    2. Diagnosis/Treatment (diagnostic tests, medications with doses, interventions)
-                    3. Re-evaluation (monitoring, response assessment, escalation criteria)
-                    4. Final Disposition (discharge instructions, admit criteria, transfer criteria)
-                    
-                    Add decision branches, edge cases, and specific clinical details. DO NOT simplify—EXPAND.
-                    """
-                    enhanced_nodes = get_gemini_response(enhance_prompt, json_mode=True)
-                    if isinstance(enhanced_nodes, list) and len(enhanced_nodes) > len(current_nodes):
-                        st.session_state.data['phase3']['nodes'] = normalize_or_logic(fix_decision_flow_issues(enhanced_nodes))
-                        st.success(f"✓ Pathway enhanced: {len(current_nodes)} → {len(enhanced_nodes)} nodes")
-                        st.rerun()
+            Current pathway: {json.dumps(current_nodes, indent=2)}
+            
+            Evidence: {ev_context}
+            
+            EXPAND this into a comprehensive clinical decision pathway (25-35+ nodes) that covers:
+            1. Initial Evaluation (vitals, exam, initial workup)
+            2. Diagnosis/Treatment (diagnostic tests, medications with doses, interventions)
+            3. Re-evaluation (monitoring, response assessment, escalation criteria)
+            4. Final Disposition (discharge instructions, admit criteria, transfer criteria)
+            
+            Add decision branches, edge cases, and specific clinical details. DO NOT simplify—EXPAND.
+            """
+            enhanced_nodes = get_gemini_response(enhance_prompt, json_mode=True)
+            if isinstance(enhanced_nodes, list) and len(enhanced_nodes) > len(current_nodes):
+                st.session_state.data['phase3']['nodes'] = normalize_or_logic(fix_decision_flow_issues(enhanced_nodes))
+                auto_state['succeeded'] = True
+                st.rerun()
     
     st.divider()
     
