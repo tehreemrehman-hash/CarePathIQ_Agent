@@ -3714,12 +3714,7 @@ elif "Evidence" in phase or "Appraise" in phase:
 # --- PHASE 3 ---
 elif "Decision" in phase or "Tree" in phase:
     st.header(f"Phase 3. {PHASES[2]}")
-    styled_info("<b>Tip:</b> Pathway must stay a DAG: no loops, no reconvergence, every Decision diverges to distinct End nodes. Keep evidence-backed thresholds and compare against the gold-standard example below when refining.")
-
-    with st.expander("Gold-standard example (10_24_25)", expanded=False):
-        st.caption("Reference pathway used as a quality bar for decision-science structure and branching depth.")
-        st.image("10_24_25_Draft - V2 with Pregnant Subpathway.png", use_column_width=True)
-        st.markdown("[Download image](10_24_25_Draft%20-%20V2%20with%20Pregnant%20Subpathway.png)")
+    styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
     
     st.divider()
     
@@ -3907,7 +3902,7 @@ elif "Decision" in phase or "Tree" in phase:
         validation = validate_decision_science_pathway(current_nodes)
         complexity = validation['complexity']
 
-        # Silent auto-enhancement for undersized pathways (single run per state)
+        # Silent auto-enhancement for undersized pathways
         auto_state = st.session_state.data['phase3'].setdefault('auto_enhance_state', {"attempted": False, "succeeded": False})
         should_enhance = (
             complexity['complexity_level'] == 'minimal'
@@ -4151,7 +4146,7 @@ elif "Decision" in phase or "Tree" in phase:
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
     st.header(f"Phase 4. {PHASES[3]}")
-    styled_info("<b>Tip:</b> Heuristics are split: H2/H4/H5 can safely modify pathway text for clarity, consistency, and safety; H1/H3/H6-H10 are design guidance only. Applying preserves decision-science structure (DAG, divergence, evidence). Undo is available.")
+    styled_info("<b>Tip:</b> Heuristic recommendations are auto-generated. Review, then apply or undo per criterion.")
     
     nodes = st.session_state.data['phase3']['nodes']
     p4_state = st.session_state.data.setdefault('phase4', {})
@@ -4301,7 +4296,104 @@ elif "Interface" in phase or "UI" in phase:
         st.divider()
 
         # LIVE DOT EDITOR SECTION (NEW)
-        # (Removed) Advanced Live DOT Editor to simplify Phase 4 UI
+        st.subheader("Advanced: Live DOT Editor")
+        with st.expander("Edit DOT Source & Live Preview", expanded=False):
+            col_editor, col_preview = st.columns([1, 1])
+            
+            with col_editor:
+                st.markdown("**DOT Source** (expert mode)")
+                current_dot = dot_from_nodes(nodes_for_viz, "TD")
+                
+                edited_dot = st.text_area(
+                    "Edit pathway DOT syntax",
+                    value=current_dot,
+                    height=400,
+                    key="dot_editor",
+                    help="Modify colors, labels, shapes. Changes preview in real-time."
+                )
+            
+            with col_preview:
+                st.markdown("**Live Preview** (via Viz.js)")
+                
+                # Check if DOT changed from current
+                dot_changed = edited_dot != current_dot
+                
+                if dot_changed:
+                    st.info("📝 Editing DOT source...")
+                    
+                    # Embed Viz.js + render live
+                    viz_html = f"""
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.min.js"></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js"></script>
+                    <div id="graph" style="border: 1px solid #ddd; padding: 10px; background: white; border-radius: 4px;"></div>
+                    <script>
+                        const dotSrc = `{edited_dot}`;
+                        try {{
+                            const viz = new Viz();
+                            viz.renderSVGElement(dotSrc).then(element => {{
+                                document.getElementById('graph').appendChild(element);
+                            }}).catch(err => {{
+                                document.getElementById('graph').innerHTML = 
+                                    '<p style="color:red; font-family: monospace;">❌ DOT Syntax Error:<br/>' + err.message + '</p>';
+                            }});
+                        }} catch(e) {{
+                            document.getElementById('graph').innerHTML = 
+                                '<p style="color:red; font-family: monospace;">❌ ' + e.message + '</p>';
+                        }}
+                    </script>
+                    """
+                    st.components.v1.html(viz_html, height=500, scrolling=True)
+                else:
+                    st.success("✓ Current pathway DOT")
+                    viz_html_current = f"""
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.min.js"></script>
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js"></script>
+                    <div id="graph" style="border: 1px solid #ddd; padding: 10px; background: white; border-radius: 4px;"></div>
+                    <script>
+                        const viz = new Viz();
+                        viz.renderSVGElement(`{current_dot}`).then(element => {{
+                            document.getElementById('graph').appendChild(element);
+                        }}).catch(err => {{
+                            document.getElementById('graph').innerHTML = '<p style="color:red;">Error rendering: ' + err.message + '</p>';
+                        }});
+                    </script>
+                    """
+                    st.components.v1.html(viz_html_current, height=500, scrolling=True)
+            
+            # Action buttons
+            st.divider()
+            col_save, col_download, col_reset = st.columns(3)
+            
+            with col_save:
+                if st.button("💾 Apply DOT Changes", key="apply_dot_changes", type="primary", use_container_width=True):
+                    st.success("✅ DOT applied! Download SVG to save visual changes.")
+                    st.session_state['dot_editor_applied'] = True
+            
+            with col_download:
+                if st.button("⬇️ Download Custom DOT", key="download_custom_dot", use_container_width=True):
+                    st.download_button(
+                        "📄 pathway-custom.dot",
+                        edited_dot,
+                        file_name="pathway-custom.dot",
+                        mime="text/plain",
+                        key="download_dot_button"
+                    )
+            
+            with col_reset:
+                if st.button("🔄 Reset to Original", key="reset_dot_editor", use_container_width=True):
+                    st.session_state.dot_editor = current_dot
+                    st.rerun()
+            
+            # Color legend
+            st.markdown("""
+            **Color Legend:**
+            - 🟩 Green: Start/End nodes (`#D5E8D4`)
+            - 🟥 Red: Decision nodes (`#F8CECC`)
+            - 🟨 Yellow: Process nodes (`#FFF2CC`)
+            - 🟧 Orange: Reevaluation (`#FFCC80`)
+            
+            **Tip:** Export to [Graphviz Online](https://dreampuf.github.io/GraphvizOnline/) or [draw.io](https://draw.io) for advanced editing.
+            """)
 
         st.divider()
 
