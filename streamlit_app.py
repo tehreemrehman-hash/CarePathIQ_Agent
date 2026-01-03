@@ -147,18 +147,33 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     3. PRESERVE CLINICAL COVERAGE:
        - All 4 stages must remain: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
        - Do NOT remove edge cases or special population considerations
-       - If refining, EXPAND specificity (e.g., "treat infection" → "vancomycin 15-20 mg/kg IV q8-12h")
+       - EXPAND specificity when refining (apply patterns below, adapted to the clinical condition):
+         * Validated clinical scores relevant to this condition with specific numerical thresholds
+         * Age-adjusted or population-specific calculations where established in literature
+         * Special population screening (pregnancy before radiation/teratogens, renal function before contrast/drugs, contraindications)
+         * Medication specificity: Brand AND generic names, exact dosing, timing, route, location
+         * Example format: "[Drug] ([Brand]): X mg [route] [frequency] × duration. Give first dose in [location]."
+         * Insurance/cost considerations: "Ensure Rx covered; provide assistance program links if available"
+         * Resource contingencies: "If [preferred test] NOT available → [Alternative approach]"
+         * Follow-up timing: "[Provider type] within [timeframe]", "Virtual care if [provider] unavailable"
     
     4. ENHANCE DEPTH, NOT REDUCE:
        - When applying refinements, consider adding detail (more nodes, more branches)
        - If user asks to "simplify," interpret as "make more understandable" (clearer labels, better organization)
-       - NOT "remove clinical branches"
-       - Prefer 30+ well-organized nodes over 10 oversimplified ones
+       - NOT "remove clinical branches" or reduce node count
+       - Prioritize clinical completeness over arbitrary node limits
     
     5. MAINTAIN DAG STRUCTURE:
        - No cycles, backward loops, or reconvergent branches
        - Escalation moves forward (ED → ICU, not back)
        - All paths must terminate in explicit End nodes
+    
+    6. SOPHISTICATED CLINICAL REALISM (Apply when refining relevant sections):
+       - Risk stratification: Use validated scores BEFORE diagnostic tests (not generic "assess risk")
+       - Contraindication checks: Explicit "Absolute contraindications?" decision nodes BEFORE treatment
+       - Resource availability: "Preferred imaging available?" branches with alternatives specified
+       - Educational content: Note hyperlink candidates (score calculators, drug info, evidence citations)
+       - Disposition specificity: Never vague "discharge" - specify follow-up provider, timing, virtual alternatives
     
     OUTPUT: Complete revised JSON array of nodes with fields: type, label, evidence, (optional) detail
     Rules:
@@ -169,6 +184,7 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     - Consecutive Decision nodes are allowed and encouraged for true clinical branching
     - Include benefit/harm trade-offs in Decision node labels or detail fields
     - Evidence citations (PMIDs) on clinically important steps
+    - Apply sophisticated patterns above to make pathway immediately implementable by clinicians
     """
 
     return get_gemini_response(prompt, json_mode=True)
@@ -2676,7 +2692,7 @@ def get_carepathiq_scoped_response(user_question: str) -> str:
 
 1. **Phase 1: Define Scope & Charter** — Input clinical condition and care setting. AI auto-drafts inclusion/exclusion criteria, problem statement, objectives, and population.
    
-2. **Phase 2: Appraise Evidence** — PubMed/MESH query integration with evidence table, PMID, abstract, and GRADE quality assessment. PICO framework support.
+2. **Phase 2: Appraise Evidence** — Intelligent PubMed query generation with proximity operators (NEAR, ADJ), MeSH terms, and AI optimization. Evidence table with PMID, abstract, and GRADE quality assessment. PICO framework support and interactive query refinement tools.
    
 3. **Phase 3: Build Decision Tree** — Node-based pathway (decision, action, outcome nodes) with Graphviz rendering and AI-powered regeneration with user refinement.
    
@@ -2717,9 +2733,11 @@ def get_local_faq_answer(user_question: str) -> str:
         )
     if "evidence" in q or "phase 2" in q or "pubmed" in q or "mesh" in q:
         return (
-            "Phase 2 enables PubMed searches with MESH term suggestions. Include study PMID, title, abstract, "
-            "GRADE quality assessment, and relevance notes. Structured PICO framework helps organize evidence systematically. "
-            "Export to CSV for documentation."
+            "Phase 2 enables intelligent PubMed searches with AI-powered proximity operators (NEAR, ADJ). "
+            "The system auto-generates optimized queries using MeSH terms and proximity searching for precise results. "
+            "Include study PMID, title, abstract, GRADE quality assessment, and relevance notes. "
+            "Features: proximity search guidance, AI query optimization, PICO framework, and CSV export. "
+            "See PubMed Proximity Search Tips in the Refine search expander for advanced techniques."
         )
     if "phase 5" in q or "operationalize" in q or "export" in q or "expert" in q or "beta" in q:
         return (
@@ -3441,14 +3459,55 @@ elif "Evidence" in phase or "Appraise" in phase:
     if not default_q and st.session_state.data['phase1']['condition']:
         c = st.session_state.data['phase1']['condition']
         s = st.session_state.data['phase1']['setting']
-        # Build proper PubMed query with MeSH terms
-        cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
-        if s:
-            # Include care setting in the query
-            set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
-            default_q = f'({cond_q} AND {set_q}) AND (pathway OR guideline OR policy) AND english[lang]'
+        
+        # Use AI to build intelligent PubMed query with proximity searching
+        client = get_genai_client()
+        if client:
+            proximity_prompt = f"""Create an optimized PubMed search query for clinical pathways.
+
+**Clinical Context:**
+- Condition: {c}
+- Care Setting: {s if s else 'general care'}
+
+**PubMed Proximity Search Features to leverage:**
+1. Phrase searching: Use quotes "exact phrase" for multi-word terms
+2. Proximity operator NEAR: Find terms within ~N words (e.g., "diabetes NEAR/3 management")
+3. Adjacency operator ADJ: Find terms in exact order within N words (e.g., "clinical ADJ pathway")
+4. Field tags: [MeSH Terms], [Title/Abstract], [All Fields], [pt] for publication type
+5. Boolean operators: AND, OR, NOT (use parentheses for grouping)
+6. Filters: english[lang], "last 5 years"[dp], systematic[sb] for systematic reviews
+
+**Requirements:**
+- Use MeSH Terms where appropriate: "{c}"[MeSH Terms]
+- Use proximity operators (NEAR, ADJ) to find related clinical concepts
+- Target pathway/guideline literature with phrases like "clinical ADJ pathway", "care NEAR/2 protocol"
+- Include setting if provided using proximity: "{s}" NEAR/5 "{c}"
+- Prioritize Title/Abstract searching with proximity for relevance
+- Return ONLY the raw query string, no explanations
+
+**Example Output:**
+("{c}"[MeSH Terms] OR "{c}"[Title/Abstract]) AND ("clinical pathway"[Title/Abstract] OR "care protocol"[Title/Abstract] OR "clinical ADJ guideline"[Title/Abstract]) AND english[lang]"""
+            
+            with ai_activity("Building intelligent PubMed query with proximity operators..."):
+                ai_query = get_gemini_response(proximity_prompt)
+                if ai_query and isinstance(ai_query, str) and len(ai_query.strip()) > 10:
+                    default_q = ai_query.strip()
+                else:
+                    # Fallback to basic query
+                    cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+                    if s:
+                        set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
+                        default_q = f'({cond_q} AND {set_q}) AND (pathway OR guideline OR policy) AND english[lang]'
+                    else:
+                        default_q = f'{cond_q} AND (pathway OR guideline OR policy) AND english[lang]'
         else:
-            default_q = f'{cond_q} AND (pathway OR guideline OR policy) AND english[lang]'
+            # Fallback if no AI client
+            cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+            if s:
+                set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
+                default_q = f'({cond_q} AND {set_q}) AND (pathway OR guideline OR policy) AND english[lang]'
+            else:
+                default_q = f'{cond_q} AND (pathway OR guideline OR policy) AND english[lang]'
 
     # Auto-run search once per distinct default query when evidence is empty
     if (
@@ -3490,6 +3549,46 @@ elif "Evidence" in phase or "Appraise" in phase:
 
     # Refinement with the current query prefilled
     with st.expander("Refine search", expanded=False):
+        # Add proximity search guidance
+        with st.expander("📚 PubMed Proximity Search Tips", expanded=False):
+            st.markdown("""
+            **✨ Auto-Enhancement Active:** The AI automatically enhances your queries with proximity operators for better precision.
+            
+            **Advanced PubMed Query Techniques:**
+            
+            🔍 **Proximity Operators** (automatically applied):
+            - `NEAR/N` — Terms within N words, any order
+              - Example: `diabetes NEAR/3 management` (finds "diabetes management" or "management of diabetes")
+            - `ADJ` — Terms adjacent in exact order
+              - Example: `clinical ADJ pathway` (finds "clinical pathway" only)
+            
+            📋 **Field Tags** (search specific parts):
+            - `[MeSH Terms]` — Medical Subject Headings
+            - `[Title/Abstract]` — Title or abstract text
+            - `[Title]` — Title only
+            - `[All Fields]` — Any field
+            - `[pt]` — Publication type (e.g., `guideline[pt]`)
+            
+            🎯 **Useful Filters:**
+            - `english[lang]` — English only
+            - `"last 5 years"[dp]` — Date published (auto-added)
+            - `systematic[sb]` — Systematic reviews
+            - `meta-analysis[pt]` — Meta-analyses
+            
+            💡 **Example Queries:**
+            ```
+            ("sepsis"[MeSH Terms] AND "emergency ADJ department"[Title/Abstract]) 
+            AND ("clinical pathway"[Title/Abstract] OR guideline[pt])
+            
+            ("heart failure"[MeSH] NEAR/5 "care protocol"[Title/Abstract]) 
+            AND english[lang]
+            ```
+            
+            💡 **Tip:** Your queries are automatically enhanced when you click "Regenerate Evidence Table". Edit the query above to fine-tune it.
+            
+            📖 **Full Guide:** [PubMed Help - Proximity Searching](https://pubmed.ncbi.nlm.nih.gov/help/#proximity-searching)
+            """)
+        
         current_q = st.session_state.data['phase2'].get('mesh_query', default_q)
         current_q_full = current_q or ""
         if current_q_full and '"last 5 years"[dp]' not in current_q_full:
@@ -3497,13 +3596,63 @@ elif "Evidence" in phase or "Appraise" in phase:
         q = st.text_input(
             "PubMed Search Query (editable full query)",
             value=current_q_full,
-            placeholder="Enter a custom query (include filters as needed)",
+            placeholder="Try proximity operators like NEAR/3 or ADJ for better results",
             key="p2_query_input",
         )
         q_clean = (q or "").strip()
 
         def ensure_time_filter(term: str) -> str:
             return term if '"last 5 years"[dp]' in term else f"{term} AND (\"last 5 years\"[dp])"
+
+        def auto_enhance_query_with_proximity(query: str) -> str:
+            """Automatically enhance user query with proximity operators if not already present."""
+            # Check if query already has proximity operators
+            if 'NEAR' in query or 'ADJ' in query:
+                return query  # Already optimized, don't modify
+            
+            # Check if it's a simple query that could benefit from enhancement
+            c = st.session_state.data['phase1'].get('condition', '')
+            s = st.session_state.data['phase1'].get('setting', '')
+            
+            if not c:
+                return query  # Can't enhance without context
+            
+            optimize_prompt = f"""Enhance this PubMed query with proximity operators (NEAR, ADJ) for better precision.
+
+**Current Query:**
+{query}
+
+**Context:**
+- Condition: {c}
+- Setting: {s}
+
+**Enhancement Rules:**
+1. Use NEAR/N for related concepts (e.g., "diabetes NEAR/3 pathway")
+2. Use ADJ for exact phrase adjacency (e.g., "clinical ADJ guideline")
+3. Preserve existing MeSH Terms and field tags
+4. Keep all existing filters (english[lang], date filters, etc.)
+5. Don't change the core meaning, just improve precision
+6. If query is already well-formed, return it unchanged
+
+**Requirements:**
+- Return ONLY the enhanced query string, no explanations
+- If no enhancement needed, return original query
+- Must be valid PubMed syntax
+
+**Example:**
+Input: ("diabetes"[MeSH Terms]) AND (pathway OR guideline)
+Output: ("diabetes"[MeSH Terms]) AND ("clinical ADJ pathway"[Title/Abstract] OR guideline[pt])"""
+            
+            try:
+                enhanced = get_gemini_response(optimize_prompt)
+                if enhanced and isinstance(enhanced, str) and len(enhanced.strip()) > 10:
+                    # Extract just the query (remove any comments or explanations)
+                    enhanced_clean = enhanced.strip().split('\n')[0].strip()
+                    return enhanced_clean
+            except Exception:
+                pass
+            
+            return query  # Return original if enhancement fails
 
         col_run, col_open = st.columns([1, 1])
         with col_run:
@@ -3513,6 +3662,9 @@ elif "Evidence" in phase or "Appraise" in phase:
                 if not search_term:
                     st.warning("Please enter a PubMed search query first.")
                 else:
+                    # Auto-enhance with proximity operators in background
+                    with ai_activity("Enhancing query with proximity operators..."):
+                        search_term = auto_enhance_query_with_proximity(search_term)
                     search_term = ensure_time_filter(search_term)
                     st.session_state.data['phase2']['mesh_query'] = search_term
                     with ai_activity("Searching PubMed and auto‑grading…"):
@@ -3751,33 +3903,105 @@ elif "Decision" in phase or "Tree" in phase:
           * Use evidence-based probabilities and utilities to guide branching
         - Ensure pathway reflects real clinical uncertainty and decision complexity
 
+        SOPHISTICATED PATHWAY ELEMENTS (Adapt These Best-Practice Patterns to Your Specific Clinical Condition):
+        
+        1. VALIDATED RISK STRATIFICATION:
+           - Use validated clinical prediction scores/tools relevant to THIS condition BEFORE diagnostic testing
+           - Specify exact numerical thresholds for risk categories
+           - Examples by condition type (adapt to your clinical scenario):
+             * DVT/PE: Wells' Criteria (≤1, 2-6, ≥7), PERC rule, YEARS algorithm, PESI score
+             * ACS/MI: HEART score, TIMI risk score, GRACE score
+             * Stroke: NIHSS, ABCD2 score for TIA
+             * Sepsis: qSOFA, SIRS criteria, Sepsis-3 definitions
+             * Trauma: GCS, Trauma Score, Injury Severity Score
+           - Apply age-adjusted or population-specific cutoffs where established (e.g., "D-dimer = age × 10 if >50" for VTE)
+           - NOT generic "assess risk"—use published, validated tools with scoring for THIS condition
+        
+        2. SPECIAL POPULATION HANDLING:
+           - Screen for special populations EARLY in pathway (before exposing to risks)
+           - Pregnancy considerations: Check status before radiation imaging (X-ray, CT), teratogenic drugs, or procedures
+           - Renal function: Assess before contrast, NSAIDs, or renally-cleared medications
+           - Check for absolute contraindications before initiating high-risk treatments specific to THIS condition
+           - Age-based considerations: Pediatric vs. geriatric dosing adjustments, atypical presentations
+           - Comorbidity modifications: Active bleeding, immunosuppression, organ failure, drug allergies
+        
+        3. RESOURCE AVAILABILITY CONTINGENCIES:
+           - Include explicit "What if preferred test/procedure is unavailable?" branches relevant to THIS pathway
+           - Diagnostic alternatives: "If [preferred imaging] NOT available → [Alternative test] OR Transfer OR Empiric treatment"
+           - Bed availability: "ED Observation bed available?", "ICU bed available?", "Telemetry bed available?"
+           - Specialist availability: "Immediate consult available?" vs. "Scheduled follow-up" vs. "Transfer"
+           - Equipment/supply constraints: Alternative diagnostic or therapeutic approaches
+        
+        4. MEDICATION SPECIFICITY (Critical - Adapt to THIS condition's treatments):
+           - ALWAYS include brand AND generic names for common medications: "Drug (Brand)" or "Brand (Drug)"
+           - Exact dosing with route, frequency, duration: "X mg [route] [frequency] × Y days/weeks"
+           - Administration timing and location: "Give first dose in ED", "Start within X hours of symptom onset"
+           - Population-specific preferences: "Preferred for CKD", "Avoid if [contraindication]", "Adjust for [condition]"
+           - Practical prescribing details: "Prescribe starter pack", "Provide patient education sheet", "Use weight-based dosing"
+           - Insurance and cost considerations: "Ensure Rx covered by insurance; provide coupon/assistance program link if needed"
+           - Examples from anticoagulation (adapt format to THIS condition's drugs):
+             * "Apixaban (Eliquis): 10 mg PO twice daily × 7 days, then 5 mg PO twice daily (74 tablets)"
+             * "Enoxaparin (Lovenox): 1 mg/kg SQ q12h. Adjust for CrCl <30."
+           - Never generic "start medication"—always specific drugs/classes with doses
+        
+        5. FOLLOW-UP PATHWAYS:
+           - Specific timing appropriate to THIS condition: "[Provider type] within [timeframe]"
+           - Specific provider types relevant to THIS condition: Cardiologist, Pulmonologist, Surgeon, etc.
+           - Virtual care alternatives: "If unable to follow-up with [provider], advise Virtual Urgent Care" or telehealth options
+           - Contingency plans: "If no [provider], provide [alternative resources]"
+           - What to monitor specific to THIS condition: "Check [lab] in X days", "Repeat [test] in Y weeks"
+        
+        6. EDUCATIONAL CONTENT INTEGRATION:
+           - Note opportunities for hyperlinks to validated clinical tools relevant to THIS condition
+           - Link to medication information specific to drugs used in THIS pathway
+           - Evidence citations: Relevant clinical guidelines, landmark trials, consensus statements
+           - Patient education resources specific to THIS condition
+           - Return precautions and red flag symptoms appropriate for THIS condition's discharge instructions
+        
         Available Evidence Base:
         {ev_context}
         
         REQUIRED CLINICAL COVERAGE (4 Mandatory Stages - Each MUST Have Complexity):
+        
         1. Initial Evaluation:
            - Chief complaint and symptom characterization
            - Vital signs assessment (with abnormality thresholds)
-           - Physical examination findings and risk stratification
+           - Physical examination findings and validated risk stratification
+           - Validated clinical prediction scores relevant to THIS condition (with specific numerical thresholds)
+           - Age-adjusted or population-specific thresholds where established in literature
+           - Special population screening EARLY (pregnancy before radiation/teratogens, renal function before contrast/medications)
            - Early diagnostic workup (labs, imaging, monitoring)
         
         2. Diagnosis and Treatment:
            - Differential diagnosis decision trees (what tests rule in/out?)
-           - Therapeutic interventions (medications with dose/route, procedures, supportive care)
-           - Risk-benefit analysis for major therapeutic choices
-           - Edge cases and special populations (pregnant, elderly, immunocompromised, etc.)
+           - Resource availability contingencies: "If preferred test unavailable → Alternative pathway or transfer"
+           - Contraindication checks BEFORE treatment initiation specific to THIS condition's therapies
+           - Therapeutic interventions with EXACT specificity (adapt examples below to THIS condition):
+             * Brand AND generic names where commonly used
+             * Exact dosing: "X mg [route] [frequency] × duration (total quantity)"
+             * Administration details: "Give first dose in [location]", "Preferred for [population]", "Adjust for [condition]"
+             * Insurance/cost considerations: "Ensure Rx covered by insurance" + assistance programs where applicable
+           - Risk-benefit analysis for major therapeutic choices specific to THIS condition
+           - Edge cases and special populations (pregnant, elderly, immunocompromised, etc.) relevant to THIS condition
         
         3. Re-evaluation:
            - Monitoring criteria and frequency (vital signs, labs, imaging follow-ups)
            - Response to treatment assessment (improving vs. unchanged vs. deteriorating)
            - Escalation triggers and de-escalation pathways
            - When to repeat diagnostic testing or change therapy
+           - Bed availability considerations: "ED Observation if available, else Medicine/SDU/MICU admit or Dispo navigator"
         
         4. Final Disposition:
            - Specific discharge instructions (medications with dose/route/duration, activity restrictions, dietary changes)
-           - Outpatient follow-up (which specialist, timing, what triggers urgent return)
+           - EXPLICIT follow-up pathways with timing and provider type:
+             * "PCP follow-up within 2 weeks"
+             * "OBGYN follow-up" (for pregnant patients)
+             * "Vascular Surgery Referral" (specialty consult)
+             * Virtual care alternatives: "If unable to follow-up with PCP, advise Virtual Urgent Care"
+           - Educational content integration: Score calculators, evidence citations, patient resources
            - Admit/observation criteria with clear thresholds
            - Transfer to higher level of care (ICU, specialty unit) triggers
+           - Return precautions and red flag symptoms for discharged patients
         
         OUTPUT FORMAT: JSON array of nodes with THESE EXACT FIELDS:
         - "type": "Start" | "Decision" | "Process" | "End" (no other types)
@@ -3799,35 +4023,52 @@ elif "Decision" in phase or "Tree" in phase:
            - Each clinical outcome gets its own End node; DO NOT use "or" (e.g., BAD: "Admit or ICU")
            - Even similar outcomes get separate End nodes if they represent distinct pathways
         
-        3. BENEFIT/HARM TRADE-OFFS (Decision-point rationales):
-           - At every Decision node, annotate the label or detail with trade-off thinking:
-             "Stress test vs. CT angiography? (test sensitivity vs. radiation dose vs. time to diagnosis)"
-           - Include thresholds: "If troponin >99th percentile → activate cath lab (high MI risk outweighs procedural risk)"
-           - Cite PMIDs when evidence supports the decision
-        
-        4. EVIDENCE-BACKED STEPS:
+        3. EVIDENCE-BACKED STEPS:
            - Every Process and Decision node should have a PMID when available (from evidence list above)
            - If multiple PMIDs support a step, use one representative citation
            - Do NOT hallucinate PMIDs—use "N/A" if no supporting evidence in list
         
-        5. COMPLEXITY AND SPECIFICITY:
-           - Build 20-40+ nodes (more nodes = more explicit decision logic)
-           - Include edge cases: pregnancy, renal failure, drug allergies, age extremes
-           - Specific medications with doses/routes, not vague "treat symptomatically"
-           - Examples:
-             ✓ "Order vancomycin 15-20 mg/kg q8-12h IV (adjust for renal function) + meropenem"
-             ✗ "Treat with antibiotics"
-           - Include monitoring intervals: "Recheck troponin q3h x 2, then daily troponin x 2 if negative"
+        4. COMPLEXITY AND SPECIFICITY:
+           - Build comprehensive pathway (typically 15-40 nodes depending on clinical complexity)
+           - Include ALL relevant special populations and edge cases:
+             * Pregnancy status (check EARLY before radiation/teratogenic drugs)
+             * Renal failure (CrCl-based dosing adjustments, contrast contraindications)
+             * Drug allergies and absolute contraindications
+             * Age extremes (pediatric vs. geriatric dosing/monitoring)
+             * Active bleeding or high bleeding risk
+             * Comorbidities affecting management (cancer, prior events, thrombophilia)
+           - Medication specificity (CRITICAL - Never be vague):
+             ✓ "Apixaban (Eliquis): 10 mg PO BID × 7d, then 5 mg PO BID. Give first dose in ED. Prescribe 74-tablet starter pack. Ensure Rx covered by insurance; provide Apixaban coupon link if needed."
+             ✓ "Rivaroxaban (Xarelto): 15 mg PO BID × 21d, then 20 mg PO daily. Preferred for patients with CKD or ESRD."
+             ✓ "Enoxaparin (Lovenox): 1 mg/kg SQ q12h OR 1.5 mg/kg SQ daily. Adjust for CrCl <30."
+             ✗ "Start anticoagulation" (TOO VAGUE)
+             ✗ "Treat with antibiotics" (TOO VAGUE)
+           - Diagnostic test specificity with alternatives:
+             ✓ "Order compression ultrasound of affected leg. If ultrasound NOT available → Hold anticoagulation, transfer to facility with imaging, OR give one-time therapeutic dose and arrange urgent outpatient imaging."
+             ✗ "Order imaging" (TOO VAGUE)
+           - Monitoring intervals with explicit timing:
+             ✓ "Recheck troponin q3h × 2, then daily troponin × 2 if negative"
+             ✓ "Vitals q15min × 1h, then q1h × 4h, then q4h if stable"
+           - Clinical score thresholds with numerical cutoffs:
+             ✓ "Wells' Score: ≤1 (low), 2-6 (intermediate), ≥7 (high)"
+             ✓ "PESI Score: <86 (very low), 86-105 (low), 106-125 (intermediate), >125 (high)"
         
-        6. DAG STRUCTURE (No cycles):
+        5. DAG STRUCTURE (No cycles):
            - Pathway is a directed acyclic graph (DAG)—never loop back
            - Escalation only moves forward (ICU-bound patients don't move back to ED)
            - De-escalation is explicit: "Stable x 24h→Transfer to med/surg bed from ICU"
         
-        7. ACTIONABILITY AND CLINICAL REALISM:
+        6. ACTIONABILITY AND CLINICAL REALISM:
            - Every node represents an action or decision a clinician takes in real time
            - Include realistic clinical decision points: "Vitals stable x 2h" or "Troponin rising vs. falling?"
            - Timestamps and criteria matter: "Admit if BP <90 persistently AFTER 2L fluid bolus"
+           - Resource availability branches: "ED Observation bed available?", "Ultrasound available now?"
+        
+        7. VISUAL DESIGN CUES (For Phase 4 Optimization):
+           - Indicate risk levels for color coding: [Low Risk], [Intermediate Risk], [High Risk], [Alert/Critical]
+           - Mark informational boxes: [Info], [Contraindication], [Special Population]
+           - Suggest hyperlink candidates: validated scores, drug information, evidence citations
+           - Note resource dependencies: [Requires Ultrasound], [Requires CT], [Requires Specialty Consult]
         
         Rules for Node Structure:
         - First node: type "Start", label "Patient present to {setting} with {cond}"
@@ -3895,44 +4136,6 @@ elif "Decision" in phase or "Tree" in phase:
     )
     # Auto-save on edit
     st.session_state.data['phase3']['nodes'] = edited_nodes.to_dict('records')
-    
-    # QUALITY ENFORCEMENT: Validate decision science integrity
-    current_nodes = st.session_state.data['phase3']['nodes']
-    if current_nodes and len(current_nodes) > 1:  # Skip validation for empty/minimal setup
-        validation = validate_decision_science_pathway(current_nodes)
-        complexity = validation['complexity']
-
-        # Silent auto-enhancement for undersized pathways
-        auto_state = st.session_state.data['phase3'].setdefault('auto_enhance_state', {"attempted": False, "succeeded": False})
-        should_enhance = (
-            complexity['complexity_level'] == 'minimal'
-            and len(current_nodes) >= 5
-            and not auto_state.get('attempted')
-        )
-
-        if should_enhance:
-            auto_state['attempted'] = True
-            ev_context = "\n".join([f"- PMID {e['id']}: {e['title']}" for e in evidence_list[:20]])
-            enhance_prompt = f"""
-            The current pathway for {cond} in {setting} is oversimplified ({len(current_nodes)} nodes).
-            
-            Current pathway: {json.dumps(current_nodes, indent=2)}
-            
-            Evidence: {ev_context}
-            
-            EXPAND this into a comprehensive clinical decision pathway (25-35+ nodes) that covers:
-            1. Initial Evaluation (vitals, exam, initial workup)
-            2. Diagnosis/Treatment (diagnostic tests, medications with doses, interventions)
-            3. Re-evaluation (monitoring, response assessment, escalation criteria)
-            4. Final Disposition (discharge instructions, admit criteria, transfer criteria)
-            
-            Add decision branches, edge cases, and specific clinical details. DO NOT simplify—EXPAND.
-            """
-            enhanced_nodes = get_gemini_response(enhance_prompt, json_mode=True)
-            if isinstance(enhanced_nodes, list) and len(enhanced_nodes) > len(current_nodes):
-                st.session_state.data['phase3']['nodes'] = normalize_or_logic(fix_decision_flow_issues(enhanced_nodes))
-                auto_state['succeeded'] = True
-                st.rerun()
     
     st.divider()
     
@@ -4011,7 +4214,7 @@ elif "Decision" in phase or "Tree" in phase:
         ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
         with ai_activity("Applying pathway recommendations…"):
             prompt = f"""
-            The current decision tree for {cond} in {setting} is long. Re-organize it into a clearer, multi-section pathway.
+            The current decision tree for {cond} in {setting} has many nodes. Re-organize for better clarity and structure.
 
             Current pathway (JSON):
             {json.dumps(current_nodes, indent=2)}
@@ -4020,14 +4223,21 @@ elif "Decision" in phase or "Tree" in phase:
             {ev_context}
 
             Requirements:
-            - Keep fields: type, label, evidence.
+            - Keep fields: type, label, evidence, (optional) detail.
+            - Preserve ALL existing nodes and clinical content—DO NOT reduce complexity or remove nodes.
+            - Group logically into clear clinical stages (e.g., Initial Evaluation, Risk Stratification, Diagnosis, Treatment, Disposition).
+            - Apply sophisticated clinical patterns to enhance clarity and implementability:
+              * Validated clinical scores: Ensure score thresholds are explicit (Wells' ≤1, 2-6, ≥7)
+              * Special populations: Ensure pregnancy checks, contraindications, age adjustments are clearly labeled
+              * Medication specificity: Use brand AND generic names with exact dosing details where present
+              * Resource contingencies: Clearly label alternative pathways when resources unavailable
+              * Follow-up instructions: Ensure specific timing and provider types in End nodes
+              * Risk level indicators: Add [Low Risk], [High Risk], [Alert], [Info] tags where appropriate
+            - Improve label clarity using standard medical abbreviations while maintaining clinical precision.
+            - Maintain complete clinical flow with all decision branches—no merging or eliminating edges cases.
             - Preserve evidence citations when present; use "N/A" if none.
-            - Group logically into segments (e.g., Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition) and streamline redundant steps.
-            - Maintain actionable, concise clinical labels with standard abbreviations.
-            - Ensure a complete flow with Start and End nodes; no node count limit but prioritize clarity.
-            - If >20 nodes, organize into sections or sub-pathways
-            - Prefer evidence-backed steps; cite PMIDs where available
-            - Highlight benefit/harm trade-offs at decision points
+            - Keep all edge cases and special population considerations—organize them into labeled subsections.
+            - GOAL: More readable organization, NOT fewer clinical considerations.
             """
             new_nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(new_nodes, list) and new_nodes:
@@ -4038,7 +4248,7 @@ elif "Decision" in phase or "Tree" in phase:
 
     applied_flag = st.session_state.data['phase3'].get('large_rec_applied', False)
     if node_count > 20:
-        styled_info("<b>Note:</b> Large pathway detected. Recommend organizing into multiple decision trees (e.g., Initial Evaluation, Diagnosis/Treatment, Re-evaluation) for clarity.")
+        styled_info("<b>Note:</b> Large pathway detected ({node_count} nodes). Click below to improve organization and section structure while preserving all clinical content.")
         
         # Determine button type and label
         reco_button_type = "primary" if applied_flag else "secondary"
@@ -4052,7 +4262,7 @@ elif "Decision" in phase or "Tree" in phase:
 
     # PDF Pathway Upload (new feature)
     with st.expander("🔍 Upload Clinical Guideline or Flowchart PDF", expanded=False):
-        st.markdown("**Upload a PDF** containing clinical guidelines or flowchart diagrams. The AI will extract the pathway structure and replace the current pathway.")
+        st.markdown("**Upload a PDF** containing clinical guidelines or flowchart diagrams. The AI agent will extract the pathway structure and replace the current pathway.")
         
         pdf_upload = st.file_uploader(
             "Upload PDF (guideline text, flowchart, or both)",
@@ -4305,6 +4515,7 @@ elif "Decision" in phase or "Tree" in phase:
                         st.error("Failed to regenerate pathway. Please try again.")
                     st.rerun()
     
+    # Navigation at the bottom
     render_bottom_navigation()
     st.stop()
 
@@ -4450,9 +4661,9 @@ elif "Interface" in phase or "UI" in phase:
                     (function() {{
                         const canvas = document.getElementById("cpq-canvas");
                         let scale = 1.0;
-                        function applyScale() {{
-                            canvas.style.transform = `scale(${scale})`;
-                        }}
+                        function applyScale() {
+                            canvas.style.transform = `scale(${{scale}})`;
+                        }
                         document.getElementById("cpq-zoom-in").addEventListener("click", function() {{
                             scale = Math.min(scale + 0.1, 3);
                             applyScale();
@@ -4779,7 +4990,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
         st.stop()
     
     # Single info box at top
-    styled_info("<b>Tip:</b> Enter a target audience below, and each deliverable will be auto-generated immediately. Download the HTML file to share—it opens in any browser and allows feedback export as CSV.")
+    styled_info("<b>Tip:</b> Deliverables auto-generate using your pathway context. Download the HTML file to share—it opens in any browser and allows feedback export as CSV.")
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     setting = st.session_state.data['phase1'].get('setting', '') or ""
@@ -4804,16 +5015,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col1:
         st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
 
-        aud_expert = st.text_input(
-            "Target Audience",
-            value=st.session_state.get("p5_aud_expert", ""),
-            placeholder="e.g., Clinical Leaders, Quality & Safety",
-            key="p5_aud_expert_input"
-        )
+        # Use stored or inferred audience (hidden input)
+        aud_expert = st.session_state.get("p5_aud_expert") or st.session_state.data['phase1'].get('population', "")
+        st.session_state["p5_aud_expert"] = aud_expert
 
-        # Auto-generate on input change
+        # Auto-generate once per audience value
         if aud_expert and aud_expert != st.session_state.get("p5_aud_expert_prev", ""):
-            st.session_state["p5_aud_expert"] = aud_expert
             st.session_state["p5_aud_expert_prev"] = aud_expert
             with st.spinner("Generating expert feedback form..."):
                 # Generate SVG for pathway visualization in downloaded form
@@ -4902,16 +5109,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col2:
         st.markdown(f"<h3>{deliverables['beta']}</h3>", unsafe_allow_html=True)
         
-        aud_beta = st.text_input(
-            "Target Audience",
-            value=st.session_state.get("p5_aud_beta", ""),
-            placeholder="e.g., ED Clinicians (Physicians, RNs), APPs",
-            key="p5_aud_beta_input"
-        )
+        # Use stored or inferred audience (hidden input)
+        aud_beta = st.session_state.get("p5_aud_beta") or st.session_state.data['phase1'].get('population', "")
+        st.session_state["p5_aud_beta"] = aud_beta
         
-        # Auto-generate on input change
+        # Auto-generate once per audience value
         if aud_beta and aud_beta != st.session_state.get("p5_aud_beta_prev", ""):
-            st.session_state["p5_aud_beta"] = aud_beta
             st.session_state["p5_aud_beta_prev"] = aud_beta
             with st.spinner("Generating guide..."):
                 beta_html = generate_beta_form_html(
@@ -4993,12 +5196,14 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col3:
         st.markdown(f"<h3>{deliverables['education']}</h3>", unsafe_allow_html=True)
         
+        # Audience drives role depth and learning objectives
         aud_edu = st.text_input(
             "Target Audience",
             value=st.session_state.get("p5_aud_edu", ""),
             placeholder="e.g., Clinical Team (Residents, RNs, APPs)",
             key="p5_aud_edu_input"
         )
+        st.caption("Specify who will use this education module (e.g., physicians, nurses, residents). Used verbatim to tailor depth and scenarios with Phase 1-4 context.")
         
         # Auto-generate on input change
         if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
@@ -5379,6 +5584,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="e.g., Hospital Leadership, Board Members",
             key="p5_aud_exec_input"
         )
+        st.caption("Specify who will review this summary (e.g., executives, board members, administrators). Used verbatim to tailor tone and priorities with Phase 1-4 context.")
         
         # Auto-generate on input change
         if aud_exec and aud_exec != st.session_state.get("p5_aud_exec_prev", ""):
