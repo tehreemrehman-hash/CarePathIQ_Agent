@@ -4647,7 +4647,7 @@ elif "Interface" in phase or "UI" in phase:
         if svg_str:
             with st.expander("Open Preview", expanded=False):
                 st.caption("Inline preview with zoom. Use fullscreen or download for the highest fidelity.")
-                preview_html = f"""
+                preview_html = """
                 <div style="border: 1px solid #e0e0e0; padding: 8px; background: white; border-radius: 6px;">
                     <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
                         <button id="cpq-zoom-out" style="padding: 6px 10px;">-</button>
@@ -4655,28 +4655,28 @@ elif "Interface" in phase or "UI" in phase:
                         <button id="cpq-fit" style="padding: 6px 10px;">Fit</button>
                         <span style="font-size: 12px; color: #555;">Quick zoom preview (fullscreen/download for production)</span>
                     </div>
-                    <div id="cpq-canvas" style="transform: scale(1); transform-origin: top left; border: 1px solid #f0f0f0; padding: 6px; overflow: auto; max-height: 520px;">{svg_str}</div>
+                    <div id="cpq-canvas" style="transform: scale(1); transform-origin: top left; border: 1px solid #f0f0f0; padding: 6px; overflow: auto; max-height: 520px;">""" + svg_str + """</div>
                 </div>
                 <script>
-                    (function() {{
+                    (function() {
                         const canvas = document.getElementById("cpq-canvas");
                         let scale = 1.0;
                         function applyScale() {
-                            canvas.style.transform = `scale(${ {scale} })`;
+                            canvas.style.transform = `scale(${scale})`;
                         }
-                        document.getElementById("cpq-zoom-in").addEventListener("click", function() {{
+                        document.getElementById("cpq-zoom-in").addEventListener("click", function() {
                             scale = Math.min(scale + 0.1, 3);
                             applyScale();
-                        }});
-                        document.getElementById("cpq-zoom-out").addEventListener("click", function() {{
+                        });
+                        document.getElementById("cpq-zoom-out").addEventListener("click", function() {
                             scale = Math.max(scale - 0.1, 0.5);
                             applyScale();
-                        }});
-                        document.getElementById("cpq-fit").addEventListener("click", function() {{
+                        });
+                        document.getElementById("cpq-fit").addEventListener("click", function() {
                             scale = 1.0;
                             applyScale();
-                        }});
-                    }})();
+                        });
+                    })();
                 </script>
                 """
                 st.components.v1.html(preview_html, height=620, scrolling=True)
