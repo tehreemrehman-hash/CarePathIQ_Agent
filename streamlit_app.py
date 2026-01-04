@@ -4138,7 +4138,7 @@ elif "Decision" in phase or "Tree" in phase:
         
         CRITICAL: Each Decision branch must lead to a unique sequence ending in its own End node. Do NOT make branches reconverge.
         """
-        with ai_activity("Auto-generating decision tree from Phase 1 & 2 data..."):
+        with ai_activity("Generating..."):
             nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(nodes, list) and len(nodes) > 0:
             # Clean up common AI generation issues
