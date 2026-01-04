@@ -139,10 +139,12 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
        - Preserve actionable clinical notes (red flags, thresholds, monitoring parameters)
        - Maintain evidence-based reasoning (cite PMIDs)
     
-    2. PRESERVE DECISION DIVERGENCE:
+    2. PRESERVE DECISION DIVERGENCE (Minimum Separation Rule):
        - Do NOT collapse multiple branches into linear sequences
-       - Keep distinct pathways separate until final disposition
-       - If refining convergence points, make them explicit with new Decision nodes
+       - Each branch from a Decision must have 2-3 unique steps BEFORE any convergence
+       - Eventual convergence to shared End nodes or late Process steps is OK after meaningful divergence
+       - NEVER allow immediate reconvergence (both branches pointing to same next node)
+       - If refining convergence points, ensure at least 3 steps of unique pathway before merge
     
     3. PRESERVE CLINICAL COVERAGE:
        - All 4 stages must remain: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
@@ -4191,17 +4193,33 @@ elif "Decision" in phase or "Tree" in phase:
         
         CRITICAL CONSTRAINTS (PRESERVE DECISION SCIENCE INTEGRITY):
         
-        1. DECISION DIVERGENCE - Every Decision creates DISTINCT branches:
+        1. DECISION DIVERGENCE - Every Decision creates DISTINCT branches with MINIMUM SEPARATION:
            - "Is patient hemodynamically stable?" YES→Observation pathway | NO→ICU-level resuscitation
            - "Does EKG show STEMI?" YES→Cath lab pathway | NO→Serial troponin pathway
-           - Branches MUST lead to different clinical sequences (never reconverge immediately)
-           - CRITICAL: If YES and NO branches would lead to the same next node, that's a logic error—SPLIT them into truly different sequences
-           - Example of WRONG reconvergence:
-             Decision: "Fever present?" YES→(Process: Cultures) | NO→(Process: Cultures) → Both lead to same step = BAD
-           - Example of CORRECT non-reconvergence:
-             Decision: "Fever >38.5°C?" YES→(Sepsis pathway with cultures, broad antibiotics, ICU criteria) END | NO→(Observation pathway, supportive care) END
-           - If pathways must eventually meet (e.g., all patients discharged with follow-up), use explicit intermediate Decision nodes
-           - DO NOT artificially force branches to merge just because they happen to end with "discharge"
+           
+           MINIMUM DIVERGENCE RULE (CRITICAL):
+           - Each branch from a Decision MUST have at least 2-3 unique steps BEFORE any convergence
+           - NEVER have both branches immediately point to the same next node
+           - If branches need to eventually converge (shared End node or shared later Process), they must first diverge meaningfully
+           
+           ALLOWED CONVERGENCE (later in pathway):
+           ✓ Multiple pathways ending at shared End nodes: "Discharge with cardiology follow-up in 2 weeks"
+           ✓ Branches meeting at a shared later Process step after meaningful divergence (3+ steps apart)
+           ✓ Parallel workups that later merge for disposition decision
+           
+           FORBIDDEN CONVERGENCE (premature/immediate):
+           ✗ Decision branches pointing to same immediate next node (renders decision meaningless)
+           ✗ Branches merging within 1-2 steps of the decision (insufficient divergence)
+           ✗ "Diamond" patterns where YES/NO both go to same Process immediately
+           
+           Example of WRONG premature convergence:
+             Decision: "Fever present?" YES→(Cultures) | NO→(Cultures) → Same immediate step = BAD
+           
+           Example of CORRECT eventual convergence:
+             Decision: "Fever >38.5°C?" 
+               YES→(Blood cultures)→(Broad-spectrum antibiotics)→(ICU evaluation)→END: ICU admit
+               NO→(Observation)→(Supportive care)→(Monitor 6h)→END: Discharge if stable
+             Both pathways may share "Discharge planning" node AFTER their unique 3+ step sequences
         
         2. TERMINAL END NODES - Each pathway branch ends ONLY with End nodes:
            - No content after an End node
@@ -4287,7 +4305,12 @@ elif "Decision" in phase or "Tree" in phase:
         
         Generate a pathway that respects real clinical complexity and decision uncertainty. This is NOT a linear checklist—it's a decision tree that branches and evolves based on patient presentation and test results.
         
-        CRITICAL: Each Decision branch must lead to a unique sequence ending in its own End node. Do NOT make branches reconverge.
+        CRITICAL ANTI-CONVERGENCE RULES:
+        - Each Decision branch must have AT LEAST 2-3 unique nodes before any potential convergence
+        - Branches may eventually share End nodes OR late-stage Process nodes, but ONLY after meaningful divergence
+        - NEVER create "diamond" patterns where both branches immediately go to the same node
+        - If you find yourself pointing two branches to the same next step, STOP and create distinct pathways first
+        - Test: For every Decision, trace each branch forward 3 steps - they should be DIFFERENT steps
         """
         with ai_activity("Generating..."):
             nodes = get_gemini_response(prompt, json_mode=True)
