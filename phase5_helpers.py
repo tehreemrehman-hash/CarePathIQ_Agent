@@ -1036,100 +1036,208 @@ def generate_education_module_html(
     genai_client=None
 ) -> str:
     """
-    Generate simplified single-page education module with 5 MC quiz and CSV export.
+    Generate comprehensive single-page education module with AI-generated content,
+    5 MC quiz questions, and CSV export.
     
     Args:
         condition: Clinical condition
         nodes: Pathway nodes for context
         target_audience: Who this education is for
         care_setting: Setting where pathway is used
-        genai_client: Optional AI client for generating education content and questions
+        genai_client: Google Generative AI client (required)
         
     Returns:
         Complete standalone HTML string
+        
+    Raises:
+        ValueError: If genai_client is not provided or nodes are empty
     """
     
-    # Generate education content and quiz questions using AI if client available
-    if genai_client and nodes:
-        # Generate customized education content
-        edu_prompt = f"""Create a brief, focused education section for {target_audience} about {condition} management in {care_setting}.
-        
-Pathway context ({len(nodes)} nodes): {json.dumps(nodes[:5])}
+    if not genai_client:
+        raise ValueError("AI client is required to generate education module content")
+    
+    if not nodes or len(nodes) == 0:
+        raise ValueError("Pathway nodes are required to generate education module")
+    
+    condition_clean = (condition or "Clinical Pathway").strip()
+    care_setting_clean = (care_setting or "healthcare setting").strip()
+    audience_clean = (target_audience or "clinical staff").strip()
+    
+    # Extract key pathway information for AI context - include more detail
+    decision_nodes = []
+    process_nodes = []
+    all_node_labels = []
+    for n in nodes:
+        node_type = n.get('type', '')
+        label = n.get('label', '')
+        detail = n.get('detail', '')
+        all_node_labels.append(f"{node_type}: {label}")
+        if node_type == 'Decision':
+            decision_nodes.append(label)
+        elif node_type == 'Process':
+            process_nodes.append(label)
+    
+    # Provide rich pathway context for AI
+    nodes_context = f"""
+FULL PATHWAY STRUCTURE ({len(nodes)} nodes):
+{chr(10).join(all_node_labels[:15])}
+{'... and ' + str(len(nodes) - 15) + ' more nodes' if len(nodes) > 15 else ''}
 
-Provide:
-1. Key learning points (3-4 bullet points) specific to what {target_audience} needs to know
-2. How this pathway improves their workflow/decision-making
+KEY DECISION POINTS ({len(decision_nodes)}):
+{chr(10).join(['- ' + d for d in decision_nodes[:10]])}
 
-Keep it concise (2-3 sentences per point). Return as plain text."""
-        
-        try:
-            edu_content = genai_client.generate_content(edu_prompt).text
-        except:
-            edu_content = f"This education module covers {condition} management for {target_audience} in {care_setting}."
+KEY CLINICAL ACTIONS ({len(process_nodes)}):
+{chr(10).join(['- ' + p for p in process_nodes[:12]])}
+"""
+    
+    # Generate learning objectives using AI - AUDIENCE-SPECIFIC
+    objectives_prompt = f"""You are a clinical educator creating learning objectives for **{audience_clean}** about {condition_clean} management in {care_setting_clean}.
+
+TARGET AUDIENCE PROFILE - {audience_clean}:
+- Tailor complexity and terminology to this specific role
+- If residents/trainees: focus on clinical reasoning and decision-making skills
+- If nursing staff: emphasize assessment, recognition, escalation, and care coordination
+- If attendings/physicians: focus on evidence synthesis, risk stratification, and management decisions
+- If pharmacists: emphasize medication selection, dosing, interactions, monitoring
+- If allied health: focus on their specific scope and handoff communication
+
+PATHWAY CONTEXT:
+{nodes_context}
+
+Generate EXACTLY 4 specific, measurable learning objectives using Bloom's taxonomy action verbs.
+
+FORMAT: Return ONLY a JSON array of 4 strings.
+
+REQUIREMENTS:
+1. Each objective MUST be specific to what {audience_clean} needs to know and do
+2. Use clinical terminology from the actual pathway nodes above
+3. Include measurable outcomes (identify, apply, evaluate, demonstrate, calculate, differentiate, recognize, prioritize)
+4. Reference SPECIFIC decision points, scores, thresholds, or interventions from the pathway
+5. Write at the appropriate level for {audience_clean}
+
+EXAMPLE for Emergency Medicine Residents learning Chest Pain pathway:
+["Apply the HEART score criteria to risk-stratify patients with undifferentiated chest pain and determine appropriate disposition", "Differentiate between STEMI, NSTEMI, and unstable angina presentations using ECG findings and troponin trends", "Evaluate contraindications to anticoagulation and select appropriate agents based on patient-specific factors", "Demonstrate appropriate escalation to cardiology consultation based on pathway-defined high-risk criteria"]"""
+
+    obj_response = genai_client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=objectives_prompt
+    )
+    json_match = re.search(r'\[.*\]', obj_response.text, re.DOTALL)
+    if json_match:
+        learning_objectives = json.loads(json_match.group())[:4]
     else:
-        edu_content = f"This education module covers {condition} management for {target_audience} in {care_setting}."
-    
-    # Generate 5 multiple choice questions
-    quiz_prompt = f"""Generate exactly 5 multiple choice questions for {target_audience} learning about {condition} pathway.
-    
-Format each question as JSON:
-{{
-  "question": "Question text?",
-  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-  "correct": "A",
-  "explanation": "Why this is correct..."
-}}
-
-Return ONLY a JSON array of 5 questions."""
-    
-    questions = []
-    if genai_client:
-        try:
-            quiz_response = genai_client.generate_content(quiz_prompt).text
-            # Extract JSON from response
-            json_match = re.search(r'\[.*\]', quiz_response, re.DOTALL)
-            if json_match:
-                questions = json.loads(json_match.group())
-        except:
-            pass
-    
-    # Default questions if AI generation fails
-    if not questions or len(questions) < 5:
-        questions = [
-            {
-                "question": f"Which is a key clinical indicator for {condition}?",
-                "options": ["A) Symptom A", "B) Symptom B", "C) Symptom C", "D) Symptom D"],
-                "correct": "A",
-                "explanation": "This is the primary presenting sign that guides initial assessment."
-            },
-            {
-                "question": f"What is the first diagnostic step in this pathway?",
-                "options": ["A) Lab test", "B) Imaging", "C) Physical exam", "D) History"],
-                "correct": "C",
-                "explanation": "Clinical evaluation forms the foundation before confirmatory testing."
-            },
-            {
-                "question": f"Which treatment approach is recommended?",
-                "options": ["A) Medical", "B) Surgical", "C) Supportive", "D) Watchful waiting"],
-                "correct": "A",
-                "explanation": "Evidence supports this first-line approach in most cases."
-            },
-            {
-                "question": f"How often should follow-up assessment occur?",
-                "options": ["A) Daily", "B) Weekly", "C) Monthly", "D) As needed"],
-                "correct": "D",
-                "explanation": "Follow-up timing depends on individual patient response and risk stratification."
-            },
-            {
-                "question": f"What is the primary goal of this pathway?",
-                "options": ["A) Reduce cost", "B) Standardize decision-making", "C) Shorten stay", "D) All of above"],
-                "correct": "D",
-                "explanation": "The pathway addresses multiple objectives: safety, consistency, efficiency, and value."
-            }
+        learning_objectives = [
+            f"Apply evidence-based assessment criteria for {condition_clean}",
+            f"Utilize pathway decision points to guide clinical management in {care_setting_clean}",
+            "Recognize escalation triggers and appropriate response actions",
+            "Integrate pathway protocols into clinical workflow"
         ]
+    
+    # Generate detailed teaching points using AI - AUDIENCE-SPECIFIC
+    teaching_prompt = f"""You are a clinical educator creating KEY TEACHING CONTENT for **{audience_clean}** about {condition_clean} management in {care_setting_clean}.
+
+TARGET AUDIENCE: {audience_clean}
+- Write at the appropriate knowledge level for this role
+- Emphasize what THIS role specifically needs to know and do
+- Use terminology and examples relevant to their daily workflow
+
+PATHWAY CONTEXT:
+{nodes_context}
+
+Create EXACTLY 5 detailed teaching points as complete paragraphs (3-4 sentences each).
+
+STRUCTURE:
+1. **Initial Recognition & Assessment**: Red flags, vital sign thresholds, history elements specific to this pathway
+2. **Risk Stratification**: Specific scoring tools, cutoffs, and how to apply them
+3. **Diagnostic Workup**: What tests to order, in what sequence, and interpretation pearls
+4. **Treatment Protocols**: Specific medications with doses, timing, contraindications from the pathway
+5. **Disposition & Follow-up**: Admission criteria, discharge requirements, follow-up timing
+
+REQUIREMENTS:
+- Extract SPECIFIC clinical details from the pathway nodes (scores, thresholds, drug names, doses)
+- Each paragraph must teach something actionable for {audience_clean}
+- Include clinical pearls and common pitfalls relevant to this pathway
+- Be detailed enough that someone could apply this knowledge clinically
+
+Return ONLY a JSON array of 5 strings (each string is one teaching paragraph)."""
+
+    teach_response = genai_client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=teaching_prompt
+    )
+    json_match = re.search(r'\[.*\]', teach_response.text, re.DOTALL)
+    if json_match:
+        teaching_points = json.loads(json_match.group())
+    else:
+        teaching_points = [f"This pathway guides {condition_clean} management for {audience_clean} in {care_setting_clean}, covering assessment, treatment, and disposition decisions."]
+    
+    # Generate clinically accurate quiz questions using AI - DETAILED EXPLANATIONS
+    quiz_prompt = f"""You are a clinical educator creating ASSESSMENT QUESTIONS for **{audience_clean}** learning about {condition_clean} pathway in {care_setting_clean}.
+
+TARGET AUDIENCE: {audience_clean}
+- Questions should test knowledge relevant to THIS role's responsibilities
+- Scenarios should reflect situations {audience_clean} would actually encounter
+
+PATHWAY CONTEXT:
+{nodes_context}
+
+Generate EXACTLY 5 multiple choice questions testing understanding of this pathway.
+
+QUESTION REQUIREMENTS:
+- Each question presents a realistic clinical scenario with specific patient details (age, vitals, presentation)
+- Scenarios must reference actual decision points, scores, or thresholds from the pathway
+- All 4 options must be clinically plausible (no obviously wrong answers)
+- Questions progress from basic assessment to complex management decisions
+
+EXPLANATION REQUIREMENTS (CRITICAL - make explanations DETAILED and EDUCATIONAL):
+- Explain WHY the correct answer is right with specific clinical reasoning
+- Reference the specific pathway criteria, score cutoffs, or evidence that supports this answer
+- Briefly explain why each wrong answer is incorrect or suboptimal
+- Include a clinical pearl or teaching point
+- Explanations should be 3-5 sentences, not brief
+
+Return ONLY a valid JSON array:
+[
+  {{
+    "question": "A [age/gender] patient presents to {care_setting_clean} with [specific scenario]. Vital signs show [specifics]. Based on the {condition_clean} pathway, what is the most appropriate next step?",
+    "options": ["A) Specific clinical action", "B) Another plausible action", "C) Third reasonable option", "D) Fourth consideration"],
+    "correct": "B",
+    "explanation": "According to the pathway, [detailed reasoning with specific criteria]. The patient meets criteria for [X] because [specific factors]. Option A is incorrect because [reason]. Option C would be appropriate if [different scenario]. Option D is not indicated because [reason]. Clinical pearl: [actionable teaching point]."
+  }}
+]
+
+QUESTION TOPICS (one each):
+Q1: Initial assessment - recognizing key findings that trigger pathway entry
+Q2: Risk stratification - applying a specific score or criteria from the pathway
+Q3: Diagnostic approach - selecting appropriate tests based on risk level
+Q4: Treatment decision - choosing intervention based on pathway criteria
+Q5: Disposition - determining appropriate level of care or follow-up"""
+
+    quiz_response = genai_client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=quiz_prompt
+    )
+    json_match = re.search(r'\[.*\]', quiz_response.text, re.DOTALL)
+    if json_match:
+        questions = json.loads(json_match.group())[:5]
+    else:
+        raise ValueError("Failed to generate quiz questions. Please try again.")
+    
+    # Build teaching points HTML
+    if isinstance(teaching_points, list):
+        teaching_html = "".join([f"<p style='margin-bottom: 15px; line-height: 1.7;'>{point}</p>" for point in teaching_points])
+    else:
+        teaching_html = f"<p style='line-height: 1.7;'>{teaching_points}</p>"
+    
+    # Build learning objectives HTML
+    objectives_html = "".join([f"<li>{obj}</li>" for obj in learning_objectives])
     
     # Pre-compute JSON for JavaScript embedding
     questions_json = json.dumps(questions)
+    
+    # Professional title formatting
+    module_title = f"{condition_clean} Clinical Pathway Education Module"
+    subtitle = f"Interactive Pathway-Based Learning for {audience_clean}"
     
     # Build HTML
     html = f"""<!DOCTYPE html>
@@ -1137,7 +1245,7 @@ Return ONLY a JSON array of 5 questions."""
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{condition} Education Module</title>
+    <title>{module_title}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -1161,12 +1269,23 @@ Return ONLY a JSON array of 5 questions."""
             text-align: center;
         }}
         .header h1 {{
-            font-size: 28px;
+            font-size: 26px;
             margin-bottom: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
         }}
         .header p {{
-            font-size: 14px;
+            font-size: 15px;
             opacity: 0.9;
+            font-style: italic;
+        }}
+        .header .setting-badge {{
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            margin-top: 12px;
         }}
         .content {{
             padding: 40px;
@@ -1193,7 +1312,7 @@ Return ONLY a JSON array of 5 questions."""
             padding-left: 20px;
         }}
         .learning-points li {{
-            margin: 8px 0;
+            margin: 12px 0;
             line-height: 1.6;
         }}
         .learning-points li:before {{
@@ -1201,6 +1320,16 @@ Return ONLY a JSON array of 5 questions."""
             color: #98d8c8;
             font-weight: bold;
             margin-right: 10px;
+        }}
+        .teaching-content {{
+            background: #fafafa;
+            padding: 25px;
+            border-radius: 6px;
+            border-left: 4px solid #5D4037;
+        }}
+        .teaching-content p {{
+            color: #333;
+            font-size: 15px;
         }}
         .quiz-question {{
             background: #fafafa;
@@ -1212,7 +1341,8 @@ Return ONLY a JSON array of 5 questions."""
         .quiz-question h3 {{
             color: #333;
             margin-bottom: 15px;
-            font-size: 16px;
+            font-size: 15px;
+            line-height: 1.5;
         }}
         .option {{
             margin: 10px 0;
@@ -1227,6 +1357,7 @@ Return ONLY a JSON array of 5 questions."""
         .option label {{
             cursor: pointer;
             flex: 1;
+            line-height: 1.5;
         }}
         .feedback {{
             margin-top: 15px;
@@ -1311,8 +1442,9 @@ Return ONLY a JSON array of 5 questions."""
 <body>
     <div class="container">
         <div class="header">
-            <h1>{condition} Education Module</h1>
-            <p>Interactive Pathway-Based Learning for {target_audience}</p>
+            <h1>{module_title}</h1>
+            <p>{subtitle}</p>
+            <span class="setting-badge">{care_setting_clean}</span>
         </div>
         
         <div class="content">
@@ -1320,23 +1452,21 @@ Return ONLY a JSON array of 5 questions."""
                 <h2>Learning Objectives</h2>
                 <div class="learning-points">
                     <ul>
-                        <li>Understand the evidence-based approach to {condition} management in {care_setting}</li>
-                        <li>Apply pathway decision points to clinical decision-making</li>
-                        <li>Recognize key clinical indicators and escalation triggers</li>
-                        <li>Integrate pathway protocols into your clinical practice</li>
+                        {objectives_html}
                     </ul>
                 </div>
             </div>
             
             <div class="section">
                 <h2>Key Teaching Points</h2>
-                <div class="learning-points">
-                    <p>{edu_content}</p>
+                <div class="teaching-content">
+                    {teaching_html}
                 </div>
             </div>
             
             <div class="section">
-                <h2>Knowledge Check - 5 Questions</h2>
+                <h2>Knowledge Assessment — 5 Questions</h2>
+                <p style="color: #666; margin-bottom: 20px; font-size: 14px;">Answer all questions to complete this module. A score of 100% is required to receive your certificate.</p>
                 <form id="quizForm">
 """
     
@@ -1383,7 +1513,7 @@ Return ONLY a JSON array of 5 questions."""
         
         <div class="footer">
             <p>© 2024 CarePathIQ. All rights reserved. Licensed under CC BY-SA 4.0</p>
-            <p>{condition} | {care_setting} | {target_audience}</p>
+            <p>{condition_clean} | {care_setting_clean}</p>
         </div>
     </div>
     
@@ -1943,33 +2073,64 @@ Return ONLY a JSON array of 5 questions."""
 
 def infer_audience_from_description(target_audience: str, genai_client=None) -> dict:
     """
-    Infer audience metadata (strategic vs operational focus) from free-text description.
-    Returns structured dict for content adaptation.
+    Infer audience metadata using AI to determine strategic vs operational focus,
+    detail level, and emphasis areas from free-text description.
     
     Args:
-        target_audience: Free-text description of target audience (e.g., "department chair", "clinical team")
-        genai_client: Optional AI client (not used for now; kept for future enhancement)
+        target_audience: Free-text description of target audience
+        genai_client: Google Generative AI client for intelligent inference
         
     Returns:
-        dict with keys: strategic_focus, operational_focus, detail_level, emphasis_areas
+        dict with keys: strategic_focus, operational_focus, detail_level, emphasis_areas, tone, priorities
     """
-    audience_lower = (target_audience or "").lower()
-    
-    # Keywords indicating executive/strategic focus
-    executive_keywords = ['executive', 'c-suite', 'chief', 'director', 'chair', 'administrator', 'board', 'leadership', 'strategic', 'cfo', 'coo', 'ceo']
-    
-    # Keywords indicating clinical/operational focus
-    clinical_keywords = ['physician', 'doctor', 'nurse', 'rn', 'clinician', 'resident', 'fellow', 'staff', 'provider', 'practitioner', 'team']
+    audience_lower = (target_audience or "").lower().strip()
     
     # Default metadata
     metadata = {
         'strategic_focus': False,
         'operational_focus': True,
         'detail_level': 'moderate',
-        'emphasis_areas': []
+        'emphasis_areas': [],
+        'tone': 'professional',
+        'priorities': []
     }
     
-    # Determine focus
+    if not audience_lower:
+        return metadata
+    
+    # Use AI for intelligent audience analysis if available
+    if genai_client:
+        try:
+            inference_prompt = f"""Analyze this target audience description and return a JSON object:
+
+TARGET AUDIENCE: "{target_audience}"
+
+Determine:
+1. strategic_focus (boolean): True if audience is executive/leadership (C-suite, board, directors, chairs, administrators)
+2. operational_focus (boolean): True if audience is clinical/operational (physicians, nurses, staff, managers)
+3. detail_level (string): "executive" for high-level strategic view, "detailed" for clinical specifics, "moderate" for balanced
+4. tone (string): "executive" for formal business language, "clinical" for medical terminology, "accessible" for general professional
+5. priorities (array of 3 strings): Top 3 things this audience cares about most (e.g., "ROI and cost savings", "patient safety outcomes", "workflow efficiency", "regulatory compliance", "staff training", "implementation timeline")
+6. emphasis_areas (array of strings): Key topics to emphasize for this audience
+
+Return ONLY valid JSON, no other text."""
+            
+            response = genai_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=inference_prompt
+            )
+            json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+            if json_match:
+                ai_metadata = json.loads(json_match.group())
+                metadata.update(ai_metadata)
+                return metadata
+        except Exception:
+            pass
+    
+    # Fallback to keyword matching if AI unavailable
+    executive_keywords = ['executive', 'c-suite', 'chief', 'director', 'chair', 'administrator', 'board', 'leadership', 'strategic', 'cfo', 'coo', 'ceo', 'vp', 'vice president']
+    clinical_keywords = ['physician', 'doctor', 'nurse', 'rn', 'clinician', 'resident', 'fellow', 'staff', 'provider', 'practitioner', 'team', 'manager']
+    
     is_executive = any(kw in audience_lower for kw in executive_keywords)
     is_clinical = any(kw in audience_lower for kw in clinical_keywords)
     
@@ -1977,16 +2138,20 @@ def infer_audience_from_description(target_audience: str, genai_client=None) -> 
         metadata['strategic_focus'] = True
         metadata['operational_focus'] = False
         metadata['detail_level'] = 'executive'
+        metadata['tone'] = 'executive'
         metadata['emphasis_areas'] = ['strategic impact', 'financial value', 'organizational outcomes']
+        metadata['priorities'] = ['ROI and resource optimization', 'Quality and safety metrics', 'Strategic alignment']
     elif is_clinical:
         metadata['operational_focus'] = True
         metadata['strategic_focus'] = False
         metadata['detail_level'] = 'detailed'
+        metadata['tone'] = 'clinical'
         metadata['emphasis_areas'] = ['clinical protocols', 'workflow integration', 'decision support']
+        metadata['priorities'] = ['Patient outcomes', 'Workflow efficiency', 'Evidence-based practice']
     else:
-        metadata['operational_focus'] = True
-        metadata['detail_level'] = 'moderate'
+        metadata['tone'] = 'professional'
         metadata['emphasis_areas'] = ['implementation readiness', 'stakeholder engagement']
+        metadata['priorities'] = ['Project success', 'Stakeholder alignment', 'Measurable outcomes']
     
     return metadata
 
@@ -2056,18 +2221,71 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
         title_format = title.paragraph_format
         title_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # Add subtitle with audience and detail level
-        subtitle = doc.add_paragraph(f"Prepared for: {target_audience or 'Stakeholders'}")
-        subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        subtitle.runs[0].font.size = Pt(11)
-        subtitle.runs[0].font.italic = True
-
-        if emphasis_areas:
-            emphasis_line = doc.add_paragraph(f"Audience focus: {', '.join(emphasis_areas)}")
-            emphasis_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            emphasis_line.runs[0].font.size = Pt(10)
-        
         # AUDIENCE-ADAPTIVE CONTENT STRUCTURE
+        # Note: Target audience is used to TAILOR content, not displayed in the document
+        
+        # Get audience priorities for tailoring
+        priorities = audience_metadata.get('priorities', [])
+        tone = audience_metadata.get('tone', 'professional')
+        
+        # Generate AI-tailored content sections if genai_client available
+        ai_content = {}
+        if genai_client:
+            try:
+                evidence = p2_data.get('evidence', [])
+                nodes = p3_data.get('nodes', [])
+                
+                # Build context for AI
+                evidence_summary = f"{len(evidence)} evidence items" if evidence else "evidence pending"
+                nodes_summary = f"{len(nodes)} pathway nodes" if nodes else "pathway design pending"
+                
+                # Generate tailored executive summary content
+                summary_prompt = f"""Generate a professional executive summary for a clinical pathway project.
+
+PROJECT CONTEXT:
+- Clinical Condition: {condition}
+- Care Setting: {setting_text or 'healthcare setting'}
+- Problem Statement: {problem_text}
+- Project Objectives: {objectives_text}
+- Evidence Base: {evidence_summary}
+- Pathway Structure: {nodes_summary}
+- Phase 4 Usability: {'completed' if p4_data.get('heuristics_data') else 'pending'}
+- Expert Panel: {'completed' if p5_data.get('expert_html') else 'pending'}
+- Beta Testing: {'completed' if p5_data.get('beta_html') else 'pending'}
+
+TARGET AUDIENCE PRIORITIES: {', '.join(priorities) if priorities else 'general stakeholders'}
+TONE: {tone}
+
+Generate a JSON object with these sections (each section should be 2-3 professional paragraphs):
+
+{{
+  "executive_overview": "Opening paragraph establishing the pathway's strategic value and scope...",
+  "strategic_rationale": "Why this pathway matters - problem, opportunity, organizational alignment...",
+  "evidence_foundation": "Summary of evidence quality and clinical rigor supporting the pathway...",
+  "value_proposition": "Expected outcomes - quality, safety, efficiency, financial impact...",
+  "implementation_readiness": "Current status, validation completed, stakeholder engagement...",
+  "success_metrics": "How success will be measured - specific metrics aligned to objectives...",
+  "recommended_actions": "Clear asks for leadership - approvals, resources, next steps..."
+}}
+
+REQUIREMENTS:
+- Write in formal, {tone} language appropriate for the target audience
+- Emphasize: {', '.join(priorities) if priorities else 'project success and patient outcomes'}
+- Be specific to {condition} management, not generic healthcare language
+- Each section should be substantive (2-3 sentences minimum)
+- Do NOT include audience name or "prepared for" statements
+
+Return ONLY valid JSON."""
+                
+                response = genai_client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=summary_prompt
+                )
+                json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+                if json_match:
+                    ai_content = json.loads(json_match.group())
+            except Exception:
+                pass
         
         if is_executive:
             # === EXECUTIVE SUMMARY (C-SUITE FOCUS) - NARRATIVE PROSE ===
@@ -2076,31 +2294,39 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
             evidence = p2_data.get('evidence', [])
             nodes = p3_data.get('nodes', [])
             
-            # Opening paragraph - value proposition
-            doc.add_paragraph(
-                f"This executive summary presents a comprehensive clinical decision pathway for {condition} management "
-                f"in {setting_text or 'the clinical setting'}. The pathway represents a strategic initiative to standardize "
-                f"care delivery, improve patient outcomes, and optimize resource utilization through evidence-based clinical "
-                f"decision-making. Built on a foundation of {len(evidence)} peer-reviewed evidence sources and structured "
-                f"across {len(nodes)} decision points, this pathway addresses a critical opportunity to reduce practice variation "
-                f"while enhancing both clinical quality and operational efficiency."
-            )
+            # Use AI-generated content if available, otherwise use template
+            if ai_content.get('executive_overview'):
+                doc.add_paragraph(ai_content['executive_overview'])
+            else:
+                doc.add_paragraph(
+                    f"This executive summary presents a comprehensive clinical decision pathway for {condition} management "
+                    f"in {setting_text or 'the clinical setting'}. The pathway represents a strategic initiative to standardize "
+                    f"care delivery, improve patient outcomes, and optimize resource utilization through evidence-based clinical "
+                    f"decision-making. Built on a foundation of {len(evidence)} peer-reviewed evidence sources and structured "
+                    f"across {len(nodes)} decision points, this pathway addresses a critical opportunity to reduce practice variation "
+                    f"while enhancing both clinical quality and operational efficiency."
+                )
             
             doc.add_heading("Strategic Rationale", level=1)
-            doc.add_paragraph(
-                f"The current state presents significant challenges: {problem_text} This variability not only compromises "
-                f"patient safety and outcomes but also leads to inefficient resource allocation, extended length of stay, "
-                f"and increased operational costs. The proposed pathway establishes a systematic, evidence-driven approach "
-                f"that aligns clinical practice with organizational strategic priorities for quality, safety, and value-based care."
-            )
+            if ai_content.get('strategic_rationale'):
+                doc.add_paragraph(ai_content['strategic_rationale'])
+            else:
+                doc.add_paragraph(
+                    f"The current state presents significant challenges: {problem_text} This variability not only compromises "
+                    f"patient safety and outcomes but also leads to inefficient resource allocation, extended length of stay, "
+                    f"and increased operational costs. The proposed pathway establishes a systematic, evidence-driven approach "
+                    f"that aligns clinical practice with organizational strategic priorities for quality, safety, and value-based care."
+                )
             
             doc.add_heading("Evidence Foundation & Clinical Rigor", level=1)
-            if evidence:
+            if ai_content.get('evidence_foundation'):
+                doc.add_paragraph(ai_content['evidence_foundation'])
+            elif evidence:
                 grades = {}
                 for e in evidence:
                     grade = e.get('grade', 'Un-graded')
                     grades[grade] = grades.get(grade, 0) + 1
-                high_quality = sum(count for grade, count in grades.items() if grade in ['A', 'High', 'Level 1'])
+                high_quality = sum(count for grade, count in grades.items() if grade in ['A', 'High', 'Level 1', 'High (A)'])
                 
                 doc.add_paragraph(
                     f"The pathway integrates current best evidence from {len(evidence)} peer-reviewed publications, with "
@@ -2115,47 +2341,59 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
                 )
             
             doc.add_heading("Value Proposition & Expected Outcomes", level=1)
-            doc.add_paragraph(
-                f"Implementation of this standardized pathway is projected to deliver measurable value across multiple dimensions. "
-                f"From a quality perspective, the pathway promotes consistent application of evidence-based interventions, reducing "
-                f"diagnostic errors and ensuring appropriate escalation of care when indicated. Operationally, standardization "
-                f"enables more predictable resource utilization, reducing unnecessary testing and procedures while maintaining or "
-                f"improving clinical outcomes. The pathway also supports workforce development through clear protocols that enhance "
-                f"staff confidence and competency, particularly valuable for training programs and onboarding new providers."
-            )
+            if ai_content.get('value_proposition'):
+                doc.add_paragraph(ai_content['value_proposition'])
+            else:
+                doc.add_paragraph(
+                    f"Implementation of this standardized pathway is projected to deliver measurable value across multiple dimensions. "
+                    f"From a quality perspective, the pathway promotes consistent application of evidence-based interventions, reducing "
+                    f"diagnostic errors and ensuring appropriate escalation of care when indicated. Operationally, standardization "
+                    f"enables more predictable resource utilization, reducing unnecessary testing and procedures while maintaining or "
+                    f"improving clinical outcomes. The pathway also supports workforce development through clear protocols that enhance "
+                    f"staff confidence and competency, particularly valuable for training programs and onboarding new providers."
+                )
             
             doc.add_heading("Implementation Readiness", level=1)
-            usability_status = "completed rigorous usability testing" if p4_data.get('heuristics_data') else "planned comprehensive usability evaluation"
-            expert_status = "completed expert panel review with integrated feedback" if p5_data.get('expert_html') else "scheduled expert panel validation"
-            beta_status = "completed beta testing in the target environment" if p5_data.get('beta_html') else "planned pilot testing"
-            
-            doc.add_paragraph(
-                f"The pathway has {usability_status}, ensuring alignment with clinical workflow and practitioner needs. "
-                f"Stakeholder engagement includes {expert_status} and {beta_status}, creating a robust validation process "
-                f"that mitigates implementation risk. A comprehensive education module has been developed to support staff "
-                f"onboarding, competency assessment, and ongoing training, ensuring smooth adoption and sustained adherence."
-            )
+            if ai_content.get('implementation_readiness'):
+                doc.add_paragraph(ai_content['implementation_readiness'])
+            else:
+                usability_status = "completed rigorous usability testing" if p4_data.get('heuristics_data') else "planned comprehensive usability evaluation"
+                expert_status = "completed expert panel review with integrated feedback" if p5_data.get('expert_html') else "scheduled expert panel validation"
+                beta_status = "completed beta testing in the target environment" if p5_data.get('beta_html') else "planned pilot testing"
+                
+                doc.add_paragraph(
+                    f"The pathway has {usability_status}, ensuring alignment with clinical workflow and practitioner needs. "
+                    f"Stakeholder engagement includes {expert_status} and {beta_status}, creating a robust validation process "
+                    f"that mitigates implementation risk. A comprehensive education module has been developed to support staff "
+                    f"onboarding, competency assessment, and ongoing training, ensuring smooth adoption and sustained adherence."
+                )
             
             doc.add_heading("Strategic Objectives & Success Metrics", level=1)
-            doc.add_paragraph(
-                f"The pathway is designed to achieve specific, measurable objectives aligned with organizational priorities: "
-                f"{objectives_text} Success will be monitored through defined metrics including clinical outcomes (safety events, "
-                f"readmission rates, diagnostic accuracy), operational efficiency (length of stay, throughput, resource utilization), "
-                f"and quality measures (adherence rates, patient satisfaction, staff competency). Implementation will proceed in "
-                f"phases with 30/60/90 day checkpoints and quarterly performance reviews to ensure sustained improvement and "
-                f"continuous optimization."
-            )
+            if ai_content.get('success_metrics'):
+                doc.add_paragraph(ai_content['success_metrics'])
+            else:
+                doc.add_paragraph(
+                    f"The pathway is designed to achieve specific, measurable objectives aligned with organizational priorities: "
+                    f"{objectives_text} Success will be monitored through defined metrics including clinical outcomes (safety events, "
+                    f"readmission rates, diagnostic accuracy), operational efficiency (length of stay, throughput, resource utilization), "
+                    f"and quality measures (adherence rates, patient satisfaction, staff competency). Implementation will proceed in "
+                    f"phases with 30/60/90 day checkpoints and quarterly performance reviews to ensure sustained improvement and "
+                    f"continuous optimization."
+                )
             
             doc.add_heading("Recommended Actions", level=1)
-            doc.add_paragraph(
-                f"To advance this initiative, leadership approval is requested for: (1) final pathway validation and sign-off following "
-                f"expert review and beta testing; (2) allocation of implementation resources including staff education time, system "
-                f"integration support, and monitoring infrastructure; (3) establishment of a governance structure with defined "
-                f"accountability for pathway oversight, performance tracking, and continuous improvement; and (4) authorization to "
-                f"proceed with go-live planning, including communication strategy, training rollout, and performance dashboard "
-                f"deployment. These actions position the organization to deliver evidence-based, high-value care that advances "
-                f"both clinical excellence and operational sustainability."
-            )
+            if ai_content.get('recommended_actions'):
+                doc.add_paragraph(ai_content['recommended_actions'])
+            else:
+                doc.add_paragraph(
+                    f"To advance this initiative, leadership approval is requested for: (1) final pathway validation and sign-off following "
+                    f"expert review and beta testing; (2) allocation of implementation resources including staff education time, system "
+                    f"integration support, and monitoring infrastructure; (3) establishment of a governance structure with defined "
+                    f"accountability for pathway oversight, performance tracking, and continuous improvement; and (4) authorization to "
+                    f"proceed with go-live planning, including communication strategy, training rollout, and performance dashboard "
+                    f"deployment. These actions position the organization to deliver evidence-based, high-value care that advances "
+                    f"both clinical excellence and operational sustainability."
+                )
             
         else:
             # === OPERATIONAL/CLINICAL FOCUS ===

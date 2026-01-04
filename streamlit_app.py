@@ -3778,6 +3778,12 @@ Output: ("diabetes"[MeSH Terms]) AND ("clinical ADJ pathway"[Title/Abstract] OR 
         grade_order = {"High (A)": 0, "Moderate (B)": 1, "Low (C)": 2, "Very Low (D)": 3, "Un-graded": 4}
         
         evidence_data = st.session_state.data['phase2']['evidence']
+        # Normalize flags/grades so new enrichments always surface and filter correctly
+        for e in evidence_data:
+            is_enriched = e.get('source') == 'enriched_from_phase3'
+            e['is_new'] = bool(e.get('is_new')) or is_enriched
+            if e.get('grade') not in grade_order:
+                e['grade'] = 'Un-graded'
         # Apply Sorting
         evidence_data.sort(key=lambda x: grade_order.get(x.get('grade', 'Un-graded'), 4))
         
@@ -5051,19 +5057,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col1:
         st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
 
-        # Explicit audience input (required for form generation)
-        aud_expert = st.text_input(
-            "Target Audience",
-            value=st.session_state.get("p5_aud_expert", ""),
-            placeholder="e.g., Emergency Physicians, Clinical Experts",
-            key="p5_aud_expert_input"
-        )
-        st.caption("Specify who will provide feedback (e.g., cardiologists, emergency physicians, experts in the field).")
-        
-        # Auto-generate once per audience value
-        if aud_expert and aud_expert != st.session_state.get("p5_aud_expert_prev", ""):
-            st.session_state["p5_aud_expert"] = aud_expert
-            st.session_state["p5_aud_expert_prev"] = aud_expert
+        # Auto-generate on first visit if pathway nodes exist
+        if nodes and not st.session_state.data['phase5'].get('expert_html'):
             with st.spinner("Generating expert feedback form..."):
                 # Generate SVG for pathway visualization in downloaded form
                 g = build_graphviz_from_nodes(nodes, "TD")
@@ -5073,7 +5068,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 expert_html = generate_expert_form_html(
                     condition=cond,
                     nodes=nodes,
-                    audience=aud_expert,
                     organization=cond,
                     care_setting=setting,
                     pathway_svg_b64=svg_b64,
@@ -5136,12 +5130,17 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     if st.session_state.get("file_p5_expert_review"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
                     
+                    # Generate SVG for pathway visualization in downloaded form
+                    g = build_graphviz_from_nodes(nodes, "TD")
+                    svg_bytes = render_graphviz_bytes(g, "svg") if g else None
+                    svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
+                    
                     refined_html = generate_expert_form_html(
                         condition=cond,
                         nodes=nodes,
-                        audience=st.session_state.get("p5_aud_expert", ""),
                         organization=cond,
                         care_setting=setting,
+                        pathway_svg_b64=svg_b64,
                         genai_client=get_genai_client()
                     )
                     st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
@@ -5151,24 +5150,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col2:
         st.markdown(f"<h3>{deliverables['beta']}</h3>", unsafe_allow_html=True)
         
-        # Explicit audience input (required for form generation)
-        aud_beta = st.text_input(
-            "Target Audience",
-            value=st.session_state.get("p5_aud_beta", ""),
-            placeholder="e.g., Pilot Site Users, Clinical Staff",
-            key="p5_aud_beta_input"
-        )
-        st.caption("Specify who will participate in beta testing (e.g., pilot site clinicians, nursing staff, end users).")
-        
-        # Auto-generate once per audience value
-        if aud_beta and aud_beta != st.session_state.get("p5_aud_beta_prev", ""):
-            st.session_state["p5_aud_beta"] = aud_beta
-            st.session_state["p5_aud_beta_prev"] = aud_beta
-            with st.spinner("Generating guide..."):
+        # Auto-generate on first visit if pathway nodes exist
+        if nodes and not st.session_state.data['phase5'].get('beta_html'):
+            with st.spinner("Generating beta testing guide..."):
                 beta_html = generate_beta_form_html(
                     condition=cond,
                     nodes=nodes,
-                    audience=aud_beta,
                     organization=cond,
                     care_setting=setting,
                     genai_client=get_genai_client()
@@ -5228,7 +5215,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     refined_html = generate_beta_form_html(
                         condition=cond,
                         nodes=nodes,
-                        audience=st.session_state.get("p5_aud_beta", ""),
                         organization=cond,
                         care_setting=setting,
                         genai_client=get_genai_client()
@@ -5251,7 +5237,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="e.g., Residents, Nursing Staff",
             key="p5_aud_edu_input"
         )
-        st.caption("Who will complete this education module?")
         
         # Auto-generate on input change
         if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
@@ -5452,14 +5437,11 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 "time_minutes": 5
                             }]
                     
-                        refined_html = create_education_module_template(
+                        refined_html = generate_education_module_html(
                             condition=cond,
-                            topics=edu_topics,
+                            nodes=nodes,
                             target_audience=st.session_state.get("p5_aud_edu", ""),
-                            organization=cond,
                             care_setting=setting,
-                            require_100_percent=True,
-                            learning_objectives=overall_objectives[:4],
                             genai_client=get_genai_client()
                         )
                         st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
@@ -5477,7 +5459,6 @@ elif "Operationalize" in phase or "Deploy" in phase:
             placeholder="e.g., Hospital Leadership, Board Members",
             key="p5_aud_exec_input"
         )
-        st.caption("Specify who will review this summary (e.g., executives, board members, administrators). Used verbatim to tailor tone and priorities with Phase 1-4 context.")
         
         # Auto-generate on input change
         if aud_exec and aud_exec != st.session_state.get("p5_aud_exec_prev", ""):
