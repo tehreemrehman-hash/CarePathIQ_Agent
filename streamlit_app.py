@@ -136,7 +136,7 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     
     1. MAINTAIN DECISION SCIENCE FRAMEWORK:
        - Keep CGT/Ad/it principles and Medical Decision Analysis structure intact
-       - Preserve or enhance benefit/harm trade-offs at decision points
+       - Preserve actionable clinical notes (red flags, thresholds, monitoring parameters)
        - Maintain evidence-based reasoning (cite PMIDs)
     
     2. PRESERVE DECISION DIVERGENCE:
@@ -151,10 +151,10 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
          * Validated clinical scores relevant to this condition with specific numerical thresholds
          * Age-adjusted or population-specific calculations where established in literature
          * Special population screening (pregnancy before radiation/teratogens, renal function before contrast/drugs, contraindications)
-         * Medication specificity: Brand AND generic names, exact dosing, timing, route, location IN THE NODE LABEL (not detail field)
+         * Medication specificity: Brand AND generic names, exact dosing, timing, route, location IN THE NODE LABEL
          * CRITICAL: Medication administration is a CLINICAL ACTION—create Process nodes with doses visible in flowchart
          * Example node label: "Administer vancomycin 15-20 mg/kg IV q8-12h, adjust for CrCl <30"
-         * Example node detail: "Benefit: Broad gram-positive coverage. Harm: Nephrotoxicity/ototoxicity. Monitor trough levels."
+         * Example node notes: "Red flags: fever >38.5°C, rigors, hypotension. Monitor: trough levels before 4th dose."
          * Insurance/cost considerations: "Ensure Rx covered; provide assistance program links if available"
          * Resource contingencies: "If [preferred test] NOT available → [Alternative approach]"
          * Follow-up timing: "[Provider type] within [timeframe]", "Virtual care if [provider] unavailable"
@@ -177,14 +177,14 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
        - Educational content: Note hyperlink candidates (score calculators, drug info, evidence citations)
        - Disposition specificity: Never vague "discharge" - specify follow-up provider, timing, virtual alternatives
     
-    OUTPUT: Complete revised JSON array of nodes with fields: type, label, evidence, (optional) detail
+    OUTPUT: Complete revised JSON array of nodes with fields: type, label, evidence, (optional) notes
     Rules:
     - type: "Start" | "Decision" | "Process" | "End"
     - First node: type "Start", label "patient present to {setting} with {cond}"
     - NO artificial node count limit—maintain complexity needed for clinical accuracy
     - End nodes must be TERMINAL single outcomes (no "or" phrasing)
     - Consecutive Decision nodes are allowed and encouraged for true clinical branching
-    - Include benefit/harm trade-offs in Decision node labels or detail fields
+    - Notes field: Actionable clinical details like red flag signs, specific thresholds, monitoring parameters
     - Evidence citations (PMIDs) on clinically important steps
     - Apply sophisticated patterns above to make pathway immediately implementable by clinicians
     """
@@ -1681,6 +1681,23 @@ def harden_nodes(nodes_list):
         if 'label' not in node or not node.get('label'):
             node['label'] = f"Step {i+1}"
         
+        # Clean up label text - remove literal \n, collapse whitespace
+        label = str(node.get('label', ''))
+        # Remove literal backslash-n sequences (from AI generation)
+        label = label.replace('\\n', ' ').replace('\n', ' ')
+        # Collapse multiple spaces
+        import re
+        label = re.sub(r'\s+', ' ', label).strip()
+        node['label'] = label
+        
+        # Also clean notes field if present
+        for notes_field in ['notes', 'detail']:
+            if notes_field in node and node[notes_field]:
+                notes = str(node[notes_field])
+                notes = notes.replace('\\n', ' ').replace('\n', ' ')
+                notes = re.sub(r'\s+', ' ', notes).strip()
+                node[notes_field] = notes
+        
         # Validate Decision nodes have branches
         if node['type'] == 'Decision':
             if 'branches' not in node or not isinstance(node['branches'], list) or len(node['branches']) == 0:
@@ -2016,7 +2033,7 @@ def assess_decision_science_integrity(nodes_list):
         'is_dag': bool (directed acyclic graph - no cycles),
         'terminal_end_nodes': bool (all End nodes are terminal),
         'no_or_logic': bool (no "or" statements in End nodes),
-        'benefit_harm_annotated': bool (Decision nodes mention trade-offs),
+        'actionable_notes': bool (nodes have actionable clinical notes like red flags, thresholds),
         'evidence_cited': bool (key steps have PMIDs),
         'violations': [str]
     }
@@ -2028,7 +2045,7 @@ def assess_decision_science_integrity(nodes_list):
         'is_dag': True,
         'terminal_end_nodes': True,
         'no_or_logic': True,
-        'benefit_harm_annotated': False,
+        'actionable_notes': False,
         'evidence_cited': False,
         'violations': []
     }
@@ -2082,22 +2099,20 @@ def assess_decision_science_integrity(nodes_list):
                 integrity['no_or_logic'] = False
                 integrity['violations'].append(f"Node {i} (End): Contains 'or' logic: '{node.get('label')}'. Split into Decision branches.")
     
-    # Check for benefit/harm trade-off annotations
-    benefit_harm_keywords = ['trade', 'vs', 'benefit', 'risk', 'harm', 'weigh', 'consider']
-    harm_annotated_count = 0
+    # Check for actionable clinical notes (red flags, thresholds, monitoring parameters)
+    actionable_keywords = ['red flag', 'threshold', 'monitor', 'escalate', 'alert', 'warning', 'if', 'when', '>', '<', '≥', '≤']
+    notes_count = 0
     for node in nodes_list:
-        if not isinstance(node, dict) or node.get('type') != 'Decision':
+        if not isinstance(node, dict):
             continue
-        label = (node.get('label', '') or '').lower()
-        detail = (node.get('detail', '') or '').lower()
-        full_text = label + ' ' + detail
-        if any(kw in full_text for kw in benefit_harm_keywords):
-            harm_annotated_count += 1
+        notes = (node.get('notes', '') or node.get('detail', '') or '').lower()
+        if notes and any(kw in notes for kw in actionable_keywords):
+            notes_count += 1
     
-    if harm_annotated_count >= max(1, nodes_list.__len__() // 5):
-        integrity['benefit_harm_annotated'] = True
+    if notes_count >= max(1, len(nodes_list) // 5):
+        integrity['actionable_notes'] = True
     else:
-        integrity['violations'].append(f"⚠️ Few Decision nodes annotate benefit/harm trade-offs ({harm_annotated_count}). Consider adding rationale.")
+        integrity['violations'].append(f"⚠️ Few nodes have actionable notes ({notes_count}). Consider adding red flags, thresholds, or monitoring parameters.")
     
     # Check evidence coverage
     pmid_count = sum(1 for n in nodes_list if isinstance(n, dict) and n.get('evidence') and n.get('evidence') != 'N/A')
@@ -2141,13 +2156,22 @@ def _escape_label(text: str) -> str:
     if text is None:
         return ""
     # Escape quotes and backslashes for DOT labels
-    return str(text).replace("\\", "\\\\").replace("\"", "'").replace("\n", "\\n")
+    # Note: \n in DOT is the line break character, don't double-escape it
+    s = str(text).replace("\\", "\\\\").replace('"', "'")
+    # Convert actual newlines to graphviz newlines
+    s = s.replace("\n", "\\n")
+    return s
 
-def _wrap_label(text: str, width: int = 22) -> str:
+def _wrap_label(text: str, width: int = 22, max_width: int = None) -> str:
     if not text:
         return ""
-    wrapped = textwrap.wrap(str(text), width=width)
-    return "\\n".join(wrapped) if wrapped else str(text)
+    # Clean up any literal \n sequences before wrapping
+    clean_text = str(text).replace('\\n', ' ').replace('\n', ' ')
+    # Collapse multiple spaces
+    import re
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+    wrapped = textwrap.wrap(clean_text, width=max_width or width)
+    return "\n".join(wrapped) if wrapped else clean_text
 
 def _role_fill(role: str, default_fill: str) -> str:
     if not role:
@@ -2166,6 +2190,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
     rankdir = 'TB' if orientation == 'TD' else 'LR'
     lines = ["digraph G {", f"  rankdir={rankdir};", "  node [fontname=Helvetica];", "  edge [fontname=Helvetica];"]
     node_id_map = {}
+    notes_nodes = []  # Track nodes with notes for annotation boxes
     # Clusters by role
     for role, n_list in swimlanes.items():
         cluster_name = re.sub(r"[^A-Za-z0-9_]", "_", str(role) or "Unassigned")
@@ -2174,7 +2199,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
         lines.append("    style=filled; color=lightgrey;")
         for i, n in n_list:
             nid = f"N{i}"; node_id_map[i] = nid
-            # Only use label field for visualization (exclude detail, benefit, medications)
+            # Only use label field for visualization
             raw_label = n.get('label', 'Step')
             # Normalize literal \n to actual newlines for wrapping, then wrap
             raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
@@ -2186,7 +2211,22 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             else: shape, fill = 'box', '#FFF2CC'
             fill = _role_fill(n.get('role', ''), fill)
             lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
+            # Track nodes with notes for blue trapezoid annotations
+            notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
+            if notes_text and str(notes_text).strip():
+                notes_nodes.append((i, nid, notes_text))
         lines.append("  }")
+    
+    # Add blue trapezoid notes annotations connected with dashed lines
+    for i, nid, notes_text in notes_nodes:
+        notes_id = f"Notes_{i}"
+        # Wrap and escape notes text
+        wrapped_notes = _escape_label(_wrap_label(str(notes_text).strip(), max_width=40))
+        # Blue trapezoid for notes
+        lines.append(f"  {notes_id} [label=\"{wrapped_notes}\", shape=trapezium, style=filled, fillcolor=\"#B3D9FF\", fontsize=10];")
+        # Dashed line connecting note to its node
+        lines.append(f"  {nid} -> {notes_id} [style=dashed, color=\"#4A90D9\", arrowhead=none];")
+    
     # Edges - support explicit 'target' field for parallel pathways
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
@@ -2239,13 +2279,14 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
     g.attr('node', fontname='Helvetica')
     g.attr('edge', fontname='Helvetica')
     node_id_map = {}
+    notes_nodes = []  # Track nodes with notes for blue trapezoid annotations
     for role, n_list in swimlanes.items():
         with g.subgraph(name=f"cluster_{re.sub(r'[^A-Za-z0-9_]', '_', str(role) or 'Process')}") as c:
             c.attr(label=str(role))
             c.attr(style='filled', color='lightgrey')
             for i, n in n_list:
                 nid = f"N{i}"; node_id_map[i] = nid
-                # Only use label field for visualization (exclude detail, benefit, medications)
+                # Only use label field for visualization
                 raw_label = n.get('label', 'Step')
                 # Normalize literal \n to spaces for cleaner display, then wrap
                 raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
@@ -2257,6 +2298,21 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 else: shape, fill = 'box', '#FFF2CC'
                 fill = _role_fill(n.get('role', ''), fill)
                 c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
+                # Track nodes with notes for blue trapezoid annotations
+                notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
+                if notes_text and str(notes_text).strip():
+                    notes_nodes.append((i, nid, notes_text))
+    
+    # Add blue trapezoid notes annotations connected with dashed lines
+    for i, nid, notes_text in notes_nodes:
+        notes_id = f"Notes_{i}"
+        # Wrap and escape notes text
+        wrapped_notes = _escape_label(_wrap_label(str(notes_text).strip(), max_width=40))
+        # Blue trapezoid for notes
+        g.node(notes_id, wrapped_notes, shape='trapezium', style='filled', fillcolor='#B3D9FF', fontsize='10')
+        # Dashed line connecting note to its node
+        g.edge(nid, notes_id, style='dashed', color='#4A90D9', arrowhead='none')
+    
     # Edges - support explicit 'target' field for parallel pathways
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
@@ -2733,7 +2789,7 @@ def get_carepathiq_scoped_response(user_question: str) -> str:
 
 1. **Phase 1: Define Scope & Charter** — Input clinical condition and care setting. AI auto-drafts inclusion/exclusion criteria, problem statement, objectives, and population.
    
-2. **Phase 2: Appraise Evidence** — Intelligent PubMed query generation with proximity operators (NEAR, ADJ), MeSH terms, and AI optimization. Evidence table with PMID, abstract, and GRADE quality assessment. PICO framework support and interactive query refinement tools.
+2. **Phase 2: Appraise Evidence** — Intelligent PubMed query generation with MeSH terms, field tags ([tiab], [mesh]), and AI optimization. Evidence table with PMID, abstract, and GRADE quality assessment. PICO framework support and interactive query refinement tools.
    
 3. **Phase 3: Build Decision Tree** — Node-based pathway (decision, action, outcome nodes) with Graphviz rendering and AI-powered regeneration with user refinement.
    
@@ -2774,11 +2830,11 @@ def get_local_faq_answer(user_question: str) -> str:
         )
     if "evidence" in q or "phase 2" in q or "pubmed" in q or "mesh" in q:
         return (
-            "Phase 2 enables intelligent PubMed searches with AI-powered proximity operators (NEAR, ADJ). "
-            "The system auto-generates optimized queries using MeSH terms and proximity searching for precise results. "
+            "Phase 2 enables intelligent PubMed searches with AI-powered query optimization. "
+            "The system auto-generates optimized queries using MeSH terms and field tags ([tiab], [mesh]) for precise results. "
             "Include study PMID, title, abstract, GRADE quality assessment, and relevance notes. "
-            "Features: proximity search guidance, AI query optimization, PICO framework, and CSV export. "
-            "See PubMed Proximity Search Tips in the Refine search expander for advanced techniques."
+            "Features: proximity search guidance ([tiab:~N] syntax), AI query optimization, PICO framework, and CSV export. "
+            "See PubMed Search Tips in the Refine search expander for advanced techniques."
         )
     if "phase 5" in q or "operationalize" in q or "export" in q or "expert" in q or "beta" in q:
         return (
@@ -3512,47 +3568,54 @@ elif "Evidence" in phase or "Appraise" in phase:
 - Condition: {c}
 - Care Setting: {s if s else 'general care'}
 
-**PubMed Search Syntax (CRITICAL - Use Correct Operators):**
-1. Phrase searching: Use quotes for exact multi-word phrases: "exact phrase"
-2. Proximity operator NEAR: Find terms within ~N words (e.g., "diabetes NEAR/3 management")
-3. Boolean operators: AND, OR, NOT (always use parentheses for grouping)
-4. Field tags: [MeSH Terms], [Title/Abstract], [All Fields], [pt] for publication type, [lang] for language
-5. Filters: english[lang], "last 5 years"[dp], systematic[sb] for systematic reviews
-6. DO NOT use: ADJ, NEAR/2, or any undefined operators—these will be rejected by PubMed
+**PubMed Search Syntax (CRITICAL - Use ONLY These Valid Operators):**
+1. Phrase searching: Use quotes for exact phrases: "exact phrase"
+2. Proximity searching: "term1 term2"[tiab:~N] where N = max words between terms
+   - Example: "diabetes management"[tiab:~3] finds terms within 3 words of each other
+   - Only works with [ti], [tiab], [ad] fields
+3. Boolean operators: AND, OR, NOT (use parentheses for grouping)
+4. Field tags (case-insensitive):
+   - [mesh] or [mh] or [MeSH Terms] for MeSH headings
+   - [tiab] or [Title/Abstract] for title/abstract
+   - [ti] or [Title] for title only
+   - [pt] for Publication Type
+   - [lang] for Language
+5. Publication type filters: Practice Guideline[pt], Review[pt], Systematic Review[pt]
+6. Date filter: "last 5 years"[dp]
+7. Language filter: english[lang]
+8. DO NOT USE: NEAR, ADJ, NEAR/N - these are NOT valid PubMed syntax
 
 **Requirements:**
-- Use MeSH Terms where appropriate: "{c}"[MeSH Terms]
-- Use NEAR/N proximity operators (not ADJ) to find related concepts
-- Search for pathway/guideline literature: "clinical pathway" OR "clinical guideline" OR "care protocol"
-- If setting provided, use: "{s}" AND "{c}" (connected with AND)
-- Target Title/Abstract fields: [Title/Abstract]
-- Return ONLY the raw query string, no explanations or commentary
-- Example: ("diabetes mellitus"[MeSH Terms] OR diabetes[Title/Abstract]) AND ("clinical pathway"[Title/Abstract] OR guideline[Title/Abstract]) AND english[lang]
-- IMPORTANT: Every query MUST end with AND english[lang] to filter for English-language results"""
+- Use MeSH Terms: "{c}"[MeSH Terms]
+- For proximity, use: "term1 term2"[tiab:~N] format
+- Search for guidelines: "clinical pathway"[tiab] OR Practice Guideline[pt] OR "care protocol"[tiab]
+- Return ONLY the raw query string, no explanations
+- Example: ("diabetes mellitus"[MeSH Terms] OR "diabetes management"[tiab:~3]) AND ("clinical pathway"[tiab] OR Practice Guideline[pt]) AND english[lang]
+- IMPORTANT: Every query MUST end with AND english[lang]"""
             
-            with ai_activity("Building intelligent PubMed query with proximity operators..."):
+            with ai_activity("Building intelligent PubMed query..."):
                 ai_query = get_gemini_response(proximity_prompt)
                 if ai_query and isinstance(ai_query, str) and len(ai_query.strip()) > 10:
                     default_q = ai_query.strip()
-                    # Validate query doesn't contain invalid operators
-                    if 'ADJ' in default_q.upper() or 'NEAR/2' in default_q:
+                    # Validate query doesn't contain invalid operators (NEAR, ADJ are NOT valid PubMed syntax)
+                    if 'ADJ' in default_q.upper() or 'NEAR' in default_q.upper():
                         # Fallback if AI generated invalid syntax
-                        st.warning("AI-generated query contained unsupported PubMed operators. Using fallback query.")
+                        st.warning("AI-generated query contained unsupported PubMed operators (NEAR/ADJ are not valid). Using fallback query.")
                         default_q = None
                 else:
                     # Fallback to basic query with proper PubMed syntax
                     cond_q = f'"{c}"[MeSH Terms]'
                     if s:
-                        default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("{s}"[Title/Abstract] OR "{s}"[All Fields]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
+                        default_q = f'({cond_q} OR "{c}"[tiab]) AND ("{s}"[tiab]) AND ("clinical pathway"[tiab] OR Practice Guideline[pt] OR protocol[tiab]) AND english[lang]'
                     else:
-                        default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
+                        default_q = f'({cond_q} OR "{c}"[tiab]) AND ("clinical pathway"[tiab] OR Practice Guideline[pt] OR protocol[tiab]) AND english[lang]'
         else:
             # Fallback if no AI client - use proper PubMed syntax
             cond_q = f'"{c}"[MeSH Terms]'
             if s:
-                default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("{s}"[Title/Abstract] OR "{s}"[All Fields]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
+                default_q = f'({cond_q} OR "{c}"[tiab]) AND ("{s}"[tiab]) AND ("clinical pathway"[tiab] OR Practice Guideline[pt] OR protocol[tiab]) AND english[lang]'
             else:
-                default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
+                default_q = f'({cond_q} OR "{c}"[tiab]) AND ("clinical pathway"[tiab] OR Practice Guideline[pt] OR protocol[tiab]) AND english[lang]'
 
     # Auto-run search once per distinct default query when evidence is empty
     if (
@@ -3595,24 +3658,21 @@ elif "Evidence" in phase or "Appraise" in phase:
     # Refinement with the current query prefilled
     with st.expander("Refine search", expanded=False):
         # Add proximity search guidance
-        with st.expander("📚 PubMed Proximity Search Tips", expanded=False):
+        with st.expander("📚 PubMed Search Tips", expanded=False):
             st.markdown("""
-            **✨ Auto-Enhancement Active:** The AI automatically enhances your queries with proximity operators for better precision.
-            
             **Advanced PubMed Query Techniques:**
             
-            🔍 **Proximity Operators** (automatically applied):
-            - `NEAR/N` — Terms within N words, any order
-              - Example: `diabetes NEAR/3 management` (finds "diabetes management" or "management of diabetes")
-            - `ADJ` — Terms adjacent in exact order
-              - Example: `clinical ADJ pathway` (finds "clinical pathway" only)
+            🔍 **Proximity Searching** (find terms near each other):
+            - Format: `"term1 term2"[field:~N]` where N = max words between terms
+            - Only works with `[ti]`, `[tiab]`, or `[ad]` fields
+            - Example: `"diabetes management"[tiab:~3]` finds terms within 3 words
+            - Example: `"clinical pathway"[tiab:~0]` finds adjacent terms (any order)
             
             📋 **Field Tags** (search specific parts):
-            - `[MeSH Terms]` — Medical Subject Headings
-            - `[Title/Abstract]` — Title or abstract text
-            - `[Title]` — Title only
-            - `[All Fields]` — Any field
-            - `[pt]` — Publication type (e.g., `guideline[pt]`)
+            - `[MeSH Terms]` or `[mesh]` — Medical Subject Headings
+            - `[tiab]` or `[Title/Abstract]` — Title or abstract text
+            - `[ti]` or `[Title]` — Title only
+            - `[pt]` — Publication type (e.g., `Practice Guideline[pt]`)
             
             🎯 **Useful Filters:**
             - `english[lang]` — English only
@@ -3622,16 +3682,16 @@ elif "Evidence" in phase or "Appraise" in phase:
             
             💡 **Example Queries:**
             ```
-            ("sepsis"[MeSH Terms] AND "emergency ADJ department"[Title/Abstract]) 
-            AND ("clinical pathway"[Title/Abstract] OR guideline[pt])
+            ("sepsis"[MeSH Terms] AND "emergency department"[tiab]) 
+            AND ("clinical pathway"[tiab] OR Practice Guideline[pt])
             
-            ("heart failure"[MeSH] NEAR/5 "care protocol"[Title/Abstract]) 
+            ("heart failure"[MeSH Terms] AND "care protocol"[tiab:~5]) 
             AND english[lang]
             ```
             
-            💡 **Tip:** Your queries are automatically enhanced when you click "Regenerate Evidence Table". Edit the query above to fine-tune it.
+            ⚠️ **Note:** NEAR/N and ADJ operators are NOT valid PubMed syntax. Use `[field:~N]` for proximity.
             
-            📖 **Full Guide:** [PubMed Help - Proximity Searching](https://pubmed.ncbi.nlm.nih.gov/help/#proximity-searching)
+            📖 **Full Guide:** [PubMed Help](https://pubmed.ncbi.nlm.nih.gov/help/#proximity-searching)
             """)
         
         current_q = st.session_state.data['phase2'].get('mesh_query', default_q)
@@ -3641,7 +3701,7 @@ elif "Evidence" in phase or "Appraise" in phase:
         q = st.text_input(
             "PubMed Search Query (editable full query)",
             value=current_q_full,
-            placeholder="Try proximity operators like NEAR/3 or ADJ for better results",
+            placeholder="Use MeSH Terms or [tiab] field tags for better results",
             key="p2_query_input",
         )
         q_clean = (q or "").strip()
@@ -3651,9 +3711,9 @@ elif "Evidence" in phase or "Appraise" in phase:
 
         def auto_enhance_query_with_proximity(query: str) -> str:
             """Automatically enhance user query with proximity operators if not already present."""
-            # Check if query already has proximity operators
-            if 'NEAR' in query or 'ADJ' in query:
-                return query  # Already optimized, don't modify
+            # Check if query already has proximity operators (correct PubMed format: [field:~N])
+            if ':~' in query:
+                return query  # Already has proximity, don't modify
             
             # Check if it's a simple query that could benefit from enhancement
             c = st.session_state.data['phase1'].get('condition', '')
@@ -3662,7 +3722,14 @@ elif "Evidence" in phase or "Appraise" in phase:
             if not c:
                 return query  # Can't enhance without context
             
-            optimize_prompt = f"""Enhance this PubMed query with proximity operators (NEAR, ADJ) for better precision.
+            # Remove any invalid NEAR/ADJ operators that may have been entered
+            if 'NEAR' in query.upper() or 'ADJ' in query.upper():
+                # These are invalid - strip them and rebuild
+                query = query.replace('NEAR/', ' ').replace('ADJ', ' ')
+                import re
+                query = re.sub(r'\s+', ' ', query)
+            
+            optimize_prompt = f"""Optimize this PubMed query for better precision.
 
 **Current Query:**
 {query}
@@ -3671,29 +3738,31 @@ elif "Evidence" in phase or "Appraise" in phase:
 - Condition: {c}
 - Setting: {s}
 
-**Enhancement Rules:**
-1. Use NEAR/N for related concepts (e.g., "diabetes NEAR/3 pathway")
-2. Use ADJ for exact phrase adjacency (e.g., "clinical ADJ guideline")
-3. Preserve existing MeSH Terms and field tags
-4. Keep all existing filters (english[lang], date filters, etc.)
-5. Don't change the core meaning, just improve precision
-6. If query is already well-formed, return it unchanged
+**Valid PubMed Syntax ONLY:**
+1. Proximity: "term1 term2"[tiab:~N] where N = max words between terms
+   - Example: "diabetes management"[tiab:~3]
+2. MeSH: "term"[MeSH Terms] or "term"[mesh]
+3. Field tags: [tiab], [ti], [pt], [lang]
+4. Boolean: AND, OR, NOT with parentheses
+5. DO NOT USE: NEAR, ADJ, NEAR/N - these are INVALID
 
 **Requirements:**
-- Return ONLY the enhanced query string, no explanations
-- If no enhancement needed, return original query
-- Must be valid PubMed syntax
+- Return ONLY the query string, no explanations
+- Use valid PubMed proximity syntax [tiab:~N] if beneficial
+- If query is already well-formed, return it unchanged
 
 **Example:**
 Input: ("diabetes"[MeSH Terms]) AND (pathway OR guideline)
-Output: ("diabetes"[MeSH Terms]) AND ("clinical ADJ pathway"[Title/Abstract] OR guideline[pt])"""
+Output: ("diabetes"[MeSH Terms]) AND ("clinical pathway"[tiab] OR Practice Guideline[pt])"""
             
             try:
                 enhanced = get_gemini_response(optimize_prompt)
                 if enhanced and isinstance(enhanced, str) and len(enhanced.strip()) > 10:
                     # Extract just the query (remove any comments or explanations)
                     enhanced_clean = enhanced.strip().split('\n')[0].strip()
-                    return enhanced_clean
+                    # Final validation - reject if it still contains NEAR or ADJ
+                    if 'NEAR' not in enhanced_clean.upper() and 'ADJ' not in enhanced_clean.upper():
+                        return enhanced_clean
             except Exception:
                 pass
             
@@ -4062,13 +4131,15 @@ elif "Decision" in phase or "Tree" in phase:
           * CRITICAL: If the clinical action includes medication administration, include it in the label itself
           * Example GOOD: "Administer aspirin 325mg PO + clopidogrel 600mg IV loading dose"
           * Example GOOD: "Start vancomycin 15-20 mg/kg IV q8-12h, adjust for renal function"
-          * Example BAD: "Medication administration" (detail: "aspirin 325mg...") ← medication should be IN the label!
-          * Clinical medications are ACTIONS (belong in label), not background details
+          * Example BAD: "Medication administration" (notes: "aspirin 325mg...") ← medication should be IN the label!
+          * Clinical medications are ACTIONS (belong in label), not background notes
         - "evidence": PMID citation OR "N/A"
-        - "detail": (optional) Extended description of rationale or threshold ONLY
-          * Example: "Benefit: Prevents stent thrombosis. Harm: Bleeding risk. Threshold: dual antiplatelet if STEMI"
-          * Use detail for: Benefits/harms, clinical reasoning, thresholds, monitoring criteria
-          * Do NOT use detail for: Medication names/doses (those go in label as the clinical action)
+        - "notes": (optional) Actionable clinical details for pathway users:
+          * RED FLAG SIGNS: Specific warning signs that require immediate action (e.g., "Red flags: syncope with exertion, family hx sudden death, abnormal ECG")
+          * CLINICAL THRESHOLDS: Specific values triggering action (e.g., "Escalate if: HR>120, SBP<90, SpO2<92%")
+          * MONITORING PARAMETERS: What to watch and when (e.g., "Monitor: troponin q3h, telemetry x24h")
+          * SPECIAL CONSIDERATIONS: Population-specific notes (e.g., "Pregnancy: avoid CT, use MRI/US")
+          * Do NOT include: Generic benefit/harm discussions, rationale explanations
         
         CRITICAL CONSTRAINTS (PRESERVE DECISION SCIENCE INTEGRITY):
         
@@ -4142,10 +4213,11 @@ elif "Decision" in phase or "Tree" in phase:
         - Last nodes: All type "End" (no Process/Decision after End)
         - Consecutive Decision nodes are OK (do NOT force Process nodes between them)
         - Use compound labels for clarity: "Assess troponin, CXR, EKG—any abnormality?" (Decision)
-        - Detail field can explain thresholds or rationale (e.g., detail: "escalate if HR>110 or RR>22")
+        - Notes field for actionable details (e.g., notes: "Red flags: syncope with exertion, chest pain, palpitations")
         
         LABEL CLARITY REQUIREMENTS (CRITICAL - Read Every Label Carefully):
         - Labels must be READABLE: max 120 characters per label
+        - DO NOT use \\n or newline characters in labels - use plain text only
         - Use STANDARD MEDICAL ABBREVIATIONS only (not made-up symbols or extraneous characters)
         - Clean encoding: NO special Unicode characters, escaped sequences, or corrupted text
         - Prioritize clarity: Spell out potentially ambiguous terms (e.g., "Myocardial Infarction" not cryptic shorthand)
@@ -4188,9 +4260,15 @@ elif "Decision" in phase or "Tree" in phase:
     
     # Initialize with empty row if no nodes
     if not st.session_state.data['phase3']['nodes']:
-        st.session_state.data['phase3']['nodes'] = [{"type": "Start", "label": "", "evidence": "N/A"}]
+        st.session_state.data['phase3']['nodes'] = [{"type": "Start", "label": "", "evidence": "N/A", "notes": ""}]
     
     df_nodes = pd.DataFrame(st.session_state.data['phase3']['nodes'])
+    # Ensure notes column exists (may be 'detail' in older data)
+    if 'notes' not in df_nodes.columns:
+        if 'detail' in df_nodes.columns:
+            df_nodes['notes'] = df_nodes['detail']
+        else:
+            df_nodes['notes'] = ""
     edited_nodes = st.data_editor(
         df_nodes,
         column_config={
@@ -4209,6 +4287,11 @@ elif "Decision" in phase or "Tree" in phase:
                 "Supporting Evidence (PMID)",
                 width="medium",
                 help="Enter PMID or 'N/A'"
+            ),
+            "notes": st.column_config.TextColumn(
+                "Notes",
+                width="large",
+                help="Actionable clinical details: red flags, thresholds, monitoring parameters (displayed as blue trapezoid in visualization)"
             )
         },
         num_rows="dynamic",
@@ -4827,19 +4910,44 @@ EXAMPLE FORMAT:
                 df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
             else:
                 df_p4['node_id'] = range(1, len(df_p4) + 1)
-            # Remove evidence and details columns for Phase 4 (only affects visualization structure)
-            display_cols = [col for col in df_p4.columns if col not in ['evidence', 'details']]
+            # Ensure notes column exists (may be 'detail' in older data)
+            if 'notes' not in df_p4.columns:
+                if 'detail' in df_p4.columns:
+                    df_p4['notes'] = df_p4['detail']
+                else:
+                    df_p4['notes'] = ""
+            # Show node_id, type, label, notes columns (remove evidence for cleaner view)
+            display_cols = ['node_id', 'type', 'label', 'notes'] if 'notes' in df_p4.columns else ['node_id', 'type', 'label']
+            display_cols = [col for col in display_cols if col in df_p4.columns]
             df_p4_display = df_p4[display_cols]
-            edited_p4_display = st.data_editor(df_p4_display, num_rows="dynamic", key="p4_editor")
+            edited_p4_display = st.data_editor(
+                df_p4_display,
+                column_config={
+                    "node_id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                    "type": st.column_config.SelectboxColumn(
+                        "Type",
+                        options=["Start", "Decision", "Process", "End"],
+                        required=True,
+                        width="small"
+                    ),
+                    "label": st.column_config.TextColumn("Clinical Step", width="large"),
+                    "notes": st.column_config.TextColumn(
+                        "Notes",
+                        width="medium",
+                        help="Actionable details: red flags, thresholds, monitoring (shown as blue trapezoid)"
+                    )
+                },
+                num_rows="dynamic",
+                key="p4_editor"
+            )
             manual_changed = not df_p4_display.equals(edited_p4_display)
             if manual_changed:
                 if 'node_id' in edited_p4_display.columns:
                     edited_p4_display = edited_p4_display.drop('node_id', axis=1)
-                # Preserve evidence and details columns from original nodes
+                # Preserve evidence column from original nodes
                 for idx, row in edited_p4_display.iterrows():
-                    for col in ['evidence', 'details']:
-                        if col in df_p4.columns:
-                            edited_p4_display.at[idx, col] = df_p4.at[idx, col]
+                    if 'evidence' in df_p4.columns and idx < len(df_p4):
+                        edited_p4_display.at[idx, 'evidence'] = df_p4.at[idx, 'evidence']
                 st.session_state.data['phase3']['nodes'] = edited_p4_display.to_dict('records')
                 p4_state['viz_cache'] = {}
                 st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
@@ -4923,13 +5031,26 @@ EXAMPLE FORMAT:
 
             for heuristic_key in ordered_keys:
                 insight = h_data.get(heuristic_key, "")
+                # Format insight as bullet list if it's a list, or format string bullets properly
+                if isinstance(insight, list):
+                    # Convert list to HTML bullet points
+                    formatted_insight = "<ul style='margin: 0; padding-left: 20px;'>" + "".join(f"<li>{item}</li>" for item in insight) + "</ul>"
+                elif isinstance(insight, str):
+                    # Convert string with bullet characters or newlines to HTML list
+                    lines = [line.strip() for line in insight.replace('•', '\n').split('\n') if line.strip()]
+                    if len(lines) > 1:
+                        formatted_insight = "<ul style='margin: 0; padding-left: 20px;'>" + "".join(f"<li>{line.lstrip('- •')}</li>" for line in lines) + "</ul>"
+                    else:
+                        formatted_insight = insight
+                else:
+                    formatted_insight = str(insight)
                 # Get label from HEURISTIC_DEFS
                 label_stub = HEURISTIC_DEFS.get(heuristic_key, "Heuristic").split(' (')[0].split(':')[0]
 
                 with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
                     st.caption(f"*{HEURISTIC_DEFS.get(heuristic_key, 'N/A')}*")
                     st.markdown(
-                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; border-left: 4px solid #5D4037; margin-top: 8px;'>{insight}</div>",
+                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; border-left: 4px solid #5D4037; margin-top: 8px;'>{formatted_insight}</div>",
                         unsafe_allow_html=True
                     )
 
@@ -5095,7 +5216,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         ]
         # Refine section (collapsible, notes on the left for natural flow)
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 5 content and downloads")
+            st.markdown("**Tip:** Add discussion topics or attach evidence summaries to enhance the expert panel guide.")
             with st.form("p5_refine_expert_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
@@ -5158,7 +5279,11 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     nodes=nodes,
                     organization=cond,
                     care_setting=setting,
-                    genai_client=get_genai_client()
+                    genai_client=get_genai_client(),
+                    phase1_data=st.session_state.data.get('phase1', {}),
+                    phase2_data=st.session_state.data.get('phase2', {}),
+                    phase3_data=st.session_state.data.get('phase3', {}),
+                    phase4_data=st.session_state.data.get('phase4', {})
                 )
                 st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
         
@@ -5177,7 +5302,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
 
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 5 content and downloads")
+            st.markdown("**Tip:** Add testing criteria or attach protocol documents to enhance the beta testing guide.")
             with st.form("p5_refine_beta_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
@@ -5217,7 +5342,11 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         nodes=nodes,
                         organization=cond,
                         care_setting=setting,
-                        genai_client=get_genai_client()
+                        genai_client=get_genai_client(),
+                        phase1_data=st.session_state.data.get('phase1', {}),
+                        phase2_data=st.session_state.data.get('phase2', {}),
+                        phase3_data=st.session_state.data.get('phase3', {}),
+                        phase4_data=st.session_state.data.get('phase4', {})
                     )
                     st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
                     st.success("Refined!")
@@ -5242,15 +5371,22 @@ elif "Operationalize" in phase or "Deploy" in phase:
         if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
             st.session_state["p5_aud_edu"] = aud_edu
             st.session_state["p5_aud_edu_prev"] = aud_edu
-            with st.spinner("Generating education module..."):
-                edu_html = generate_education_module_html(
-                    condition=cond,
-                    nodes=nodes,
-                    target_audience=aud_edu,
-                    care_setting=setting,
-                    genai_client=get_genai_client()
-                )
-                st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
+            with st.spinner("Generating education module (this may take a moment if API is busy)..."):
+                try:
+                    edu_html = generate_education_module_html(
+                        condition=cond,
+                        nodes=nodes,
+                        target_audience=aud_edu,
+                        care_setting=setting,
+                        genai_client=get_genai_client()
+                    )
+                    st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
+                        st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
+                    else:
+                        st.error(f"Error generating education module: {str(e)[:200]}")
         
         # Download centered
         if st.session_state.data['phase5'].get('edu_html'):
@@ -5267,7 +5403,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
 
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 5 content and downloads")
+            st.markdown("**Tip:** Add learning objectives or attach training materials to enhance the education module.")
             with st.form("p5_refine_edu_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
@@ -5437,65 +5573,65 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 "time_minutes": 5
                             }]
                     
-                        refined_html = generate_education_module_html(
-                            condition=cond,
-                            nodes=nodes,
-                            target_audience=st.session_state.get("p5_aud_edu", ""),
-                            care_setting=setting,
-                            genai_client=get_genai_client()
-                        )
-                        st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
+                        try:
+                            refined_html = generate_education_module_html(
+                                condition=cond,
+                                nodes=nodes,
+                                target_audience=st.session_state.get("p5_aud_edu", ""),
+                                care_setting=setting,
+                                genai_client=get_genai_client()
+                            )
+                            st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
+                            st.success("Refined!")
+                        except Exception as e:
+                            error_msg = str(e).lower()
+                            if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
+                                st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
+                            else:
+                                st.error(f"Error: {str(e)[:200]}")
                     else:
                         st.warning("Please generate the education module first before refining.")
-            st.success("Refined!")
     
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
     with col4:
         st.markdown(f"<h3>{deliverables['executive']}</h3>", unsafe_allow_html=True)
         
-        aud_exec = st.text_input(
-            "Target Audience",
-            value=st.session_state.get("p5_aud_exec", ""),
-            placeholder="e.g., Hospital Leadership, Board Members",
-            key="p5_aud_exec_input"
-        )
+        # Auto-generate executive summary if not already done
+        if not st.session_state.data['phase5'].get('exec_summary'):
+            st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}"
         
-        # Auto-generate on input change
-        if aud_exec and aud_exec != st.session_state.get("p5_aud_exec_prev", ""):
-            st.session_state["p5_aud_exec"] = aud_exec
-            st.session_state["p5_aud_exec_prev"] = aud_exec
-            with st.spinner("Generating summary..."):
-                exec_summary = f"Executive Summary for {cond} - Prepared for {aud_exec}"
-                st.session_state.data['phase5']['exec_summary'] = exec_summary
-        
-        # Download centered
+        # Download centered - always show if we have pathway data
         if st.session_state.data['phase5'].get('exec_summary'):
-            # Pass session data, condition, and target audience per function signature
-            docx_bytes = create_phase5_executive_summary_docx(
-                data=st.session_state.data,
-                condition=cond,
-                target_audience=aud_exec,
-                genai_client=get_genai_client()
-            )
-            dl_l, dl_c, dl_r = st.columns([1,2,1])
-            with dl_c:
-                st.download_button(
-                    "Download (.docx)",
-                    docx_bytes,
-                    f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    
+            try:
+                docx_bytes = create_phase5_executive_summary_docx(
+                    data=st.session_state.data,
+                    condition=cond,
+                    genai_client=get_genai_client()
                 )
+                dl_l, dl_c, dl_r = st.columns([1,2,1])
+                with dl_c:
+                    st.download_button(
+                        "Download (.docx)",
+                        docx_bytes,
+                        f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+            except Exception as e:
+                error_msg = str(e).lower()
+                if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
+                    st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
+                else:
+                    st.error(f"Error generating summary: {str(e)[:100]}")
         
         # Refine & Regenerate section for Executive Summary
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 5 content and downloads")
+            st.markdown("**Tip:** Add strategic context or attach supporting documents to enhance the executive summary.")
             with st.form("p5_refine_exec_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
                     st.text_area(
                         "Refinement Notes",
-                        placeholder="Emphasize ROI and cost-benefit; highlight key metrics and outcomes; focus on strategic alignment",
+                        placeholder="Emphasize ROI; highlight key metrics; focus on strategic alignment",
                         key="p5_refine_exec",
                         height=90,
                         label_visibility="visible"
@@ -5520,13 +5656,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
             if submitted_exec:
                 refine_exec = st.session_state.get('p5_refine_exec', '').strip()
                 if refine_exec or st.session_state.get("file_p5_exec_review"):
-                    with ai_activity("Refining Executive Summary…"):
+                    with ai_activity("Regenerating Executive Summary…"):
                         refine_with_file = refine_exec
                         if st.session_state.get("file_p5_exec_review"):
                             refine_with_file += f"\n\n**Strategic Context:**\n{st.session_state.get('file_p5_exec_review')}"
-                        refined_summary = f"Executive Summary for {cond} - Prepared for {st.session_state.get('p5_aud_exec', '')}. Strategic Updates: {refine_with_file}"
-                        st.session_state.data['phase5']['exec_summary'] = refined_summary
-                    st.success("Executive Summary auto-regenerated!")
+                        st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}. Notes: {refine_with_file}"
+                    st.success("Executive Summary regenerated!")
                     st.rerun()
                 else:
                     st.warning("Please enter refinement notes or attach supporting documents.")

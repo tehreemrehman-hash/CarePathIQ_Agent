@@ -18,6 +18,28 @@ from difflib import SequenceMatcher
 # ==========================================
 
 
+def extract_json_from_response(text: str) -> str:
+    """Extract JSON content from LLM response, handling markdown code blocks."""
+    if not text:
+        return "[]"
+    # Remove markdown code blocks
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    text = text.strip()
+    # Try to find JSON array or object
+    start_idx = text.find('[')
+    if start_idx == -1:
+        start_idx = text.find('{')
+    if start_idx != -1:
+        text = text[start_idx:]
+    return text
+
+
 def merge_hybrid_intelligently(fc_nodes, gl_nodes):
     """Merge flowchart + guideline nodes without duplicates."""
     merged = []
@@ -689,11 +711,15 @@ def generate_beta_form_html(
     nodes: list,
     organization: str = "CarePathIQ",
     care_setting: str = "",
-    genai_client=None
+    genai_client=None,
+    phase1_data: dict = None,
+    phase2_data: dict = None,
+    phase3_data: dict = None,
+    phase4_data: dict = None
 ) -> str:
     """
     Generate simplified beta testing form focused on:
-    - 3 scenario-based end-to-end pathway tests
+    - 3 scenario-based end-to-end pathway tests (AI-generated using Phase 1-4 context)
     - Nielsen's 10 heuristics evaluation
     - Overall usability feedback
     - CSV export of results
@@ -703,69 +729,168 @@ def generate_beta_form_html(
         nodes: List of pathway nodes (for reference)
         organization: Organization name
         care_setting: Care setting/environment (e.g., "Emergency Department")
-        genai_client: Optional Google Generative AI client (not used)
+        genai_client: Optional Google Generative AI client
+        phase1_data: Phase 1 scope data (problem, objectives, inclusion/exclusion criteria)
+        phase2_data: Phase 2 evidence data (literature, guidelines)
+        phase3_data: Phase 3 decision tree data (nodes, edges)
+        phase4_data: Phase 4 heuristics data (usability insights)
         
     Returns:
         Complete standalone HTML string
     """
 
-    def build_beta_test_scenarios(condition: str, nodes: list, care_setting: str, genai_client=None):
-        """Create three concise test scenarios using LLM context with safe fallback."""
-        default_scenarios = [
-            {
-                "title": "Low-Risk Discharge",
-                "vignette": "45M, pleuritic chest pain after URI, normal ECG, hs-trop <99th at 0/1h, HEAR 1.",
-                "tasks": [
-                    "Apply pathway criteria for low-risk presentation",
-                    "Choose appropriate workup and confirm no escalation needed",
-                    "Select correct disposition: discharge with NSAID + PCP follow-up",
-                ],
-                "success_criteria": "Did the pathway reach the intended discharge branch?",
-                "notes_placeholder": "Describe any mismatch between vignette and end-node...",
-            },
-            {
-                "title": "Moderate-Risk Observation",
-                "vignette": "62F, substernal pressure, HTN/HLD, ECG non-ischemic, borderline hs-trop rise, HEART 5.",
-                "tasks": [
-                    "Follow the moderate-risk / observation branch",
-                    "Confirm serial testing or CTA pathway is selected",
-                    "Select correct disposition: observation/telemetry pending testing",
-                ],
-                "success_criteria": "Did the pathway reach the observation/admit branch?",
-                "notes_placeholder": "Where did branching feel unclear or incorrect?",
-            },
-            {
-                "title": "High-Risk Escalation",
-                "vignette": "58M, diaphoresis, ECG with new ST depressions, elevated troponin.",
-                "tasks": [
-                    "Trigger the high-risk branch and required meds",
-                    "Confirm escalation to cath lab/inpatient cardiology",
-                    "Verify no pathway steps block time-sensitive care",
-                ],
-                "success_criteria": "Did the pathway reach escalation / cath lab branch?",
-                "notes_placeholder": "Note any delays or wrong routing for high-risk cases...",
-            },
-        ]
+    def build_beta_test_scenarios(condition: str, nodes: list, care_setting: str, genai_client=None, 
+                                     phase1_data=None, phase2_data=None, phase3_data=None, phase4_data=None):
+        """Create three concise test scenarios using LLM context from Phase 1-4 with safe fallback."""
+        # Build context-aware default scenarios based on condition/setting
+        cond_lower = (condition or "").lower()
+        setting_lower = (care_setting or "").lower()
+        
+        # Dynamically generate default scenarios based on condition type
+        if "syncope" in cond_lower:
+            default_scenarios = [
+                {
+                    "title": "Low-Risk Syncope Discharge",
+                    "vignette": f"32F, vasovagal episode after prolonged standing in {care_setting or 'clinic'}, no prodrome, normal ECG, no cardiac history, San Francisco Rule negative.",
+                    "tasks": [
+                        "Apply pathway risk stratification criteria",
+                        "Confirm low-risk features per pathway algorithm",
+                        "Select discharge with PCP follow-up per pathway",
+                    ],
+                    "success_criteria": "Did the pathway correctly identify low-risk and reach discharge?",
+                    "notes_placeholder": "Note any unclear risk stratification steps...",
+                },
+                {
+                    "title": "Intermediate-Risk Workup",
+                    "vignette": f"58M, syncope during exertion in {care_setting or 'ED'}, HTN, borderline ECG, no witnessed seizure activity.",
+                    "tasks": [
+                        "Follow intermediate risk branch per pathway",
+                        "Confirm appropriate workup (echo, telemetry) selected",
+                        "Verify observation vs admission decision pathway",
+                    ],
+                    "success_criteria": "Did the pathway reach appropriate observation/workup?",
+                    "notes_placeholder": "Document if any branch points were ambiguous...",
+                },
+                {
+                    "title": "High-Risk Cardiac Syncope",
+                    "vignette": f"72M, syncope with chest pain in {care_setting or 'ED'}, known CAD, new LBBB on ECG, family hx sudden death.",
+                    "tasks": [
+                        "Trigger high-risk/cardiac pathway branch",
+                        "Confirm cardiology consult pathway activated",
+                        "Verify admission pathway with appropriate monitoring",
+                    ],
+                    "success_criteria": "Did the pathway escalate to cardiology/admission?",
+                    "notes_placeholder": "Note any delays in high-risk identification...",
+                },
+            ]
+        else:
+            # Generic scenarios that adapt to condition/setting
+            default_scenarios = [
+                {
+                    "title": f"Low-Risk {condition} - Standard Management",
+                    "vignette": f"Patient with uncomplicated {condition.lower()} presentation in {care_setting or 'care setting'}, no red flags, stable vitals.",
+                    "tasks": [
+                        f"Apply pathway criteria for low-risk {condition.lower()}",
+                        "Confirm standard workup per pathway algorithm",
+                        "Select appropriate disposition per pathway",
+                    ],
+                    "success_criteria": f"Did the pathway reach the standard {condition.lower()} management branch?",
+                    "notes_placeholder": "Describe any mismatch between scenario and pathway...",
+                },
+                {
+                    "title": f"Moderate Complexity {condition}",
+                    "vignette": f"Patient with {condition.lower()} in {care_setting or 'care setting'} with comorbidities requiring additional workup.",
+                    "tasks": [
+                        "Follow moderate complexity branch per pathway",
+                        "Confirm additional testing/consultation selected",
+                        "Verify appropriate level of care determination",
+                    ],
+                    "success_criteria": "Did the pathway appropriately escalate workup?",
+                    "notes_placeholder": "Note where decision points were unclear...",
+                },
+                {
+                    "title": f"High-Acuity {condition} - Escalation",
+                    "vignette": f"Patient with severe {condition.lower()} in {care_setting or 'care setting'}, red flag features requiring urgent intervention.",
+                    "tasks": [
+                        "Trigger high-acuity pathway branch",
+                        "Confirm urgent intervention/consultation pathway",
+                        "Verify no pathway steps delay time-sensitive care",
+                    ],
+                    "success_criteria": "Did the pathway reach urgent escalation?",
+                    "notes_placeholder": "Note any barriers to rapid escalation...",
+                },
+            ]
 
         if not genai_client:
             return default_scenarios
 
+        # Build rich context from Phase 1-4 data
+        p1 = phase1_data or {}
+        p2 = phase2_data or {}
+        p3 = phase3_data or {}
+        p4 = phase4_data or {}
+        
+        # Phase 1 context: scope, problem, objectives, inclusion/exclusion
+        problem_stmt = p1.get('problem', '')
+        objectives = p1.get('objectives', '')
+        inclusion = p1.get('inclusion', '')
+        exclusion = p1.get('exclusion', '')
+        
+        # Phase 2 context: evidence summaries
+        evidence_summary = ""
+        if p2.get('pubmed_abstracts'):
+            evidence_summary = f"Evidence base includes {len(p2.get('pubmed_abstracts', []))} PubMed articles reviewed."
+        
+        # Phase 3 context: pathway nodes
         node_labels = [n.get("label", "") for n in (nodes or []) if n.get("label")]
-        condensed_nodes = ", ".join(node_labels[:12])
-        prompt = f"""You are building beta-testing scenarios for a clinical pathway.
-Pathway: {condition}
-Setting: {care_setting or 'general care'}
-Key steps: {condensed_nodes or 'Use common pathway steps'}
+        node_types = [n.get("type", "") for n in (nodes or []) if n.get("type")]
+        decision_nodes = [n.get("label", "") for n in (nodes or []) if n.get("type") == "Decision"]
+        endpoint_nodes = [n.get("label", "") for n in (nodes or []) if n.get("type") == "End"]
+        
+        # Phase 4 context: heuristics insights
+        heuristics_summary = ""
+        if p4.get('heuristics_data'):
+            heuristics_summary = "Usability evaluation completed in Phase 4."
+        
+        # Build comprehensive prompt
+        prompt = f"""You are building beta-testing scenarios for a clinical decision pathway.
 
-Create 3 concise end-to-end test cases for pathway validation. Return JSON array with 3 items only:
+## PATHWAY CONTEXT
+- **Clinical Condition:** {condition}
+- **Care Setting:** {care_setting or 'general care'}
+- **Problem Statement:** {problem_stmt or 'Clinical pathway for ' + condition}
+- **Objectives:** {objectives or 'Standardize clinical decision-making'}
+
+## PATIENT POPULATION
+- **Inclusion Criteria:** {inclusion or 'Patients presenting with ' + condition}
+- **Exclusion Criteria:** {exclusion or 'None specified'}
+
+## PATHWAY STRUCTURE
+- **Key Decision Points:** {', '.join(decision_nodes[:6]) if decision_nodes else 'Multiple clinical decision points'}
+- **Pathway Endpoints:** {', '.join(endpoint_nodes[:4]) if endpoint_nodes else 'Various disposition outcomes'}
+- **Key Steps:** {', '.join(node_labels[:10]) if node_labels else 'Standard pathway workflow'}
+
+{evidence_summary}
+{heuristics_summary}
+
+## TASK
+Create exactly 3 realistic end-to-end test scenarios that:
+1. Cover LOW, MODERATE, and HIGH acuity/complexity presentations for {condition}
+2. Use clinical terminology appropriate for {care_setting or 'the care setting'}
+3. Include realistic patient demographics and clinical details
+4. Reference specific pathway decision points and endpoints
+5. Test the full pathway from entry to disposition
+
+Return ONLY a JSON array with exactly 3 items:
 [{{
-  "title": "Short scenario title",
-  "vignette": "45 words max, realistic clinical vignette",
-  "tasks": ["3 clear actions for the tester"],
-  "success_criteria": "One sentence describing correct end-state to verify",
-  "notes_placeholder": "Short guidance for what to log if something breaks"
+  "title": "Brief descriptive title (e.g., 'Low-Risk Outpatient Management')",
+  "vignette": "50 words max - realistic clinical scenario with age, sex, presenting symptoms, relevant history, vitals/labs appropriate for {care_setting}",
+  "tasks": ["3 specific pathway navigation actions the tester should perform"],
+  "success_criteria": "One sentence: what pathway endpoint should be reached?",
+  "notes_placeholder": "Short guidance for documenting issues"
 }}]
-Keep language clinical and precise."""
+
+Make scenarios specific to {condition} in {care_setting or 'the care setting'}. Use realistic clinical values and terminology."""
 
         try:
             response = genai_client.models.generate_content(
@@ -808,7 +933,10 @@ Keep language clinical and precise."""
     pathway_button_html = ""
     pathway_script = ""
     
-    scenarios = build_beta_test_scenarios(condition_clean, nodes or [], care_setting_clean, genai_client)
+    scenarios = build_beta_test_scenarios(
+        condition_clean, nodes or [], care_setting_clean, genai_client,
+        phase1_data, phase2_data, phase3_data, phase4_data
+    )
     scenario_blocks = []
     for idx, scenario in enumerate(scenarios, start=1):
         slug = re.sub(r'[^a-z0-9]+', '-', scenario.get("title", f"scenario-{idx}").lower()).strip('-') or f"scenario-{idx}"
@@ -879,7 +1007,6 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <div class="header">
 <h1>Beta Testing Guide</h1>
 <p style="margin-top:8px;font-size:1.1em">{pathway_title}</p>
-<p style="font-size:0.9em;margin-top:5px">Organization: {organization} • Scenarios auto-generated with LLM context from the current pathway.</p>
 {pathway_button_html}
 </div>
 
@@ -1028,6 +1155,44 @@ function downloadCSV() {{
     return html
 
 
+def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 3):
+    """
+    Call Gemini API with exponential backoff retry for rate limits.
+    
+    Args:
+        genai_client: Google Generative AI client
+        prompt: The prompt to send
+        model: Model to use
+        max_retries: Maximum retry attempts
+        
+    Returns:
+        API response text
+        
+    Raises:
+        Exception: If all retries fail
+    """
+    import time as time_module
+    
+    for attempt in range(max_retries):
+        try:
+            response = genai_client.models.generate_content(
+                model=model,
+                contents=prompt
+            )
+            return response.text
+        except Exception as e:
+            error_str = str(e).lower()
+            # Check if it's a rate limit error
+            if '429' in str(e) or 'resource_exhausted' in error_str or 'quota' in error_str:
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 15s, 30s, 60s
+                    wait_time = 15 * (2 ** attempt)
+                    time_module.sleep(wait_time)
+                    continue
+            raise e
+    raise Exception("Max retries exceeded for Gemini API call")
+
+
 def generate_education_module_html(
     condition: str,
     nodes: list = None,
@@ -1090,42 +1255,73 @@ KEY CLINICAL ACTIONS ({len(process_nodes)}):
 {chr(10).join(['- ' + p for p in process_nodes[:12]])}
 """
     
-    # Generate learning objectives using AI - AUDIENCE-SPECIFIC
-    objectives_prompt = f"""You are a clinical educator creating learning objectives for **{audience_clean}** about {condition_clean} management in {care_setting_clean}.
+    # === SINGLE CONSOLIDATED API CALL ===
+    # Generate all education content in ONE call to minimize API usage and avoid rate limits
+    consolidated_prompt = f"""You are a clinical educator creating a comprehensive education module for **{audience_clean}** about {condition_clean} management in {care_setting_clean}.
 
-TARGET AUDIENCE PROFILE - {audience_clean}:
-- Tailor complexity and terminology to this specific role
-- If residents/trainees: focus on clinical reasoning and decision-making skills
-- If nursing staff: emphasize assessment, recognition, escalation, and care coordination
-- If attendings/physicians: focus on evidence synthesis, risk stratification, and management decisions
-- If pharmacists: emphasize medication selection, dosing, interactions, monitoring
-- If allied health: focus on their specific scope and handoff communication
+TARGET AUDIENCE: {audience_clean}
+- Tailor content complexity and terminology to this specific role
+- Residents/trainees: clinical reasoning and decision-making
+- Nursing staff: assessment, recognition, escalation, care coordination
+- Physicians: evidence synthesis, risk stratification, management
+- Pharmacists: medication selection, dosing, interactions
 
 PATHWAY CONTEXT:
 {nodes_context}
 
-Generate EXACTLY 4 specific, measurable learning objectives using Bloom's taxonomy action verbs.
+Generate ALL of the following in a SINGLE JSON response:
 
-FORMAT: Return ONLY a JSON array of 4 strings.
+{{
+  "learning_objectives": [
+    "4 specific, measurable learning objectives using Bloom's taxonomy verbs",
+    "Each references actual pathway decision points/criteria",
+    "Appropriate for {audience_clean} knowledge level",
+    "Include action verbs: apply, differentiate, evaluate, demonstrate"
+  ],
+  "teaching_points": [
+    "Paragraph 1: Initial Recognition & Assessment - red flags, vital sign thresholds, key history elements",
+    "Paragraph 2: Risk Stratification - specific scoring tools, cutoffs, application",
+    "Paragraph 3: Diagnostic Workup - tests to order, sequence, interpretation pearls",
+    "Paragraph 4: Treatment Protocols - medications with doses, timing, contraindications",
+    "Paragraph 5: Disposition & Follow-up - admission criteria, discharge requirements"
+  ],
+  "quiz_questions": [
+    {{
+      "question": "Clinical scenario question with specific patient details",
+      "options": ["A) Option", "B) Option", "C) Option", "D) Option"],
+      "correct": "B",
+      "explanation": "3-5 sentence explanation with pathway criteria, why correct, why others wrong, clinical pearl"
+    }}
+  ]
+}}
 
 REQUIREMENTS:
-1. Each objective MUST be specific to what {audience_clean} needs to know and do
-2. Use clinical terminology from the actual pathway nodes above
-3. Include measurable outcomes (identify, apply, evaluate, demonstrate, calculate, differentiate, recognize, prioritize)
-4. Reference SPECIFIC decision points, scores, thresholds, or interventions from the pathway
-5. Write at the appropriate level for {audience_clean}
+- learning_objectives: EXACTLY 4 strings, specific to {condition_clean} and {audience_clean}
+- teaching_points: EXACTLY 5 detailed paragraphs (3-4 sentences each) with clinical specifics
+- quiz_questions: EXACTLY 5 questions covering: assessment, risk stratification, diagnostics, treatment, disposition
+- All content must reference ACTUAL pathway nodes and clinical criteria
+- Quiz explanations must be detailed and educational (not brief)
 
-EXAMPLE for Emergency Medicine Residents learning Chest Pain pathway:
-["Apply the HEART score criteria to risk-stratify patients with undifferentiated chest pain and determine appropriate disposition", "Differentiate between STEMI, NSTEMI, and unstable angina presentations using ECG findings and troponin trends", "Evaluate contraindications to anticoagulation and select appropriate agents based on patient-specific factors", "Demonstrate appropriate escalation to cardiology consultation based on pathway-defined high-risk criteria"]"""
+Return ONLY valid JSON."""
 
-    obj_response = genai_client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=objectives_prompt
-    )
-    json_match = re.search(r'\[.*\]', obj_response.text, re.DOTALL)
+    # Single API call for all content
+    response_text = _call_genai_with_retry(genai_client, consolidated_prompt, model="gemini-2.0-flash")
+    
+    # Parse the consolidated response
+    json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
     if json_match:
-        learning_objectives = json.loads(json_match.group())[:4]
+        try:
+            content = json.loads(json_match.group())
+            learning_objectives = content.get('learning_objectives', [])[:4]
+            teaching_points = content.get('teaching_points', [])[:5]
+            questions = content.get('quiz_questions', [])[:5]
+        except json.JSONDecodeError:
+            raise ValueError("Failed to parse AI response. Please try again.")
     else:
+        raise ValueError("Failed to generate education content. Please try again.")
+    
+    # Validate we got enough content
+    if len(learning_objectives) < 2:
         learning_objectives = [
             f"Apply evidence-based assessment criteria for {condition_clean}",
             f"Utilize pathway decision points to guide clinical management in {care_setting_clean}",
@@ -1133,94 +1329,10 @@ EXAMPLE for Emergency Medicine Residents learning Chest Pain pathway:
             "Integrate pathway protocols into clinical workflow"
         ]
     
-    # Generate detailed teaching points using AI - AUDIENCE-SPECIFIC
-    teaching_prompt = f"""You are a clinical educator creating KEY TEACHING CONTENT for **{audience_clean}** about {condition_clean} management in {care_setting_clean}.
-
-TARGET AUDIENCE: {audience_clean}
-- Write at the appropriate knowledge level for this role
-- Emphasize what THIS role specifically needs to know and do
-- Use terminology and examples relevant to their daily workflow
-
-PATHWAY CONTEXT:
-{nodes_context}
-
-Create EXACTLY 5 detailed teaching points as complete paragraphs (3-4 sentences each).
-
-STRUCTURE:
-1. **Initial Recognition & Assessment**: Red flags, vital sign thresholds, history elements specific to this pathway
-2. **Risk Stratification**: Specific scoring tools, cutoffs, and how to apply them
-3. **Diagnostic Workup**: What tests to order, in what sequence, and interpretation pearls
-4. **Treatment Protocols**: Specific medications with doses, timing, contraindications from the pathway
-5. **Disposition & Follow-up**: Admission criteria, discharge requirements, follow-up timing
-
-REQUIREMENTS:
-- Extract SPECIFIC clinical details from the pathway nodes (scores, thresholds, drug names, doses)
-- Each paragraph must teach something actionable for {audience_clean}
-- Include clinical pearls and common pitfalls relevant to this pathway
-- Be detailed enough that someone could apply this knowledge clinically
-
-Return ONLY a JSON array of 5 strings (each string is one teaching paragraph)."""
-
-    teach_response = genai_client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=teaching_prompt
-    )
-    json_match = re.search(r'\[.*\]', teach_response.text, re.DOTALL)
-    if json_match:
-        teaching_points = json.loads(json_match.group())
-    else:
+    if len(teaching_points) < 1:
         teaching_points = [f"This pathway guides {condition_clean} management for {audience_clean} in {care_setting_clean}, covering assessment, treatment, and disposition decisions."]
     
-    # Generate clinically accurate quiz questions using AI - DETAILED EXPLANATIONS
-    quiz_prompt = f"""You are a clinical educator creating ASSESSMENT QUESTIONS for **{audience_clean}** learning about {condition_clean} pathway in {care_setting_clean}.
-
-TARGET AUDIENCE: {audience_clean}
-- Questions should test knowledge relevant to THIS role's responsibilities
-- Scenarios should reflect situations {audience_clean} would actually encounter
-
-PATHWAY CONTEXT:
-{nodes_context}
-
-Generate EXACTLY 5 multiple choice questions testing understanding of this pathway.
-
-QUESTION REQUIREMENTS:
-- Each question presents a realistic clinical scenario with specific patient details (age, vitals, presentation)
-- Scenarios must reference actual decision points, scores, or thresholds from the pathway
-- All 4 options must be clinically plausible (no obviously wrong answers)
-- Questions progress from basic assessment to complex management decisions
-
-EXPLANATION REQUIREMENTS (CRITICAL - make explanations DETAILED and EDUCATIONAL):
-- Explain WHY the correct answer is right with specific clinical reasoning
-- Reference the specific pathway criteria, score cutoffs, or evidence that supports this answer
-- Briefly explain why each wrong answer is incorrect or suboptimal
-- Include a clinical pearl or teaching point
-- Explanations should be 3-5 sentences, not brief
-
-Return ONLY a valid JSON array:
-[
-  {{
-    "question": "A [age/gender] patient presents to {care_setting_clean} with [specific scenario]. Vital signs show [specifics]. Based on the {condition_clean} pathway, what is the most appropriate next step?",
-    "options": ["A) Specific clinical action", "B) Another plausible action", "C) Third reasonable option", "D) Fourth consideration"],
-    "correct": "B",
-    "explanation": "According to the pathway, [detailed reasoning with specific criteria]. The patient meets criteria for [X] because [specific factors]. Option A is incorrect because [reason]. Option C would be appropriate if [different scenario]. Option D is not indicated because [reason]. Clinical pearl: [actionable teaching point]."
-  }}
-]
-
-QUESTION TOPICS (one each):
-Q1: Initial assessment - recognizing key findings that trigger pathway entry
-Q2: Risk stratification - applying a specific score or criteria from the pathway
-Q3: Diagnostic approach - selecting appropriate tests based on risk level
-Q4: Treatment decision - choosing intervention based on pathway criteria
-Q5: Disposition - determining appropriate level of care or follow-up"""
-
-    quiz_response = genai_client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=quiz_prompt
-    )
-    json_match = re.search(r'\[.*\]', quiz_response.text, re.DOTALL)
-    if json_match:
-        questions = json.loads(json_match.group())[:5]
-    else:
+    if len(questions) < 1:
         raise ValueError("Failed to generate quiz questions. Please try again.")
     
     # Build teaching points HTML
@@ -2156,16 +2268,15 @@ Return ONLY valid JSON, no other text."""
     return metadata
 
 
-def create_phase5_executive_summary_docx(data: dict, condition: str, target_audience: str = "", genai_client=None):
+def create_phase5_executive_summary_docx(data: dict, condition: str, genai_client=None):
     """
-    Create a Word document executive summary for Phase 5 with audience-adaptive content.
-    Requires python-docx to be installed.
+    Create a professional Word document executive summary for Phase 5.
+    Designed for C-suite and leadership audiences with formal business language.
     
     Args:
-        data: Session data with phase1, phase2, phase3 info
+        data: Session data with phase1, phase2, phase3, phase4, phase5 info
         condition: Clinical condition name
-        target_audience: Free-text target audience description for LLM-based inference
-        genai_client: Optional Google Generative AI client for audience inference
+        genai_client: Optional Google Generative AI client for content generation
         
     Returns:
         BytesIO buffer with .docx content, or None if python-docx unavailable
@@ -2177,356 +2288,166 @@ def create_phase5_executive_summary_docx(data: dict, condition: str, target_audi
         
         doc = Document()
 
-        # Pull structured data once for clarity
+        # Pull structured data
         p1_data = data.get('phase1', {})
         p2_data = data.get('phase2', {})
         p3_data = data.get('phase3', {})
         p4_data = data.get('phase4', {})
         p5_data = data.get('phase5', {})
-        
-        # Infer audience focus from target audience text
-        audience_metadata = infer_audience_from_description(target_audience, genai_client)
-        is_executive = audience_metadata.get('strategic_focus', False)
-        is_operational = audience_metadata.get('operational_focus', False)
-        detail_level = audience_metadata.get('detail_level', 'moderate')
-        emphasis_areas = audience_metadata.get('emphasis_areas', [])
 
-        # Extract Phase 1 data early for SMART objectives
+        # Extract Phase 1 data
         setting_text = p1_data.get('setting', '')
-        population = p1_data.get('population', 'N/A') or 'N/A'
-        problem_text = p1_data.get('problem', 'Not provided')
-        objectives_text = p1_data.get('objectives', 'Not provided')
+        problem_text = p1_data.get('problem', 'Clinical standardization opportunity identified')
+        objectives_text = p1_data.get('objectives', 'Improve clinical outcomes through evidence-based pathway implementation')
+        
+        # Get evidence and pathway data
+        evidence = p2_data.get('evidence', [])
+        nodes = p3_data.get('nodes', [])
 
-        # Build SMART objectives scaffold from Phase 1 objectives text
-        smart_source = objectives_text if objectives_text and objectives_text != 'Not provided' else "Clarify objectives in Phase 1 to align with SMART criteria."
-        smart_objectives = [
-            f"Specific: {smart_source}",
-            "Measurable: Define baseline and target metrics (safety events, LOS, throughput, readmissions).",
-            "Achievable: Resource plan and staffing validated through stakeholder review.",
-            "Relevant: Aligned to organizational quality, safety, and access priorities.",
-            "Time-bound: Go-live timeline with 30/60/90 day checkpoints and quarterly reviews."
-        ]
-
-        # Phase status snapshot for quick exec visibility
-        phase_inputs = [
-            "Phase 1 Charter captured" if p1_data else "Phase 1 Charter pending",
-            f"Phase 2 Evidence items: {len(p2_data.get('evidence', []))}" if p2_data.get('evidence') else "Phase 2 Evidence pending",
-            f"Phase 3 Pathway nodes: {len(p3_data.get('nodes', []))}" if p3_data.get('nodes') else "Phase 3 Pathway design pending",
-            "Phase 4 Usability: completed" if p4_data.get('heuristics_data') else "Phase 4 Usability review pending"
-        ]
-
-        # Title reflects clinical condition and care setting
+        # Title
         setting_suffix = f" - {setting_text}" if setting_text else ""
         title = doc.add_heading(f"Executive Summary: {condition}{setting_suffix}", 0)
-        title_format = title.paragraph_format
-        title_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        # AUDIENCE-ADAPTIVE CONTENT STRUCTURE
-        # Note: Target audience is used to TAILOR content, not displayed in the document
-        
-        # Get audience priorities for tailoring
-        priorities = audience_metadata.get('priorities', [])
-        tone = audience_metadata.get('tone', 'professional')
-        
-        # Generate AI-tailored content sections if genai_client available
+        # Generate AI content in one call if available
         ai_content = {}
         if genai_client:
             try:
-                evidence = p2_data.get('evidence', [])
-                nodes = p3_data.get('nodes', [])
+                evidence_summary = f"{len(evidence)} evidence items reviewed" if evidence else "evidence synthesis pending"
+                nodes_summary = f"{len(nodes)} clinical decision points" if nodes else "pathway structure pending"
                 
-                # Build context for AI
-                evidence_summary = f"{len(evidence)} evidence items" if evidence else "evidence pending"
-                nodes_summary = f"{len(nodes)} pathway nodes" if nodes else "pathway design pending"
-                
-                # Generate tailored executive summary content
-                summary_prompt = f"""Generate a professional executive summary for a clinical pathway project.
+                prompt = f"""Generate a professional executive summary for hospital leadership about a clinical pathway project.
 
-PROJECT CONTEXT:
+PROJECT DETAILS:
 - Clinical Condition: {condition}
 - Care Setting: {setting_text or 'healthcare setting'}
 - Problem Statement: {problem_text}
 - Project Objectives: {objectives_text}
 - Evidence Base: {evidence_summary}
 - Pathway Structure: {nodes_summary}
-- Phase 4 Usability: {'completed' if p4_data.get('heuristics_data') else 'pending'}
-- Expert Panel: {'completed' if p5_data.get('expert_html') else 'pending'}
-- Beta Testing: {'completed' if p5_data.get('beta_html') else 'pending'}
+- Usability Testing: {'completed' if p4_data.get('heuristics_data') else 'planned'}
+- Expert Panel Review: {'completed' if p5_data.get('expert_html') else 'planned'}
+- Beta Testing: {'completed' if p5_data.get('beta_html') else 'planned'}
 
-TARGET AUDIENCE PRIORITIES: {', '.join(priorities) if priorities else 'general stakeholders'}
-TONE: {tone}
-
-Generate a JSON object with these sections (each section should be 2-3 professional paragraphs):
+Generate a JSON object with these sections (2-3 sentences each, formal executive tone):
 
 {{
-  "executive_overview": "Opening paragraph establishing the pathway's strategic value and scope...",
+  "executive_overview": "Strategic value and scope of this {condition} pathway initiative...",
   "strategic_rationale": "Why this pathway matters - problem, opportunity, organizational alignment...",
-  "evidence_foundation": "Summary of evidence quality and clinical rigor supporting the pathway...",
-  "value_proposition": "Expected outcomes - quality, safety, efficiency, financial impact...",
-  "implementation_readiness": "Current status, validation completed, stakeholder engagement...",
-  "success_metrics": "How success will be measured - specific metrics aligned to objectives...",
-  "recommended_actions": "Clear asks for leadership - approvals, resources, next steps..."
+  "evidence_foundation": "Quality and rigor of the evidence base supporting recommendations...",
+  "value_proposition": "Expected ROI - quality, safety, efficiency, and financial impact...",
+  "implementation_readiness": "Current validation status and stakeholder engagement...",
+  "success_metrics": "How success will be measured with specific KPIs...",
+  "recommended_actions": "Clear asks for leadership approval and resource allocation..."
 }}
 
 REQUIREMENTS:
-- Write in formal, {tone} language appropriate for the target audience
-- Emphasize: {', '.join(priorities) if priorities else 'project success and patient outcomes'}
-- Be specific to {condition} management, not generic healthcare language
-- Each section should be substantive (2-3 sentences minimum)
-- Do NOT include audience name or "prepared for" statements
+- Write in formal C-suite business language
+- Focus on strategic value, ROI, risk mitigation, quality outcomes
+- Be specific to {condition}, avoid generic healthcare language
+- Each section: 2-3 substantive sentences
 
 Return ONLY valid JSON."""
-                
-                response = genai_client.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=summary_prompt
-                )
-                json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+
+                response_text = _call_genai_with_retry(genai_client, prompt)
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     ai_content = json.loads(json_match.group())
             except Exception:
                 pass
         
-        if is_executive:
-            # === EXECUTIVE SUMMARY (C-SUITE FOCUS) - NARRATIVE PROSE ===
-            doc.add_heading("Executive Overview", level=1)
-            
-            evidence = p2_data.get('evidence', [])
-            nodes = p3_data.get('nodes', [])
-            
-            # Use AI-generated content if available, otherwise use template
-            if ai_content.get('executive_overview'):
-                doc.add_paragraph(ai_content['executive_overview'])
-            else:
-                doc.add_paragraph(
-                    f"This executive summary presents a comprehensive clinical decision pathway for {condition} management "
-                    f"in {setting_text or 'the clinical setting'}. The pathway represents a strategic initiative to standardize "
-                    f"care delivery, improve patient outcomes, and optimize resource utilization through evidence-based clinical "
-                    f"decision-making. Built on a foundation of {len(evidence)} peer-reviewed evidence sources and structured "
-                    f"across {len(nodes)} decision points, this pathway addresses a critical opportunity to reduce practice variation "
-                    f"while enhancing both clinical quality and operational efficiency."
-                )
-            
-            doc.add_heading("Strategic Rationale", level=1)
-            if ai_content.get('strategic_rationale'):
-                doc.add_paragraph(ai_content['strategic_rationale'])
-            else:
-                doc.add_paragraph(
-                    f"The current state presents significant challenges: {problem_text} This variability not only compromises "
-                    f"patient safety and outcomes but also leads to inefficient resource allocation, extended length of stay, "
-                    f"and increased operational costs. The proposed pathway establishes a systematic, evidence-driven approach "
-                    f"that aligns clinical practice with organizational strategic priorities for quality, safety, and value-based care."
-                )
-            
-            doc.add_heading("Evidence Foundation & Clinical Rigor", level=1)
-            if ai_content.get('evidence_foundation'):
-                doc.add_paragraph(ai_content['evidence_foundation'])
-            elif evidence:
-                grades = {}
-                for e in evidence:
-                    grade = e.get('grade', 'Un-graded')
-                    grades[grade] = grades.get(grade, 0) + 1
-                high_quality = sum(count for grade, count in grades.items() if grade in ['A', 'High', 'Level 1', 'High (A)'])
-                
-                doc.add_paragraph(
-                    f"The pathway integrates current best evidence from {len(evidence)} peer-reviewed publications, with "
-                    f"{high_quality} high-quality systematic reviews and clinical trials providing Level A evidence. This rigorous "
-                    f"evidence base ensures that clinical recommendations reflect the most current understanding of optimal "
-                    f"{condition} management, reducing liability exposure while supporting quality reporting and accreditation standards."
-                )
-            else:
-                doc.add_paragraph(
-                    "The pathway design incorporates current clinical guidelines and evidence-based practices, with structured "
-                    "opportunities for expert review and validation prior to implementation."
-                )
-            
-            doc.add_heading("Value Proposition & Expected Outcomes", level=1)
-            if ai_content.get('value_proposition'):
-                doc.add_paragraph(ai_content['value_proposition'])
-            else:
-                doc.add_paragraph(
-                    f"Implementation of this standardized pathway is projected to deliver measurable value across multiple dimensions. "
-                    f"From a quality perspective, the pathway promotes consistent application of evidence-based interventions, reducing "
-                    f"diagnostic errors and ensuring appropriate escalation of care when indicated. Operationally, standardization "
-                    f"enables more predictable resource utilization, reducing unnecessary testing and procedures while maintaining or "
-                    f"improving clinical outcomes. The pathway also supports workforce development through clear protocols that enhance "
-                    f"staff confidence and competency, particularly valuable for training programs and onboarding new providers."
-                )
-            
-            doc.add_heading("Implementation Readiness", level=1)
-            if ai_content.get('implementation_readiness'):
-                doc.add_paragraph(ai_content['implementation_readiness'])
-            else:
-                usability_status = "completed rigorous usability testing" if p4_data.get('heuristics_data') else "planned comprehensive usability evaluation"
-                expert_status = "completed expert panel review with integrated feedback" if p5_data.get('expert_html') else "scheduled expert panel validation"
-                beta_status = "completed beta testing in the target environment" if p5_data.get('beta_html') else "planned pilot testing"
-                
-                doc.add_paragraph(
-                    f"The pathway has {usability_status}, ensuring alignment with clinical workflow and practitioner needs. "
-                    f"Stakeholder engagement includes {expert_status} and {beta_status}, creating a robust validation process "
-                    f"that mitigates implementation risk. A comprehensive education module has been developed to support staff "
-                    f"onboarding, competency assessment, and ongoing training, ensuring smooth adoption and sustained adherence."
-                )
-            
-            doc.add_heading("Strategic Objectives & Success Metrics", level=1)
-            if ai_content.get('success_metrics'):
-                doc.add_paragraph(ai_content['success_metrics'])
-            else:
-                doc.add_paragraph(
-                    f"The pathway is designed to achieve specific, measurable objectives aligned with organizational priorities: "
-                    f"{objectives_text} Success will be monitored through defined metrics including clinical outcomes (safety events, "
-                    f"readmission rates, diagnostic accuracy), operational efficiency (length of stay, throughput, resource utilization), "
-                    f"and quality measures (adherence rates, patient satisfaction, staff competency). Implementation will proceed in "
-                    f"phases with 30/60/90 day checkpoints and quarterly performance reviews to ensure sustained improvement and "
-                    f"continuous optimization."
-                )
-            
-            doc.add_heading("Recommended Actions", level=1)
-            if ai_content.get('recommended_actions'):
-                doc.add_paragraph(ai_content['recommended_actions'])
-            else:
-                doc.add_paragraph(
-                    f"To advance this initiative, leadership approval is requested for: (1) final pathway validation and sign-off following "
-                    f"expert review and beta testing; (2) allocation of implementation resources including staff education time, system "
-                    f"integration support, and monitoring infrastructure; (3) establishment of a governance structure with defined "
-                    f"accountability for pathway oversight, performance tracking, and continuous improvement; and (4) authorization to "
-                    f"proceed with go-live planning, including communication strategy, training rollout, and performance dashboard "
-                    f"deployment. These actions position the organization to deliver evidence-based, high-value care that advances "
-                    f"both clinical excellence and operational sustainability."
-                )
-            
+        # === BUILD DOCUMENT SECTIONS ===
+        
+        doc.add_heading("Executive Overview", level=1)
+        if ai_content.get('executive_overview'):
+            doc.add_paragraph(ai_content['executive_overview'])
         else:
-            # === OPERATIONAL/CLINICAL FOCUS ===
-            doc.add_heading("Project Scope", level=1)
             doc.add_paragraph(
-                f"Clinical pathway for {condition or 'N/A'} in {setting_text or 'care setting not specified'}, focused on {population}."
-            )
-            doc.add_paragraph(f"Problem statement: {problem_text}", style='List Bullet')
-            inclusion = p1_data.get('inclusion', '')
-            exclusion = p1_data.get('exclusion', '')
-            if inclusion:
-                doc.add_paragraph(f"Inclusion criteria: {inclusion}", style='List Bullet 2')
-            if exclusion:
-                doc.add_paragraph(f"Exclusion criteria: {exclusion}", style='List Bullet 2')
-
-            doc.add_heading("Project Goals & Success Measures", level=1)
-            doc.add_paragraph(objectives_text)
-            doc.add_paragraph(
-                "Outcome focus: safer, faster care delivery with clear resource stewardship in the specified care setting.",
-                style='List Bullet'
-            )
-
-            doc.add_heading("SMART Objectives", level=1)
-            for item in smart_objectives:
-                doc.add_paragraph(item, style='List Bullet')
-
-            doc.add_heading("Phase Inputs Synthesized (Phases 1-4)", level=1)
-            for item in phase_inputs:
-                doc.add_paragraph(item, style='List Bullet')
-            
-            # Evidence Summary (operational - detail level determines depth)
-            doc.add_heading("Evidence Summary", level=1)
-            evidence = p2_data.get('evidence', [])
-            if evidence:
-                doc.add_paragraph(f"Total evidence items reviewed: {len(evidence)}")
-                
-                # Grade breakdown
-                grades = {}
-                for e in evidence:
-                    grade = e.get('grade', 'Un-graded')
-                    grades[grade] = grades.get(grade, 0) + 1
-                
-                doc.add_paragraph("Evidence Quality Distribution:", style='List Bullet')
-                for grade, count in sorted(grades.items()):
-                    doc.add_paragraph(f"{grade}: {count} articles", style='List Bullet 2')
-            else:
-                doc.add_paragraph("No evidence reviewed yet")
-            
-            # Pathway Overview
-            doc.add_heading("Pathway Design", level=1)
-            nodes = p3_data.get('nodes', [])
-            
-            if nodes:
-                doc.add_paragraph(f"Total pathway nodes: {len(nodes)}")
-                
-                node_types = {}
-                for node in nodes:
-                    node_type = node.get('type', 'Process')
-                    node_types[node_type] = node_types.get(node_type, 0) + 1
-                
-                doc.add_paragraph("Pathway Node Distribution:", style='List Bullet')
-                for node_type, count in sorted(node_types.items()):
-                    doc.add_paragraph(f"{node_type}: {count}", style='List Bullet 2')
-                
-                # Add node list (always for operational summaries)
-                if detail_level == "detailed":
-                    doc.add_heading("Pathway Nodes", level=2)
-                    table = doc.add_table(rows=1, cols=3)
-                    table.style = 'Table Grid'
-                    hdr_cells = table.rows[0].cells
-                    hdr_cells[0].text = 'ID'
-                    hdr_cells[1].text = 'Node'
-                    hdr_cells[2].text = 'Type'
-                    
-                    for idx, node in enumerate(nodes):
-                        row_cells = table.add_row().cells
-                        row_cells[0].text = f"N{idx + 1}"
-                        row_cells[1].text = node.get('label', 'N/A')
-                        row_cells[2].text = node.get('type', 'N/A')
-            else:
-                doc.add_paragraph("Pathway not yet designed")
-            
-            # Usability Assessment
-            doc.add_heading("Usability Assessment", level=1)
-            heuristics = p4_data.get('heuristics_data', {})
-            
-            if heuristics:
-                doc.add_paragraph("Nielsen Heuristics Review Completed", style='List Bullet')
-                doc.add_paragraph(f"Total heuristics evaluated: {len(heuristics)}", style='List Bullet 2')
-            else:
-                doc.add_paragraph("Usability assessment pending")
-
-            # Co-design, validation, and education
-            doc.add_heading("Co-Design, Testing, and Education", level=1)
-            expert_status = (
-                "Expert panel feedback captured via structured review and integrated into the pathway." if p5_data.get('expert_html')
-                else "Expert panel review planned using structured feedback form; integrate findings into the pathway."
-            )
-            beta_status = (
-                "Beta testing completed with target users; updates folded into the current pathway version." if p5_data.get('beta_html')
-                else "Beta testing planned in the target setting; incorporate usability findings into the pathway."
-            )
-            edu_status = (
-                "Custom interactive education module prepared for staff onboarding (HTML, offline-capable)." if p5_data.get('edu_html')
-                else "Interactive education module planned to support staff onboarding and competency validation."
-            )
-            doc.add_paragraph(expert_status, style='List Bullet')
-            doc.add_paragraph(beta_status, style='List Bullet')
-            doc.add_paragraph(edu_status, style='List Bullet')
-            
-            # Implementation Next Steps
-            doc.add_heading("Implementation Next Steps", level=1)
-            doc.add_paragraph(
-                "Finalize and sign off the pathway after incorporating expert and beta feedback for the specified care setting.",
-                style='List Number'
-            )
-            doc.add_paragraph(
-                "Deploy the interactive education module; track staff completion and competency.",
-                style='List Number'
-            )
-            doc.add_paragraph(
-                "Go-live with monitoring for safety, throughput, and resource stewardship in the care setting.",
-                style='List Number'
-            )
-            doc.add_paragraph(
-                "Report performance to leadership and iterate monthly based on outcomes and user feedback.",
-                style='List Number'
-            )
-            doc.add_paragraph(
-                "Maintain continuous improvement cycles with refreshed education content as the pathway evolves.",
-                style='List Number'
+                f"This executive summary presents a clinical decision pathway for {condition} management "
+                f"in {setting_text or 'the clinical setting'}. The pathway standardizes care delivery, improves "
+                f"patient outcomes, and optimizes resource utilization through evidence-based decision-making. "
+                f"Built on {len(evidence)} evidence sources across {len(nodes)} decision points, this initiative "
+                f"addresses practice variation while enhancing clinical quality and operational efficiency."
             )
         
+        doc.add_heading("Strategic Rationale", level=1)
+        if ai_content.get('strategic_rationale'):
+            doc.add_paragraph(ai_content['strategic_rationale'])
+        else:
+            doc.add_paragraph(
+                f"The current state presents challenges: {problem_text} This variability compromises patient safety, "
+                f"leads to inefficient resource allocation, and increases operational costs. The proposed pathway "
+                f"establishes a systematic, evidence-driven approach aligned with organizational priorities for "
+                f"quality, safety, and value-based care."
+            )
+        
+        doc.add_heading("Evidence Foundation", level=1)
+        if ai_content.get('evidence_foundation'):
+            doc.add_paragraph(ai_content['evidence_foundation'])
+        elif evidence:
+            grades = {}
+            for e in evidence:
+                grade = e.get('grade', 'Un-graded')
+                grades[grade] = grades.get(grade, 0) + 1
+            high_quality = sum(count for grade, count in grades.items() if grade in ['A', 'High', 'Level 1', 'High (A)'])
+            
+            doc.add_paragraph(
+                f"The pathway integrates {len(evidence)} peer-reviewed publications, with {high_quality} high-quality "
+                f"sources providing strong evidence. This rigorous foundation ensures recommendations reflect current "
+                f"best practices for {condition} management, supporting quality reporting and accreditation standards."
+            )
+        else:
+            doc.add_paragraph(
+                "The pathway incorporates current clinical guidelines and evidence-based practices, with structured "
+                "expert review and validation prior to implementation."
+            )
+        
+        doc.add_heading("Value Proposition", level=1)
+        if ai_content.get('value_proposition'):
+            doc.add_paragraph(ai_content['value_proposition'])
+        else:
+            doc.add_paragraph(
+                f"Implementation delivers measurable value: consistent evidence-based interventions reduce diagnostic "
+                f"errors and ensure appropriate care escalation. Standardization enables predictable resource utilization, "
+                f"reducing unnecessary testing while maintaining outcomes. Clear protocols enhance staff confidence and "
+                f"support training programs."
+            )
+        
+        doc.add_heading("Implementation Readiness", level=1)
+        if ai_content.get('implementation_readiness'):
+            doc.add_paragraph(ai_content['implementation_readiness'])
+        else:
+            usability = "completed" if p4_data.get('heuristics_data') else "planned"
+            expert = "completed" if p5_data.get('expert_html') else "planned"
+            beta = "completed" if p5_data.get('beta_html') else "planned"
+            
+            doc.add_paragraph(
+                f"Validation status: usability testing {usability}, expert panel review {expert}, beta testing {beta}. "
+                f"A comprehensive education module supports staff onboarding and competency assessment. This robust "
+                f"validation process mitigates implementation risk and ensures smooth adoption."
+            )
+        
+        doc.add_heading("Success Metrics", level=1)
+        if ai_content.get('success_metrics'):
+            doc.add_paragraph(ai_content['success_metrics'])
+        else:
+            doc.add_paragraph(
+                f"Objectives: {objectives_text} Success metrics include clinical outcomes (safety events, readmissions), "
+                f"operational efficiency (length of stay, throughput), and quality measures (pathway adherence, patient "
+                f"satisfaction). Implementation proceeds with 30/60/90 day checkpoints and quarterly reviews."
+            )
+        
+        doc.add_heading("Recommended Actions", level=1)
+        if ai_content.get('recommended_actions'):
+            doc.add_paragraph(ai_content['recommended_actions'])
+        else:
+            doc.add_paragraph(
+                f"Leadership approval requested for: (1) final pathway sign-off following validation; (2) implementation "
+                f"resources including staff education and system integration; (3) governance structure for pathway oversight "
+                f"and performance tracking; (4) go-live authorization with communication and training rollout. These actions "
+                f"position the organization to deliver evidence-based, high-value care."
+            )
+                
         # Footer
         section = doc.sections[0]
         footer = section.footer
