@@ -4662,7 +4662,7 @@ elif "Interface" in phase or "UI" in phase:
                         const canvas = document.getElementById("cpq-canvas");
                         let scale = 1.0;
                         function applyScale() {
-                            canvas.style.transform = `scale(${{scale}})`;
+                            canvas.style.transform = `scale(${ {scale} })`;
                         }
                         document.getElementById("cpq-zoom-in").addEventListener("click", function() {{
                             scale = Math.min(scale + 0.1, 3);
