@@ -4299,7 +4299,7 @@ elif "Decision" in phase or "Tree" in phase:
 
     applied_flag = st.session_state.data['phase3'].get('large_rec_applied', False)
     if node_count > 20:
-        styled_info("<b>Note:</b> Large pathway detected ({node_count} nodes). Click below to improve organization and section structure while preserving all clinical content.")
+        styled_info("<b>Note:</b> Large pathway detected. Click below to improve organization and section structure while preserving all clinical content.")
         
         # Determine button type and label
         reco_button_type = "primary" if applied_flag else "secondary"
