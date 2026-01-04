@@ -2174,12 +2174,11 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
         lines.append("    style=filled; color=lightgrey;")
         for i, n in n_list:
             nid = f"N{i}"; node_id_map[i] = nid
-            label = _escape_label(_wrap_label(n.get('label', 'Step')))
-            detail = _escape_label(_wrap_label(n.get('detail', '')))
-            meds = _escape_label(n.get('medications', ''))
-            if meds:
-                detail = f"{detail}\\nMeds: {meds}" if detail else f"Meds: {meds}"
-            full_label = f"{label}\\n{detail}" if detail else label
+            # Only use label field for visualization (exclude detail, benefit, medications)
+            raw_label = n.get('label', 'Step')
+            # Normalize literal \n to actual newlines for wrapping, then wrap
+            raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
+            full_label = _escape_label(_wrap_label(raw_label))
             ntype = n.get('type', 'Process')
             if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
             elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
@@ -2188,7 +2187,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             fill = _role_fill(n.get('role', ''), fill)
             lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
         lines.append("  }")
-    # Edges
+    # Edges - support explicit 'target' field for parallel pathways
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
         if not src:
@@ -2201,10 +2200,23 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
                     dst = node_id_map.get(int(t))
                     if dst:
                         lines.append(f"  {src} -> {dst} [label=\"{lbl}\"];")
-        elif i + 1 < len(valid_nodes):
-            dst = node_id_map.get(i + 1)
-            if dst:
-                lines.append(f"  {src} -> {dst};")
+        elif n.get('type') == 'End':
+            # End nodes are terminal - no outgoing edges
+            pass
+        else:
+            # For non-decision nodes, check for explicit 'target' field to support parallel pathways
+            explicit_target = n.get('target')
+            if explicit_target is not None and isinstance(explicit_target, (int, float)):
+                target_idx = int(explicit_target)
+                if 0 <= target_idx < len(valid_nodes):
+                    dst = node_id_map.get(target_idx)
+                    if dst:
+                        lines.append(f"  {src} -> {dst};")
+            elif i + 1 < len(valid_nodes):
+                # Default: connect to next node only if no explicit target
+                dst = node_id_map.get(i + 1)
+                if dst:
+                    lines.append(f"  {src} -> {dst};")
     lines.append("}")
     return "\n".join(lines)
 
@@ -2233,12 +2245,11 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
             c.attr(style='filled', color='lightgrey')
             for i, n in n_list:
                 nid = f"N{i}"; node_id_map[i] = nid
-                label = _escape_label(_wrap_label(n.get('label', 'Step')))
-                detail = _escape_label(_wrap_label(n.get('detail', '')))
-                meds = _escape_label(n.get('medications', ''))
-                if meds:
-                    detail = f"{detail}\\nMeds: {meds}" if detail else f"Meds: {meds}"
-                full_label = f"{label}\\n{detail}" if detail else label
+                # Only use label field for visualization (exclude detail, benefit, medications)
+                raw_label = n.get('label', 'Step')
+                # Normalize literal \n to spaces for cleaner display, then wrap
+                raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
+                full_label = _escape_label(_wrap_label(raw_label))
                 ntype = n.get('type', 'Process')
                 if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
                 elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
@@ -2246,6 +2257,7 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 else: shape, fill = 'box', '#FFF2CC'
                 fill = _role_fill(n.get('role', ''), fill)
                 c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
+    # Edges - support explicit 'target' field for parallel pathways
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
         if not src:
@@ -2257,10 +2269,23 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                     dst = node_id_map.get(int(t))
                     if dst:
                         g.edge(src, dst, label=lbl)
-        elif i + 1 < len(valid_nodes):
-            dst = node_id_map.get(i + 1)
-            if dst:
-                g.edge(src, dst)
+        elif n.get('type') == 'End':
+            # End nodes are terminal - no outgoing edges
+            pass
+        else:
+            # For non-decision nodes, check for explicit 'target' field to support parallel pathways
+            explicit_target = n.get('target')
+            if explicit_target is not None and isinstance(explicit_target, (int, float)):
+                target_idx = int(explicit_target)
+                if 0 <= target_idx < len(valid_nodes):
+                    dst = node_id_map.get(target_idx)
+                    if dst:
+                        g.edge(src, dst)
+            elif i + 1 < len(valid_nodes):
+                # Default: connect to next node only if no explicit target
+                dst = node_id_map.get(i + 1)
+                if dst:
+                    g.edge(src, dst)
     return g
 
 def render_graphviz_bytes(graph, fmt="svg"):
@@ -4573,7 +4598,7 @@ elif "Decision" in phase or "Tree" in phase:
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
     st.header(f"Phase 4. {PHASES[3]}")
-    styled_info("<b>Tip:</b> AI evaluates all Nielsen heuristics and applies those that meaningfully improve your pathway. Click 'Apply All Heuristics' to batch-apply intelligent recommendations. Review results below.")
+    styled_info("<b>Tip:</b> AI agent evaluates all Nielsen heuristics and applies those that meaningfully improve your pathway. Click 'Apply All Heuristics' to batch-apply intelligent recommendations. Review results below.")
     
     nodes = st.session_state.data['phase3']['nodes']
     p4_state = st.session_state.data.setdefault('phase4', {})
@@ -4653,12 +4678,12 @@ For pathway-applicable heuristics (H2, H4, H5, H9): Focus on decision nodes, cli
 For UI-design heuristics (H1, H3, H6, H7, H8, H10): Note as "UI layer concern" but still assess
 
 Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
-Each value: A concise but substantive analysis (3-5 sentences) with actionable suggestions.
+Each value: ONLY actionable recommendations (2-3 bullet points or numbered items). Do NOT include evaluation of current state.
 
 EXAMPLE FORMAT:
 {{
-  "H1": "The pathway shows treatment options but lacks explicit status checkpoints. Consider: (1) Add node showing 'Reassess response at 24h' after treatment initiation, (2) Include vital sign thresholds for escalation triggers, (3) Surface critical alerts (e.g., sepsis criteria) prominently in decision labels.",
-  "H2": "Clinical terminology is appropriate and evidence citations (PMID references) correctly support recommendations. Consider: (1) Expand less common abbreviations (e.g., SIRS definition) for novice users, (2) Add node annotation explaining scoring systems (qSOFA), (3) Maintain all literature references as they strengthen credibility.",
+  "H1": "• Add node showing 'Reassess response at 24h' after treatment initiation\n• Include vital sign thresholds for escalation triggers\n• Surface critical alerts (e.g., sepsis criteria) prominently in decision labels",
+  "H2": "• Expand less common abbreviations (e.g., SIRS definition) for novice users\n• Add node annotation explaining scoring systems (qSOFA)\n• Maintain all literature references—they strengthen credibility",
   ...
 }}"""
             res = get_gemini_response(prompt, json_mode=True)
@@ -4730,36 +4755,59 @@ EXAMPLE FORMAT:
             with st.expander("Open Preview", expanded=False):
                 st.caption("Inline preview with zoom. Use fullscreen or download for the highest fidelity.")
                 preview_html = """
-                <div style="border: 1px solid #e0e0e0; padding: 8px; background: white; border-radius: 6px;">
-                    <div style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <button id="cpq-zoom-out" style="padding: 6px 10px;">-</button>
-                        <button id="cpq-zoom-in" style="padding: 6px 10px;">+</button>
-                        <button id="cpq-fit" style="padding: 6px 10px;">Fit</button>
-                        <span style="font-size: 12px; color: #555;">Quick zoom preview (fullscreen/download for production)</span>
+                <html>
+                <head>
+                <style>
+                    body { margin: 0; padding: 0; }
+                    #container { border: 1px solid #e0e0e0; padding: 8px; background: white; border-radius: 6px; }
+                    #controls { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+                    button { padding: 6px 10px; cursor: pointer; }
+                    #cpq-canvas { transform: scale(1); transform-origin: top left; border: 1px solid #f0f0f0; padding: 6px; overflow: auto; max-height: 520px; }
+                    .info { font-size: 12px; color: #555; }
+                </style>
+                </head>
+                <body>
+                <div id="container">
+                    <div id="controls">
+                        <button id="cpq-zoom-out">-</button>
+                        <button id="cpq-zoom-in">+</button>
+                        <button id="cpq-fit">Fit</button>
+                        <span class="info">Quick zoom preview (fullscreen/download for production)</span>
                     </div>
-                    <div id="cpq-canvas" style="transform: scale(1); transform-origin: top left; border: 1px solid #f0f0f0; padding: 6px; overflow: auto; max-height: 520px;">""" + svg_str + """</div>
+                    <div id="cpq-canvas">""" + svg_str + """</div>
                 </div>
                 <script>
                     (function() {
                         const canvas = document.getElementById("cpq-canvas");
                         let scale = 1.0;
                         function applyScale() {
-                            canvas.style.transform = `scale(${scale})`;
+                            canvas.style.transform = 'scale(' + scale + ')';
                         }
-                        document.getElementById("cpq-zoom-in").addEventListener("click", function() {
-                            scale = Math.min(scale + 0.1, 3);
-                            applyScale();
-                        });
-                        document.getElementById("cpq-zoom-out").addEventListener("click", function() {
-                            scale = Math.max(scale - 0.1, 0.5);
-                            applyScale();
-                        });
-                        document.getElementById("cpq-fit").addEventListener("click", function() {
-                            scale = 1.0;
-                            applyScale();
-                        });
+                        const zoomInBtn = document.getElementById("cpq-zoom-in");
+                        const zoomOutBtn = document.getElementById("cpq-zoom-out");
+                        const fitBtn = document.getElementById("cpq-fit");
+                        if (zoomInBtn) {
+                            zoomInBtn.addEventListener("click", function() {
+                                scale = Math.min(scale + 0.1, 3);
+                                applyScale();
+                            });
+                        }
+                        if (zoomOutBtn) {
+                            zoomOutBtn.addEventListener("click", function() {
+                                scale = Math.max(scale - 0.1, 0.5);
+                                applyScale();
+                            });
+                        }
+                        if (fitBtn) {
+                            fitBtn.addEventListener("click", function() {
+                                scale = 1.0;
+                                applyScale();
+                            });
+                        }
                     })();
                 </script>
+                </body>
+                </html>
                 """
                 st.components.v1.html(preview_html, height=620, scrolling=True)
 
@@ -4773,12 +4821,20 @@ EXAMPLE FORMAT:
                 df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
             else:
                 df_p4['node_id'] = range(1, len(df_p4) + 1)
-            edited_p4 = st.data_editor(df_p4, num_rows="dynamic", key="p4_editor")
-            manual_changed = not df_p4.equals(edited_p4)
+            # Remove evidence and details columns for Phase 4 (only affects visualization structure)
+            display_cols = [col for col in df_p4.columns if col not in ['evidence', 'details']]
+            df_p4_display = df_p4[display_cols]
+            edited_p4_display = st.data_editor(df_p4_display, num_rows="dynamic", key="p4_editor")
+            manual_changed = not df_p4_display.equals(edited_p4_display)
             if manual_changed:
-                if 'node_id' in edited_p4.columns:
-                    edited_p4 = edited_p4.drop('node_id', axis=1)
-                st.session_state.data['phase3']['nodes'] = edited_p4.to_dict('records')
+                if 'node_id' in edited_p4_display.columns:
+                    edited_p4_display = edited_p4_display.drop('node_id', axis=1)
+                # Preserve evidence and details columns from original nodes
+                for idx, row in edited_p4_display.iterrows():
+                    for col in ['evidence', 'details']:
+                        if col in df_p4.columns:
+                            edited_p4_display.at[idx, col] = df_p4.at[idx, col]
+                st.session_state.data['phase3']['nodes'] = edited_p4_display.to_dict('records')
                 p4_state['viz_cache'] = {}
                 st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
 
@@ -4857,7 +4913,6 @@ EXAMPLE FORMAT:
             # Display ALL heuristics H1-H10 without pre-filtering
             # AI will intelligently evaluate each and apply only those that improve the pathway
             ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
-            st.markdown("### Heuristics")
             st.caption("Review each heuristic. AI agent will evaluate all and apply those that improve pathway structure. Results will show what was applied and what was skipped.")
 
             for heuristic_key in ordered_keys:
@@ -4866,11 +4921,9 @@ EXAMPLE FORMAT:
                 label_stub = HEURISTIC_DEFS.get(heuristic_key, "Heuristic").split(' (')[0].split(':')[0]
 
                 with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
-                    st.markdown(f"**Definition:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
-                    st.divider()
-                    st.markdown("**Recommendation:**")
+                    st.caption(f"*{HEURISTIC_DEFS.get(heuristic_key, 'N/A')}*")
                     st.markdown(
-                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px; border-left: 4px solid #5D4037;'>{insight}</div>",
+                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; border-left: 4px solid #5D4037; margin-top: 8px;'>{insight}</div>",
                         unsafe_allow_html=True
                     )
 
