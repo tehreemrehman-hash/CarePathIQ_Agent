@@ -151,8 +151,10 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
          * Validated clinical scores relevant to this condition with specific numerical thresholds
          * Age-adjusted or population-specific calculations where established in literature
          * Special population screening (pregnancy before radiation/teratogens, renal function before contrast/drugs, contraindications)
-         * Medication specificity: Brand AND generic names, exact dosing, timing, route, location
-         * Example format: "[Drug] ([Brand]): X mg [route] [frequency] × duration. Give first dose in [location]."
+         * Medication specificity: Brand AND generic names, exact dosing, timing, route, location IN THE NODE LABEL (not detail field)
+         * CRITICAL: Medication administration is a CLINICAL ACTION—create Process nodes with doses visible in flowchart
+         * Example node label: "Administer vancomycin 15-20 mg/kg IV q8-12h, adjust for CrCl <30"
+         * Example node detail: "Benefit: Broad gram-positive coverage. Harm: Nephrotoxicity/ototoxicity. Monitor trough levels."
          * Insurance/cost considerations: "Ensure Rx covered; provide assistance program links if available"
          * Resource contingencies: "If [preferred test] NOT available → [Alternative approach]"
          * Follow-up timing: "[Provider type] within [timeframe]", "Virtual care if [provider] unavailable"
@@ -1768,23 +1770,18 @@ def fix_decision_flow_issues(nodes_list):
     Fix common AI generation issues:
     1. Remove any nodes that appear after End nodes (End nodes must be terminal)
     2. Validate Decision node branches point to valid indices
-    3. Detect if Decision branches artificially reconverge (both point to same next node) and keep them separate
+    3. Detect if Decision branches artificially reconverge (all branches point to same outcome)
+    4. Flag and warn about reconvergence for user review
     """
     if not isinstance(nodes_list, list) or len(nodes_list) == 0:
         return nodes_list
     
-    # Find first End node - everything after it should be removed
-    first_end_idx = None
-    for i, node in enumerate(nodes_list):
-        if isinstance(node, dict) and node.get('type') == 'End':
-            first_end_idx = i
-            break
-    
-    # If there's an End node followed by more nodes, truncate
-    if first_end_idx is not None and first_end_idx < len(nodes_list) - 1:
-        nodes_list = nodes_list[:first_end_idx + 1]
+    # Find FIRST End node - but don't truncate yet; just validate structure
+    # Multiple End nodes are allowed for different pathways
+    end_indices = [i for i, node in enumerate(nodes_list) if isinstance(node, dict) and node.get('type') == 'End']
     
     # Validate Decision node branches
+    reconvergence_issues = []
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict):
             continue
@@ -1794,8 +1791,27 @@ def fix_decision_flow_issues(nodes_list):
                 target = branch.get('target')
                 if isinstance(target, (int, float)) and 0 <= int(target) < len(nodes_list):
                     valid_branches.append(branch)
+            
             if valid_branches:
                 node['branches'] = valid_branches
+                
+                # CHECK FOR RECONVERGENCE: Do all branches point to the same target?
+                branch_targets = [int(b.get('target', -1)) for b in valid_branches]
+                if len(set(branch_targets)) == 1 and len(branch_targets) > 1:
+                    # All branches point to same node - this is artificial reconvergence
+                    decision_label = node.get('label', 'Decision')
+                    target_node = nodes_list[branch_targets[0]] if branch_targets[0] < len(nodes_list) else {}
+                    target_label = target_node.get('label', 'Unknown') if isinstance(target_node, dict) else 'Unknown'
+                    reconvergence_issues.append(
+                        f"Node {i}: '{decision_label}' - All branches reconverge to node {branch_targets[0]} ('{target_label}'). "
+                        f"Decision logic may be unclear or redundant."
+                    )
+    
+    # Log reconvergence warnings (but don't block - let user review)
+    if reconvergence_issues:
+        import warnings
+        for issue in reconvergence_issues:
+            warnings.warn(f"Decision Tree Logic: {issue}", stacklevel=2)
     
     return nodes_list
 
@@ -3242,6 +3258,8 @@ if "Scope" in phase:
     # If a widget change requested an auto-draft, run it now on the main pass
     # (after the immediate UI refresh) and then clear the flag.
     if st.session_state.get('p1_should_draft'):
+        import sys
+        print(f"[DEBUG] p1_should_draft flag detected. Calling trigger_p1_draft()...", file=sys.stderr)
         st.session_state['p1_should_draft'] = False
         trigger_p1_draft()
         # Copy AI-generated values to widget keys so they display immediately
@@ -3259,7 +3277,7 @@ if "Scope" in phase:
     col1, col2 = columns_top(2)
     with col1:
         st.subheader("1. Clinical Focus")
-        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
+        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_and_draft)
         st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_and_draft)
 
         st.subheader("2. Target Population")
@@ -3463,51 +3481,53 @@ elif "Evidence" in phase or "Appraise" in phase:
         # Use AI to build intelligent PubMed query with proximity searching
         client = get_genai_client()
         if client:
-            proximity_prompt = f"""Create an optimized PubMed search query for clinical pathways.
+            proximity_prompt = f"""Create an optimized PubMed search query for clinical pathways and evidence-based practice guidelines.
 
 **Clinical Context:**
 - Condition: {c}
 - Care Setting: {s if s else 'general care'}
 
-**PubMed Proximity Search Features to leverage:**
-1. Phrase searching: Use quotes "exact phrase" for multi-word terms
+**PubMed Search Syntax (CRITICAL - Use Correct Operators):**
+1. Phrase searching: Use quotes for exact multi-word phrases: "exact phrase"
 2. Proximity operator NEAR: Find terms within ~N words (e.g., "diabetes NEAR/3 management")
-3. Adjacency operator ADJ: Find terms in exact order within N words (e.g., "clinical ADJ pathway")
-4. Field tags: [MeSH Terms], [Title/Abstract], [All Fields], [pt] for publication type
-5. Boolean operators: AND, OR, NOT (use parentheses for grouping)
-6. Filters: english[lang], "last 5 years"[dp], systematic[sb] for systematic reviews
+3. Boolean operators: AND, OR, NOT (always use parentheses for grouping)
+4. Field tags: [MeSH Terms], [Title/Abstract], [All Fields], [pt] for publication type, [lang] for language
+5. Filters: english[lang], "last 5 years"[dp], systematic[sb] for systematic reviews
+6. DO NOT use: ADJ, NEAR/2, or any undefined operators—these will be rejected by PubMed
 
 **Requirements:**
 - Use MeSH Terms where appropriate: "{c}"[MeSH Terms]
-- Use proximity operators (NEAR, ADJ) to find related clinical concepts
-- Target pathway/guideline literature with phrases like "clinical ADJ pathway", "care NEAR/2 protocol"
-- Include setting if provided using proximity: "{s}" NEAR/5 "{c}"
-- Prioritize Title/Abstract searching with proximity for relevance
-- Return ONLY the raw query string, no explanations
-
-**Example Output:**
-("{c}"[MeSH Terms] OR "{c}"[Title/Abstract]) AND ("clinical pathway"[Title/Abstract] OR "care protocol"[Title/Abstract] OR "clinical ADJ guideline"[Title/Abstract]) AND english[lang]"""
+- Use NEAR/N proximity operators (not ADJ) to find related concepts
+- Search for pathway/guideline literature: "clinical pathway" OR "clinical guideline" OR "care protocol"
+- If setting provided, use: "{s}" AND "{c}" (connected with AND)
+- Target Title/Abstract fields: [Title/Abstract]
+- Return ONLY the raw query string, no explanations or commentary
+- Example: ("diabetes mellitus"[MeSH Terms] OR diabetes[Title/Abstract]) AND ("clinical pathway"[Title/Abstract] OR guideline[Title/Abstract]) AND english[lang]
+- IMPORTANT: Every query MUST end with AND english[lang] to filter for English-language results"""
             
             with ai_activity("Building intelligent PubMed query with proximity operators..."):
                 ai_query = get_gemini_response(proximity_prompt)
                 if ai_query and isinstance(ai_query, str) and len(ai_query.strip()) > 10:
                     default_q = ai_query.strip()
+                    # Validate query doesn't contain invalid operators
+                    if 'ADJ' in default_q.upper() or 'NEAR/2' in default_q:
+                        # Fallback if AI generated invalid syntax
+                        st.warning("AI-generated query contained unsupported PubMed operators. Using fallback query.")
+                        default_q = None
                 else:
-                    # Fallback to basic query
-                    cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+                    # Fallback to basic query with proper PubMed syntax
+                    cond_q = f'"{c}"[MeSH Terms]'
                     if s:
-                        set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
-                        default_q = f'({cond_q} AND {set_q}) AND (pathway OR guideline OR policy) AND english[lang]'
+                        default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("{s}"[Title/Abstract] OR "{s}"[All Fields]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
                     else:
-                        default_q = f'{cond_q} AND (pathway OR guideline OR policy) AND english[lang]'
+                        default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
         else:
-            # Fallback if no AI client
-            cond_q = f'("{c}"[MeSH Terms] OR "{c}"[Title/Abstract])'
+            # Fallback if no AI client - use proper PubMed syntax
+            cond_q = f'"{c}"[MeSH Terms]'
             if s:
-                set_q = f'("{s}"[Title/Abstract] OR "{s}"[All Fields])'
-                default_q = f'({cond_q} AND {set_q}) AND (pathway OR guideline OR policy) AND english[lang]'
+                default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("{s}"[Title/Abstract] OR "{s}"[All Fields]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
             else:
-                default_q = f'{cond_q} AND (pathway OR guideline OR policy) AND english[lang]'
+                default_q = f'({cond_q} OR "{c}"[Title/Abstract]) AND ("clinical pathway" OR guideline OR protocol) AND english[lang]'
 
     # Auto-run search once per distinct default query when evidence is empty
     if (
@@ -3981,6 +4001,8 @@ elif "Decision" in phase or "Tree" in phase:
              * Exact dosing: "X mg [route] [frequency] × duration (total quantity)"
              * Administration details: "Give first dose in [location]", "Preferred for [population]", "Adjust for [condition]"
              * Insurance/cost considerations: "Ensure Rx covered by insurance" + assistance programs where applicable
+             * IMPORTANT: Medication administration is a CLINICAL ACTION—create a Process node for each medication with the dosing IN the label
+             * Example node: type="Process", label="Administer aspirin 325mg PO, clopidogrel 600mg IV bolus, heparin 70 U/kg", detail="Benefit: Prevents stent thrombosis..."
            - Risk-benefit analysis for major therapeutic choices specific to THIS condition
            - Edge cases and special populations (pregnant, elderly, immunocompromised, etc.) relevant to THIS condition
         
@@ -4006,16 +4028,30 @@ elif "Decision" in phase or "Tree" in phase:
         OUTPUT FORMAT: JSON array of nodes with THESE EXACT FIELDS:
         - "type": "Start" | "Decision" | "Process" | "End" (no other types)
         - "label": Concise, specific clinical step using medical abbreviations (e.g., "ECG, troponin x2 at 0h/3h, IV access")
+          * CRITICAL: If the clinical action includes medication administration, include it in the label itself
+          * Example GOOD: "Administer aspirin 325mg PO + clopidogrel 600mg IV loading dose"
+          * Example GOOD: "Start vancomycin 15-20 mg/kg IV q8-12h, adjust for renal function"
+          * Example BAD: "Medication administration" (detail: "aspirin 325mg...") ← medication should be IN the label!
+          * Clinical medications are ACTIONS (belong in label), not background details
         - "evidence": PMID citation OR "N/A"
-        - "detail": (optional) Extended description of rationale or threshold (e.g., "escalate if SBP <90 or altered mental status")
+        - "detail": (optional) Extended description of rationale or threshold ONLY
+          * Example: "Benefit: Prevents stent thrombosis. Harm: Bleeding risk. Threshold: dual antiplatelet if STEMI"
+          * Use detail for: Benefits/harms, clinical reasoning, thresholds, monitoring criteria
+          * Do NOT use detail for: Medication names/doses (those go in label as the clinical action)
         
         CRITICAL CONSTRAINTS (PRESERVE DECISION SCIENCE INTEGRITY):
         
         1. DECISION DIVERGENCE - Every Decision creates DISTINCT branches:
            - "Is patient hemodynamically stable?" YES→Observation pathway | NO→ICU-level resuscitation
            - "Does EKG show STEMI?" YES→Cath lab pathway | NO→Serial troponin pathway
-           - Branches MUST lead to different clinical sequences (never reconverge)
-           - If branches must eventually converge, make it explicit with another Decision point
+           - Branches MUST lead to different clinical sequences (never reconverge immediately)
+           - CRITICAL: If YES and NO branches would lead to the same next node, that's a logic error—SPLIT them into truly different sequences
+           - Example of WRONG reconvergence:
+             Decision: "Fever present?" YES→(Process: Cultures) | NO→(Process: Cultures) → Both lead to same step = BAD
+           - Example of CORRECT non-reconvergence:
+             Decision: "Fever >38.5°C?" YES→(Sepsis pathway with cultures, broad antibiotics, ICU criteria) END | NO→(Observation pathway, supportive care) END
+           - If pathways must eventually meet (e.g., all patients discharged with follow-up), use explicit intermediate Decision nodes
+           - DO NOT artificially force branches to merge just because they happen to end with "discharge"
         
         2. TERMINAL END NODES - Each pathway branch ends ONLY with End nodes:
            - No content after an End node
@@ -4076,6 +4112,21 @@ elif "Decision" in phase or "Tree" in phase:
         - Consecutive Decision nodes are OK (do NOT force Process nodes between them)
         - Use compound labels for clarity: "Assess troponin, CXR, EKG—any abnormality?" (Decision)
         - Detail field can explain thresholds or rationale (e.g., detail: "escalate if HR>110 or RR>22")
+        
+        LABEL CLARITY REQUIREMENTS (CRITICAL - Read Every Label Carefully):
+        - Labels must be READABLE: max 120 characters per label
+        - Use STANDARD MEDICAL ABBREVIATIONS only (not made-up symbols or extraneous characters)
+        - Clean encoding: NO special Unicode characters, escaped sequences, or corrupted text
+        - Prioritize clarity: Spell out potentially ambiguous terms (e.g., "Myocardial Infarction" not cryptic shorthand)
+        - Each label should answer: "What does the clinician DO or DECIDE here?"
+        - Example GOOD labels:
+          ✓ "Elevated troponin AND chest pain symptoms: Admit to cardiac ICU"
+          ✓ "Wells' Score 2-6 (intermediate DVT risk): Order compression ultrasound"
+          ✓ "Age >65 AND renal failure (CrCl <30): Use reduced-dose enoxaparin"
+        - Example BAD labels:
+          ✗ "RuleOut!MI|EKG◊STEMIδ†neuro↔shock—→cath" (extraneous characters)
+          ✗ "Ì÷ôè¢¨§ßþ" (corrupted encoding)
+          ✗ "[Patient_with_multiple_comorbidities_age_>80_presenting_with_chest_pain_dyspnea_and_recent_fall]" (too long)
         
         Node Count Guidance:
         - MINIMUM 15 nodes (simple pathway structure)
@@ -4522,7 +4573,7 @@ elif "Decision" in phase or "Tree" in phase:
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
     st.header(f"Phase 4. {PHASES[3]}")
-    styled_info("<b>Tip:</b> Heuristic recommendations are auto-generated. Review, then apply or undo per criterion.")
+    styled_info("<b>Tip:</b> AI evaluates all Nielsen heuristics and applies those that meaningfully improve your pathway. Click 'Apply All Heuristics' to batch-apply intelligent recommendations. Review results below.")
     
     nodes = st.session_state.data['phase3']['nodes']
     p4_state = st.session_state.data.setdefault('phase4', {})
@@ -4566,19 +4617,50 @@ elif "Interface" in phase or "UI" in phase:
     # Auto-run heuristics once if pathway data exists
     if nodes and not p4_state['heuristics_data'] and not p4_state['auto_heuristics_done']:
         with ai_activity("Analyzing usability heuristics…"):
-            # Limit nodes in prompt to avoid token overflow
-            nodes_sample = nodes[:10] if len(nodes) > 10 else nodes
-            prompt = f"""
-            Analyze the following clinical decision pathway for Nielsen's 10 Usability Heuristics.
-            For each heuristic (H1-H10), provide a specific, actionable critique and suggestion in 2-3 sentences.
+            # Limit nodes in prompt to avoid token overflow, but include full content
+            nodes_display = nodes[:15] if len(nodes) > 15 else nodes
+            pathway_summary = f"Clinical Decision Pathway: {len(nodes)} nodes, {sum(1 for n in nodes if n.get('type') == 'Decision')} decision points"
             
-            Pathway nodes: {json.dumps(nodes_sample)}
-            
-            Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
-            Each value should be a string with the recommendation.
-            
-            Example format: {{"H1": "The pathway lacks clear status indicators...", "H2": "Medical jargon should be..."}}
-            """
+            prompt = f"""You are a UX/Clinical Informatics expert specializing in Nielsen's 10 Usability Heuristics.
+
+TASK: Analyze this clinical decision pathway against all 10 heuristics. For EACH heuristic (H1-H10):
+1. Identify current state (strength or gap)
+2. Provide 2-3 specific, actionable recommendations
+3. Frame improvements in context of clinical decision support (clarity, safety, efficiency)
+
+CRITICAL DISTINCTION - Do NOT confuse:
+- Literature references (PMID xxxxx) = These are CORRECT and necessary; they are NOT jargon, they are evidence citations
+- Medical jargon = Clinical abbreviations (SIRS, qSOFA, troponin) that may need explanation for non-specialist users or less common abbreviations that lack context
+- Only flag jargon when it's unclear or lacks clinical definition; literature citations are appropriate
+
+Pathway Overview: {pathway_summary}
+Nodes analyzed ({len(nodes_display)} sample): {json.dumps(nodes_display, indent=2)}
+
+HEURISTIC DEFINITIONS:
+- H1 (Visibility): System keeps users informed of status, critical values, decision points
+- H2 (Match system/real-world): Use clinician language, avoid unclear jargon or explain it; literature citations are appropriate
+- H3 (User control & freedom): Provide escape routes, undo options, alternative pathways
+- H4 (Consistency): Standardize terminology, node types, decision structures, formats
+- H5 (Error prevention): Prevent wrong decisions through validation, constraints, alerts
+- H6 (Recognition over recall): Make options visible; minimize memory load; use visual cues
+- H7 (Flexibility & efficiency): Support both novice (guided) and expert (accelerated) use
+- H8 (Aesthetic & minimalist): Remove clutter; keep essential clinical information prominent
+- H9 (Error recovery): Help clinicians recognize, diagnose, and recover from decision errors
+- H10 (Help & documentation): Provide context-specific guidance, evidence citations, rationale
+
+EVALUATION FRAMEWORK:
+For pathway-applicable heuristics (H2, H4, H5, H9): Focus on decision nodes, clinical specificity
+For UI-design heuristics (H1, H3, H6, H7, H8, H10): Note as "UI layer concern" but still assess
+
+Return ONLY valid JSON with exactly these keys: H1, H2, H3, H4, H5, H6, H7, H8, H9, H10
+Each value: A concise but substantive analysis (3-5 sentences) with actionable suggestions.
+
+EXAMPLE FORMAT:
+{{
+  "H1": "The pathway shows treatment options but lacks explicit status checkpoints. Consider: (1) Add node showing 'Reassess response at 24h' after treatment initiation, (2) Include vital sign thresholds for escalation triggers, (3) Surface critical alerts (e.g., sepsis criteria) prominently in decision labels.",
+  "H2": "Clinical terminology is appropriate and evidence citations (PMID references) correctly support recommendations. Consider: (1) Expand less common abbreviations (e.g., SIRS definition) for novice users, (2) Add node annotation explaining scoring systems (qSOFA), (3) Maintain all literature references as they strengthen credibility.",
+  ...
+}}"""
             res = get_gemini_response(prompt, json_mode=True)
             if res and isinstance(res, dict) and len(res) >= 10:
                 p4_state['heuristics_data'] = res
@@ -4708,108 +4790,6 @@ elif "Interface" in phase or "UI" in phase:
 
         st.divider()
 
-        # LIVE DOT EDITOR SECTION (NEW)
-        st.subheader("Advanced: Live DOT Editor")
-        with st.expander("Edit DOT Source & Live Preview", expanded=False):
-            col_editor, col_preview = st.columns([1, 1])
-            
-            with col_editor:
-                st.markdown("**DOT Source** (expert mode)")
-                current_dot = dot_from_nodes(nodes_for_viz, "TD")
-                
-                edited_dot = st.text_area(
-                    "Edit pathway DOT syntax",
-                    value=current_dot,
-                    height=400,
-                    key="dot_editor",
-                    help="Modify colors, labels, shapes. Changes preview in real-time."
-                )
-            
-            with col_preview:
-                st.markdown("**Live Preview** (via Viz.js)")
-                
-                # Check if DOT changed from current
-                dot_changed = edited_dot != current_dot
-                
-                if dot_changed:
-                    st.info("📝 Editing DOT source...")
-                    
-                    # Embed Viz.js + render live
-                    viz_html = f"""
-                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.min.js"></script>
-                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js"></script>
-                    <div id="graph" style="border: 1px solid #ddd; padding: 10px; background: white; border-radius: 4px;"></div>
-                    <script>
-                        const dotSrc = `{edited_dot}`;
-                        try {{
-                            const viz = new Viz();
-                            viz.renderSVGElement(dotSrc).then(element => {{
-                                document.getElementById('graph').appendChild(element);
-                            }}).catch(err => {{
-                                document.getElementById('graph').innerHTML = 
-                                    '<p style="color:red; font-family: monospace;">❌ DOT Syntax Error:<br/>' + err.message + '</p>';
-                            }});
-                        }} catch(e) {{
-                            document.getElementById('graph').innerHTML = 
-                                '<p style="color:red; font-family: monospace;">❌ ' + e.message + '</p>';
-                        }}
-                    </script>
-                    """
-                    st.components.v1.html(viz_html, height=500, scrolling=True)
-                else:
-                    st.success("✓ Current pathway DOT")
-                    viz_html_current = f"""
-                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/viz.min.js"></script>
-                    <script src="https://cdnjs.cloudflare.com/ajax/libs/viz.js/2.1.2/full.render.js"></script>
-                    <div id="graph" style="border: 1px solid #ddd; padding: 10px; background: white; border-radius: 4px;"></div>
-                    <script>
-                        const viz = new Viz();
-                        viz.renderSVGElement(`{current_dot}`).then(element => {{
-                            document.getElementById('graph').appendChild(element);
-                        }}).catch(err => {{
-                            document.getElementById('graph').innerHTML = '<p style="color:red;">Error rendering: ' + err.message + '</p>';
-                        }});
-                    </script>
-                    """
-                    st.components.v1.html(viz_html_current, height=500, scrolling=True)
-            
-            # Action buttons
-            st.divider()
-            col_save, col_download, col_reset = st.columns(3)
-            
-            with col_save:
-                if st.button("💾 Apply DOT Changes", key="apply_dot_changes", type="primary", use_container_width=True):
-                    st.success("✅ DOT applied! Download SVG to save visual changes.")
-                    st.session_state['dot_editor_applied'] = True
-            
-            with col_download:
-                if st.button("⬇️ Download Custom DOT", key="download_custom_dot", use_container_width=True):
-                    st.download_button(
-                        "📄 pathway-custom.dot",
-                        edited_dot,
-                        file_name="pathway-custom.dot",
-                        mime="text/plain",
-                        key="download_dot_button"
-                    )
-            
-            with col_reset:
-                if st.button("🔄 Reset to Original", key="reset_dot_editor", use_container_width=True):
-                    st.session_state.dot_editor = current_dot
-                    st.rerun()
-            
-            # Color legend
-            st.markdown("""
-            **Color Legend:**
-            - 🟩 Green: Start/End nodes (`#D5E8D4`)
-            - 🟥 Red: Decision nodes (`#F8CECC`)
-            - 🟨 Yellow: Process nodes (`#FFF2CC`)
-            - 🟧 Orange: Reevaluation (`#FFCC80`)
-            
-            **Tip:** Export to [Graphviz Online](https://dreampuf.github.io/GraphvizOnline/) or [draw.io](https://draw.io) for advanced editing.
-            """)
-
-        st.divider()
-
         # REFINE AND REGENERATE SECTION (collapsed for cleaner UI)
         h_data = p4_state.get('heuristics_data', {})
         with st.expander("Refine & Regenerate", expanded=False):
@@ -4877,8 +4857,8 @@ elif "Interface" in phase or "UI" in phase:
             # Display ALL heuristics H1-H10 without pre-filtering
             # AI will intelligently evaluate each and apply only those that improve the pathway
             ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
-            st.markdown("### Heuristics (H1–H10)")
-            st.caption("Review each heuristic. AI will evaluate all and apply those that improve pathway structure. Results will show what was applied and what was skipped.")
+            st.markdown("### Heuristics")
+            st.caption("Review each heuristic. AI agent will evaluate all and apply those that improve pathway structure. Results will show what was applied and what was skipped.")
 
             for heuristic_key in ordered_keys:
                 insight = h_data.get(heuristic_key, "")
@@ -4886,41 +4866,49 @@ elif "Interface" in phase or "UI" in phase:
                 label_stub = HEURISTIC_DEFS.get(heuristic_key, "Heuristic").split(' (')[0].split(':')[0]
 
                 with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
-                    st.markdown(f"**Full Heuristic:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
+                    st.markdown(f"**Definition:** {HEURISTIC_DEFS.get(heuristic_key, 'N/A')}")
                     st.divider()
-                    st.markdown("**AI Assessment for Your Pathway:**")
+                    st.markdown("**Recommendation:**")
                     st.markdown(
                         f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px; border-left: 4px solid #5D4037;'>{insight}</div>",
                         unsafe_allow_html=True
                     )
-                    st.caption("AI will determine if this can be meaningfully applied to pathway nodes.")
 
             # APPLY + UNDO BUTTONS
             has_heuristics = bool(h_data)
             if has_heuristics:
-                st.markdown("### Apply Heuristics")
-                st.caption("AI will evaluate ALL H1-H10 heuristics and apply those that meaningfully improve your pathway structure. AI determines applicability intelligently.")
-                
                 if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
-                    st.success("✓ Heuristics applied successfully")
-                    with st.expander("View detailed changes", expanded=False):
+                    st.success("✅ Applied")
+                    with st.expander("View what was applied & what requires UX engineer", expanded=True):
                         if p4_state.get('applied_heuristics'):
                             applied_list = p4_state['applied_heuristics']
-                            st.markdown(f"**✅ Applied:** {', '.join(applied_list)}")
+                            applied_with_defs = []
+                            for h in applied_list:
+                                h_def = HEURISTIC_DEFS.get(h, "")
+                                short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
+                                applied_with_defs.append(f"{h}: {short_def}")
+                            st.markdown("**✅ Applied to Pathway:**")
+                            for item in applied_with_defs:
+                                st.markdown(f"  - {item}")
                             
-                            # Show skipped heuristics
+                            # Show skipped heuristics that require UI/UX work
                             all_h = set([f"H{i}" for i in range(1, 11)])
                             skipped = sorted(list(all_h - set(applied_list)), key=lambda x: int(x[1:]))
                             if skipped:
-                                st.markdown(f"**⊘ Skipped:** {', '.join(skipped)} (not applicable to pathway structure)")
+                                st.divider()
+                                st.markdown("**🎨 Requires UX/UI Engineer:**")
+                                for h in skipped:
+                                    h_def = HEURISTIC_DEFS.get(h, "")
+                                    short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
+                                    st.caption(f"  • {h}: {short_def}")
                         st.divider()
-                        st.markdown("**Changes Summary:**")
+                        st.markdown("**Changes Made:**")
                         st.markdown(p4_state['applied_summary_detail'])
                 
                 col_apply, col_undo = st.columns([1, 1])
                 with col_apply:
                     btn_applied = p4_state.get('applied_status', False)
-                    btn_label = "Applied ✓" if btn_applied else "Apply All Heuristics"
+                    btn_label = "Applied ✓" if btn_applied else "Apply"
                     btn_type = "primary" if btn_applied else "secondary"
                     if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
                         # Initialize history if needed
@@ -4931,7 +4919,7 @@ elif "Interface" in phase or "UI" in phase:
                         p4_state['nodes_history'].append(copy.deepcopy(nodes))
                         p4_state['applying_heuristics'] = True  # Set flag to prevent re-analysis
                         
-                        with ai_activity("AI evaluating ALL H1-H10 heuristics and applying those that improve pathway…"):
+                        with ai_activity("Applying heuristics…"):
                             improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
                             if improved_nodes and len(improved_nodes) > 0:
                                 st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
@@ -4976,17 +4964,12 @@ elif "Operationalize" in phase or "Deploy" in phase:
         from phase5_helpers import (
             generate_expert_form_html,
             generate_beta_form_html,
+            generate_education_module_html,
             create_phase5_executive_summary_docx,
-            ensure_carepathiq_branding,
-            get_role_depth_mapping,
-            generate_role_specific_module_header,
-            generate_role_specific_learning_objectives,
-            generate_role_specific_quiz_scenario,
-            filter_nodes_by_role
+            ensure_carepathiq_branding
         )
-        from education_template import create_education_module_template
     except ImportError:
-        st.error("Phase 5 helpers not found. Please ensure phase5_helpers.py and education_template.py are in the workspace.")
+        st.error("Phase 5 helpers not found. Please ensure phase5_helpers.py is in the workspace.")
         st.stop()
     
     # Single info box at top
@@ -5015,12 +4998,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col1:
         st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
 
-        # Use stored or inferred audience (hidden input)
-        aud_expert = st.session_state.get("p5_aud_expert") or st.session_state.data['phase1'].get('population', "")
-        st.session_state["p5_aud_expert"] = aud_expert
-
+        # Explicit audience input (required for form generation)
+        aud_expert = st.text_input(
+            "Target Audience",
+            value=st.session_state.get("p5_aud_expert", ""),
+            placeholder="e.g., Emergency Physicians, Clinical Experts",
+            key="p5_aud_expert_input"
+        )
+        st.caption("Specify who will provide feedback (e.g., cardiologists, emergency physicians, experts in the field).")
+        
         # Auto-generate once per audience value
         if aud_expert and aud_expert != st.session_state.get("p5_aud_expert_prev", ""):
+            st.session_state["p5_aud_expert"] = aud_expert
             st.session_state["p5_aud_expert_prev"] = aud_expert
             with st.spinner("Generating expert feedback form..."):
                 # Generate SVG for pathway visualization in downloaded form
@@ -5039,17 +5028,17 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 )
                 st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
 
-                if st.session_state.data['phase5'].get('expert_html'):
-                        exp_html = st.session_state.data['phase5']['expert_html']
-                        dl_l, dl_c, dl_r = st.columns([1, 2, 1])
-                        with dl_c:
-                                st.download_button(
-                                        "Download (.html)",
-                                        exp_html,
-                                        f"ExpertFeedback_{cond.replace(' ', '_')}.html",
-                                        "text/html",
-                                        
-                                )
+        if st.session_state.data['phase5'].get('expert_html'):
+                exp_html = st.session_state.data['phase5']['expert_html']
+                dl_l, dl_c, dl_r = st.columns([1, 2, 1])
+                with dl_c:
+                        st.download_button(
+                                "Download (.html)",
+                                exp_html,
+                                f"ExpertFeedback_{cond.replace(' ', '_')}.html",
+                                "text/html",
+                                
+                        )
 
                         # Inline pathway preview (similar to Phase 4) for expert panel context
                         nodes_for_viz = nodes if nodes else [
@@ -5109,12 +5098,18 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col2:
         st.markdown(f"<h3>{deliverables['beta']}</h3>", unsafe_allow_html=True)
         
-        # Use stored or inferred audience (hidden input)
-        aud_beta = st.session_state.get("p5_aud_beta") or st.session_state.data['phase1'].get('population', "")
-        st.session_state["p5_aud_beta"] = aud_beta
+        # Explicit audience input (required for form generation)
+        aud_beta = st.text_input(
+            "Target Audience",
+            value=st.session_state.get("p5_aud_beta", ""),
+            placeholder="e.g., Pilot Site Users, Clinical Staff",
+            key="p5_aud_beta_input"
+        )
+        st.caption("Specify who will participate in beta testing (e.g., pilot site clinicians, nursing staff, end users).")
         
         # Auto-generate once per audience value
         if aud_beta and aud_beta != st.session_state.get("p5_aud_beta_prev", ""):
+            st.session_state["p5_aud_beta"] = aud_beta
             st.session_state["p5_aud_beta_prev"] = aud_beta
             with st.spinner("Generating guide..."):
                 beta_html = generate_beta_form_html(
@@ -5196,180 +5191,25 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col3:
         st.markdown(f"<h3>{deliverables['education']}</h3>", unsafe_allow_html=True)
         
-        # Audience drives role depth and learning objectives
+        # Simple audience input
         aud_edu = st.text_input(
             "Target Audience",
             value=st.session_state.get("p5_aud_edu", ""),
-            placeholder="e.g., Clinical Team (Residents, RNs, APPs)",
+            placeholder="e.g., Residents, Nursing Staff",
             key="p5_aud_edu_input"
         )
-        st.caption("Specify who will use this education module (e.g., physicians, nurses, residents). Used verbatim to tailor depth and scenarios with Phase 1-4 context.")
+        st.caption("Who will complete this education module?")
         
         # Auto-generate on input change
         if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
             st.session_state["p5_aud_edu"] = aud_edu
             st.session_state["p5_aud_edu_prev"] = aud_edu
-            with st.spinner("Generating module..."):
-                # Extract learning objectives from Phase 1 charter
-                charter = st.session_state.data['phase1'].get('charter', '')
-                overall_objectives = []
-                if charter:
-                    if 'goals' in charter.lower() or 'objectives' in charter.lower():
-                        lines = charter.split('\n')
-                        for i, line in enumerate(lines):
-                            if any(word in line.lower() for word in ['goal', 'objective', 'aim']):
-                                for j in range(i+1, min(i+5, len(lines))):
-                                    if lines[j].strip().startswith(('-', '•', '*', '1.', '2.', '3.')):
-                                        obj_text = lines[j].strip().lstrip('-•*123456789. ')
-                                        if len(obj_text) > 10:
-                                            overall_objectives.append(obj_text)
-
-                if not overall_objectives:
-                    overall_objectives = [
-                        f"Understand the clinical approach to {cond}",
-                        f"Apply evidence-based decision-making in {setting or 'clinical practice'}",
-                        "Recognize key decision points in the care pathway",
-                        "Implement standardized protocols effectively"
-                    ]
-
-                # Get role-specific configuration
-                role_mapping = get_role_depth_mapping(aud_edu)
-                role_type = role_mapping.get('role_type', 'Clinical Team Member')
-                depth_level = role_mapping.get('depth_level', 'moderate')
-                role_statement = role_mapping.get('role_statement', '')
-                
-                # Filter nodes by role
-                filtered_nodes = filter_nodes_by_role(nodes, aud_edu)
-                
-                # Get evidence citations from Phase 2 for quiz explanations
-                evidence_data = st.session_state.data['phase2'].get('evidence', [])
-                
-                # Create educational modules from filtered pathway nodes
-                edu_topics = []
-                if filtered_nodes and len(filtered_nodes) > 1:
-                    decision_nodes = [n for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label', '').strip()]
-                    nodes_per_module = max(1, len(decision_nodes) // 3)
-                    module_groups = [decision_nodes[i:i + nodes_per_module] for i in range(0, len(decision_nodes), nodes_per_module)][:4]
-
-                    for mod_idx, module_nodes in enumerate(module_groups):
-                        if not module_nodes:
-                            continue
-
-                        # Generate role-specific module header
-                        module_title = generate_role_specific_module_header(
-                            target_audience=aud_edu,
-                            condition=cond,
-                            care_setting=setting,
-                            node=module_nodes[0] if module_nodes else None
-                        )
-                        
-                        if len(module_title) > 100:
-                            module_title = module_title[:100] + '...'
-
-                        content_html = f"<h4>Your Role in This Section</h4><p>{role_statement}</p><h4>Pathway Steps</h4>"
-                        quiz_questions = []
-
-                        for node in module_nodes:
-                            node_label = node.get('label', 'Decision point')
-                            node_type = node.get('type', 'Process')
-                            node_evidence = node.get('evidence', 'N/A')
-
-                            content_html += f"<div style='margin: 15px 0; padding: 10px; background: #f8f9fa; border-left: 3px solid #6c757d;'>"
-                            content_html += f"<strong>{node_type}:</strong> {node_label}"
-                            if node_evidence and node_evidence != 'N/A':
-                                content_html += f"<br><small style='color: #666;'>Evidence: {node_evidence}</small>"
-                            content_html += "</div>"
-
-                            if node_type == 'Decision' and len(quiz_questions) < 3:
-                                # Generate role-specific scenario for this node
-                                scenario = generate_role_specific_quiz_scenario(
-                                    question_idx=len(quiz_questions),
-                                    node=node,
-                                    target_audience=aud_edu,
-                                    evidence_citations=evidence_data
-                                )
-                                quiz_questions.append(scenario)
-
-                        content_html += "<h4>Key Clinical Pearls</h4><ul>"
-                        content_html += f"<li>Early recognition and assessment improves outcomes</li>"
-                        content_html += f"<li>Evidence-based pathways reduce variation in care</li>"
-                        content_html += f"<li>Clear documentation supports care coordination</li>"
-                        content_html += "</ul>"
-
-                        if not quiz_questions:
-                            quiz_questions.append({
-                                "question": f"What is a key principle in {role_type} management of this pathway?",
-                                "options": [
-                                    "Follow evidence-based protocols",
-                                    "Skip documentation steps",
-                                    "Delay patient care",
-                                    "Avoid clinical guidelines"
-                                ],
-                                "correct": 0,
-                                "explanation": "Evidence-based protocols improve patient outcomes and standardize care."
-                            })
-
-                        # Generate role-specific learning objectives
-                        module_objectives = generate_role_specific_learning_objectives(
-                            target_audience=aud_edu,
-                            condition=cond,
-                            nodes=module_nodes,
-                            module_idx=mod_idx
-                        )
-
-                        edu_topics.append({
-                            "title": f"Module {mod_idx + 1}: {module_title}",
-                            "content": content_html,
-                            "learning_objectives": module_objectives,
-                            "quiz": quiz_questions,
-                            "time_minutes": 5
-                        })
-
-                if not edu_topics:
-                    edu_topics = [
-                        {
-                            "title": f"Module 1: {cond} Pathway Overview",
-                            "content": f"""
-                                <h4>Introduction</h4>
-                                <p>This module introduces the evidence-based clinical pathway for {cond} in {setting or 'clinical practice'}.</p>
-                                
-                                <h4>Core Principles</h4>
-                                <ul>
-                                    <li>Standardized assessment and triage</li>
-                                    <li>Evidence-based decision making</li>
-                                    <li>Coordinated multidisciplinary care</li>
-                                    <li>Clear documentation and communication</li>
-                                </ul>
-                                
-                                <h4>Key Takeaways</h4>
-                                <p>Following standardized pathways improves patient safety, reduces variation, and enhances outcomes.</p>
-                            """,
-                            "learning_objectives": overall_objectives[:3],
-                            "quiz": [{
-                                "question": "What is the primary benefit of using clinical pathways?",
-                                "options": [
-                                    "Standardize care and improve patient safety",
-                                    "Increase documentation burden",
-                                    "Slow down clinical decision-making",
-                                    "Eliminate clinical judgment"
-                                ],
-                                "correct": 0,
-                                "explanation": "Clinical pathways standardize high-quality care while preserving clinical judgment, leading to better outcomes."
-                            }],
-                            "time_minutes": 5
-                        }
-                    ]
-
-                edu_html = create_education_module_template(
+            with st.spinner("Generating education module..."):
+                edu_html = generate_education_module_html(
                     condition=cond,
-                    topics=edu_topics,
+                    nodes=nodes,
                     target_audience=aud_edu,
-                    organization=cond,
                     care_setting=setting,
-                    require_100_percent=True,
-                    learning_objectives=overall_objectives[:4],
-                    role_context=role_mapping,
-                    role_statement=role_statement,
                     genai_client=get_genai_client()
                 )
                 st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)

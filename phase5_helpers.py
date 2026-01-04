@@ -14,236 +14,8 @@ from datetime import datetime
 from difflib import SequenceMatcher
 
 # ==========================================
-# PDF PATHWAY EXTRACTION FUNCTIONS
+# HELPER FUNCTIONS 
 # ==========================================
-
-def extract_json_from_response(response_text: str) -> str:
-    """Extract JSON from LLM response that may include markdown code blocks."""
-    text = response_text.strip()
-    text = text.replace('```json', '').replace('```', '')
-    match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
-    if match:
-        return match.group(0)
-    return text
-
-
-def extract_pathway_from_pdf(file_uri: str, condition: str, setting: str, 
-                             custom_prompt: str = None, 
-                             file_hash: str = None,
-                             progress_callback=None,
-                             genai_client=None) -> dict:
-    """
-    Extract pathway from PDF with auto-detection, full PDF processing, 
-    PMID extraction, and confidence scoring.
-    
-    Args:
-        file_uri: Gemini Files API URI
-        condition: Clinical condition
-        setting: Care setting
-        custom_prompt: Optional custom extraction instructions
-        file_hash: MD5 hash for caching
-        progress_callback: Function(progress_float, status_text)
-        genai_client: Gemini API client
-    
-    Returns:
-        dict with keys: nodes, source, confidence, doc_type, pmids_extracted, fixes_applied, file_uri
-    """
-    if not genai_client:
-        from google import genai
-        import os
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        genai_client = genai.Client(api_key=api_key)
-    
-    # Check cache
-    import streamlit as st
-    cache_key = f"pdf_cache_{file_hash}" if file_hash else None
-    cached = st.session_state.get(cache_key) if cache_key else None
-    
-    # STEP 1/5: Upload (skip if cached)
-    if progress_callback:
-        progress_callback(0.0, "Step 1/5: Uploading PDF to Gemini...")
-    time.sleep(0.3)
-    
-    # STEP 2/5: Detect type
-    if progress_callback:
-        progress_callback(0.2, "Step 2/5: Analyzing document structure...")
-    
-    if cached and not custom_prompt:
-        doc_type = cached["doc_type"]
-    else:
-        detect_prompt = f"""Analyze this PDF about {condition}. Determine:
-1. Content type: text guideline, flowchart diagram, or hybrid
-2. Page count and which pages have flowcharts
-3. Main section headings
-
-Return JSON: {{"type": "guideline|flowchart|hybrid", 
-              "page_count": N,
-              "flowchart_pages": [page_nums], 
-              "sections": ["section names"]}}"""
-        
-        try:
-            detection = genai_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[{"text": detect_prompt}, {"file_data": {"file_uri": file_uri}}]
-            )
-            doc_type = json.loads(extract_json_from_response(detection.text))
-        except Exception as e:
-            # Fallback: assume guideline
-            doc_type = {"type": "guideline", "page_count": 0, "flowchart_pages": [], "sections": []}
-        
-        # Cache doc_type
-        if cache_key:
-            st.session_state[cache_key] = {"doc_type": doc_type, "file_uri": file_uri}
-    
-    # STEP 3/5: Extract nodes
-    if progress_callback:
-        progress_callback(0.4, "Step 3/5: Extracting pathway nodes...")
-    
-    if doc_type["type"] == "guideline":
-        nodes = extract_guideline_text(file_uri, condition, setting, custom_prompt, genai_client)
-    elif doc_type["type"] == "flowchart":
-        nodes = extract_flowchart_visual(file_uri, condition, setting, custom_prompt, genai_client)
-    elif doc_type["type"] == "hybrid":
-        if progress_callback:
-            progress_callback(0.4, "Step 3/5: Extracting flowchart structure...")
-        flowchart_nodes = extract_flowchart_visual(
-            file_uri, condition, setting, custom_prompt, genai_client,
-            pages=doc_type["flowchart_pages"]
-        )
-        
-        if progress_callback:
-            progress_callback(0.5, "Step 3/5: Extracting guideline details...")
-        guideline_nodes = extract_guideline_text(
-            file_uri, condition, setting, custom_prompt, genai_client,
-            sections=doc_type["sections"]
-        )
-        
-        if progress_callback:
-            progress_callback(0.6, "Step 3/5: Merging flowchart & guideline...")
-        nodes = merge_hybrid_intelligently(flowchart_nodes, guideline_nodes)
-    else:
-        nodes = []
-    
-    # STEP 4/5: Extract PMIDs
-    if progress_callback:
-        progress_callback(0.7, "Step 4/5: Extracting PMIDs from bibliography...")
-    
-    if cached and not custom_prompt and "pmids" in cached:
-        pmids = cached["pmids"]
-    else:
-        pmid_prompt = """Extract all PubMed citations from references/bibliography.
-For each, identify which section cites it.
-Return JSON: [{"pmid": "12345678", "section": "4.2 Risk Stratification", "title": "..."}]"""
-        
-        try:
-            pmids_response = genai_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[{"text": pmid_prompt}, {"file_data": {"file_uri": file_uri}}]
-            )
-            pmids = json.loads(extract_json_from_response(pmids_response.text))
-        except Exception:
-            pmids = []
-        
-        # Cache PMIDs
-        if cache_key:
-            st.session_state[cache_key]["pmids"] = pmids
-    
-    nodes = enrich_nodes_with_pmids(nodes, pmids)
-    
-    # STEP 5/5: Validate & auto-fix
-    if progress_callback:
-        progress_callback(0.9, "Step 5/5: Validating and auto-fixing...")
-    
-    nodes, fixes_applied = auto_fix_pathway(nodes)
-    
-    confidence = calculate_extraction_confidence(nodes, doc_type)
-    
-    if progress_callback:
-        progress_callback(1.0, "✓ Extraction complete!")
-    
-    return {
-        "nodes": nodes,
-        "source": f"pdf_{doc_type['type']}",
-        "confidence": confidence,
-        "doc_type": doc_type,
-        "pmids_extracted": len(pmids),
-        "fixes_applied": fixes_applied,
-        "file_uri": file_uri
-    }
-
-
-def extract_guideline_text(file_uri, condition, setting, custom_prompt=None, 
-                           genai_client=None, sections=None):
-    """Extract pathway from text-based guidelines (full PDF)."""
-    base_prompt = f"""Extract complete clinical pathway from this guideline for {condition} in {setting}.
-
-Process the ENTIRE PDF to capture:
-- Initial assessment and triage criteria
-- Diagnostic workup steps with thresholds
-- Treatment decisions with explicit criteria
-- Risk stratification logic
-- Disposition criteria
-
-Convert to decision tree with:
-- Start: Initial presentation
-- Process: Diagnostic/therapeutic actions
-- Decision: Clinical decision points with criteria (include exact thresholds, scores)
-- End: Dispositions (discharge, admit to floor/ICU, transfer, etc.)
-
-For Decision nodes:
-- Extract precise criteria (e.g., "Troponin >99th percentile" not "elevated troponin")
-- Create branches with descriptive labels
-- Note benefit/harm trade-offs if mentioned
-
-Return JSON array: [{{"type": "Start|Decision|Process|End", 
-                     "label": "Brief clinical step",
-                     "evidence": "Guideline section or 'N/A'",
-                     "detail": "Extended criteria, thresholds, rationale",
-                     "branches": [{{"label": "...", "target": index}}]}}]"""
-    
-    prompt = custom_prompt if custom_prompt else base_prompt
-    
-    try:
-        response = genai_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[{"text": prompt}, {"file_data": {"file_uri": file_uri}}]
-        )
-        return json.loads(extract_json_from_response(response.text))
-    except Exception:
-        return []
-
-
-def extract_flowchart_visual(file_uri, condition, setting, custom_prompt=None, 
-                            genai_client=None, pages=None):
-    """Extract pathway from flowchart diagram using vision."""
-    page_info = f" (focus on pages {pages})" if pages else ""
-    
-    base_prompt = f"""This PDF contains a clinical flowchart for {condition}{page_info}.
-
-Extract the complete decision tree by:
-1. Identifying all boxes/nodes and their types (start, decision, process, end)
-2. Tracing all arrows/connections between nodes
-3. Reading decision criteria from diamond shapes
-4. Capturing branch labels (Yes/No or outcomes)
-
-Return JSON array in decision tree format with:
-- type: "Start" (oval), "Decision" (diamond), "Process" (rectangle), "End" (rounded rectangle)
-- label: Text from the box
-- branches: For Decision nodes, array of {{label, target}} based on arrows
-
-[{{"type": "...", "label": "...", "evidence": "N/A", 
-  "branches": [{{"label": "...", "target": next_index}}]}}]"""
-    
-    prompt = custom_prompt if custom_prompt else base_prompt
-    
-    try:
-        response = genai_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[{"text": prompt}, {"file_data": {"file_uri": file_uri}}]
-        )
-        return json.loads(extract_json_from_response(response.text))
-    except Exception:
-        return []
 
 
 def merge_hybrid_intelligently(fc_nodes, gl_nodes):
@@ -671,7 +443,6 @@ button:active {
 def generate_expert_form_html(
     condition: str,
     nodes: list,
-    audience: str = "Clinical Experts",
     organization: str = "CarePathIQ",
     care_setting: str = "",
     pathway_svg_b64: str = None,
@@ -683,7 +454,6 @@ def generate_expert_form_html(
     Args:
         condition: Clinical condition being reviewed
         nodes: List of pathway nodes (dicts with 'type', 'label', 'evidence')
-        audience: Target audience description (for display only, not used for customization)
         organization: Organization name
         care_setting: Care setting/environment (e.g., "Emergency Department")
         genai_client: Optional Google Generative AI client (not used)
@@ -733,7 +503,7 @@ def generate_expert_form_html(
         <div class="header">
             <h1>Expert Panel Feedback</h1>
             <p style="font-size: 1.05em; color: var(--brown-dark); margin-bottom: 8px; line-height: 1.6;">{pathway_title}</p>
-            <p style="font-size:0.9em;margin-top:5px;color:#666;">Target Audience: {audience} | {organization}</p>
+            <p style="font-size:0.9em;margin-top:5px;color:#666;">Organization: {organization}</p>
             {pathway_button_html}
         </div>
 
@@ -917,7 +687,6 @@ def generate_expert_form_html(
 def generate_beta_form_html(
     condition: str,
     nodes: list,
-    audience: str = "Clinical Team",
     organization: str = "CarePathIQ",
     care_setting: str = "",
     genai_client=None
@@ -932,7 +701,6 @@ def generate_beta_form_html(
     Args:
         condition: Clinical condition being tested
         nodes: List of pathway nodes (for reference)
-        audience: Target audience description (for display only, not used for customization)
         organization: Organization name
         care_setting: Care setting/environment (e.g., "Emergency Department")
         genai_client: Optional Google Generative AI client (not used)
@@ -940,6 +708,91 @@ def generate_beta_form_html(
     Returns:
         Complete standalone HTML string
     """
+
+    def build_beta_test_scenarios(condition: str, nodes: list, care_setting: str, genai_client=None):
+        """Create three concise test scenarios using LLM context with safe fallback."""
+        default_scenarios = [
+            {
+                "title": "Low-Risk Discharge",
+                "vignette": "45M, pleuritic chest pain after URI, normal ECG, hs-trop <99th at 0/1h, HEAR 1.",
+                "tasks": [
+                    "Apply pathway criteria for low-risk presentation",
+                    "Choose appropriate workup and confirm no escalation needed",
+                    "Select correct disposition: discharge with NSAID + PCP follow-up",
+                ],
+                "success_criteria": "Did the pathway reach the intended discharge branch?",
+                "notes_placeholder": "Describe any mismatch between vignette and end-node...",
+            },
+            {
+                "title": "Moderate-Risk Observation",
+                "vignette": "62F, substernal pressure, HTN/HLD, ECG non-ischemic, borderline hs-trop rise, HEART 5.",
+                "tasks": [
+                    "Follow the moderate-risk / observation branch",
+                    "Confirm serial testing or CTA pathway is selected",
+                    "Select correct disposition: observation/telemetry pending testing",
+                ],
+                "success_criteria": "Did the pathway reach the observation/admit branch?",
+                "notes_placeholder": "Where did branching feel unclear or incorrect?",
+            },
+            {
+                "title": "High-Risk Escalation",
+                "vignette": "58M, diaphoresis, ECG with new ST depressions, elevated troponin.",
+                "tasks": [
+                    "Trigger the high-risk branch and required meds",
+                    "Confirm escalation to cath lab/inpatient cardiology",
+                    "Verify no pathway steps block time-sensitive care",
+                ],
+                "success_criteria": "Did the pathway reach escalation / cath lab branch?",
+                "notes_placeholder": "Note any delays or wrong routing for high-risk cases...",
+            },
+        ]
+
+        if not genai_client:
+            return default_scenarios
+
+        node_labels = [n.get("label", "") for n in (nodes or []) if n.get("label")]
+        condensed_nodes = ", ".join(node_labels[:12])
+        prompt = f"""You are building beta-testing scenarios for a clinical pathway.
+Pathway: {condition}
+Setting: {care_setting or 'general care'}
+Key steps: {condensed_nodes or 'Use common pathway steps'}
+
+Create 3 concise end-to-end test cases for pathway validation. Return JSON array with 3 items only:
+[{{
+  "title": "Short scenario title",
+  "vignette": "45 words max, realistic clinical vignette",
+  "tasks": ["3 clear actions for the tester"],
+  "success_criteria": "One sentence describing correct end-state to verify",
+  "notes_placeholder": "Short guidance for what to log if something breaks"
+}}]
+Keep language clinical and precise."""
+
+        try:
+            response = genai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[{"text": prompt}]
+            )
+            scenarios_raw = json.loads(extract_json_from_response(response.text))
+            scenarios = []
+            for scenario in scenarios_raw[:3]:
+                title = scenario.get("title") or "Scenario"
+                vignette = scenario.get("vignette") or "Clinical scenario"
+                tasks = [t for t in scenario.get("tasks", []) if t][:3] or ["Follow the pathway steps"]
+                success = scenario.get("success_criteria") or "Did the pathway reach the intended outcome?"
+                notes = scenario.get("notes_placeholder") or "Describe any mismatch or blockers..."
+                scenarios.append({
+                    "title": title.strip(),
+                    "vignette": vignette.strip(),
+                    "tasks": tasks,
+                    "success_criteria": success.strip(),
+                    "notes_placeholder": notes.strip(),
+                })
+            if len(scenarios) == 3:
+                return scenarios
+        except Exception:
+            pass
+
+        return default_scenarios
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
     condition_clean = (condition or "Pathway").strip()
@@ -955,6 +808,29 @@ def generate_beta_form_html(
     pathway_button_html = ""
     pathway_script = ""
     
+    scenarios = build_beta_test_scenarios(condition_clean, nodes or [], care_setting_clean, genai_client)
+    scenario_blocks = []
+    for idx, scenario in enumerate(scenarios, start=1):
+        slug = re.sub(r'[^a-z0-9]+', '-', scenario.get("title", f"scenario-{idx}").lower()).strip('-') or f"scenario-{idx}"
+        tasks_html = "\n".join([f"<li>{task}</li>" for task in scenario.get("tasks", [])])
+        scenario_blocks.append(f"""
+<div class=\"scenario-card\">
+<h3>Scenario {idx}: {scenario.get('title', 'Scenario')}</h3>
+<p><strong>Vignette:</strong> {scenario.get('vignette', '')}</p>
+<ul class=\"tasks\">
+{tasks_html}
+</ul>
+<div class=\"checklist\">
+<strong>{scenario.get('success_criteria', 'Did the pathway land on the correct end-node?')}</strong>
+<label><input type=\"checkbox\" class=\"scenario-check\" data-scenario=\"{slug}\" data-label=\"{scenario.get('title', 'Scenario')}\" data-notes-id=\"scenario{idx}_notes\"> ✓ Reached the intended outcome</label>
+</div>
+<label style=\"margin-top:10px\">Notes:</label>
+<textarea id=\"scenario{idx}_notes\" placeholder=\"{scenario.get('notes_placeholder', 'Document issues or blockers...')}\"></textarea>
+</div>
+""")
+
+    scenario_blocks_html = "\n".join(scenario_blocks)
+
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1003,7 +879,7 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <div class="header">
 <h1>Beta Testing Guide</h1>
 <p style="margin-top:8px;font-size:1.1em">{pathway_title}</p>
-<p style="font-size:0.9em;margin-top:5px">Target Audience: {audience} | {organization}</p>
+<p style="font-size:0.9em;margin-top:5px">Organization: {organization} • Scenarios auto-generated with LLM context from the current pathway.</p>
 {pathway_button_html}
 </div>
 
@@ -1029,54 +905,7 @@ label {{display:block;margin-bottom:6px;font-weight:500;color:var(--brown-dark)}
 <!-- Clinical Scenarios -->
 <h2 style="color:var(--brown-dark);margin-bottom:20px">Clinical Scenarios — End-to-End Testing</h2>
 <p style="margin-bottom:20px;color:#555">Use the data provided to follow the pathway to the correct terminal node (diagnosis → treatment → disposition).</p>
-
-<div class="scenario-card">
-<h3>Scenario 1: Low-Risk Discharge</h3>
-<p><strong>Vignette:</strong> 45M, 2h pleuritic chest pain after URI, reproducible on palpation, normal ECG, hs-trop <99th at 0/1h, HEAR 1.</p>
-<ul class="tasks">
-<li>Apply pathway criteria for low-risk chest pain</li>
-<li>Choose appropriate workup and confirm no escalation needed</li>
-<li>Select correct disposition: discharge with NSAID + PCP follow-up</li>
-</ul>
-<div class="checklist">
-<strong>Did the pathway land on the correct end-node?</strong>
-<label><input type="checkbox" class="scenario-check" data-scenario="lowrisk"> ✓ Reached the intended discharge branch</label>
-</div>
-<label style="margin-top:10px">Notes (breaks, wrong branch, missing step):</label>
-<textarea id="scenario1_notes" placeholder="Describe any mismatch between vignette and end-node..."></textarea>
-</div>
-
-<div class="scenario-card">
-<h3>Scenario 2: Moderate-Risk Observation</h3>
-<p><strong>Vignette:</strong> 62F, 3h substernal pressure, HTN/HLD, ECG non-ischemic, hs-trop borderline rising 0→1h, HEART 5.</p>
-<ul class="tasks">
-<li>Follow pathway branch for moderate risk / observation</li>
-<li>Confirm serial troponin/stress or CTA pathway is selected</li>
-<li>Select correct disposition: obs/tele admit pending testing</li>
-</ul>
-<div class="checklist">
-<strong>Did the pathway land on the correct end-node?</strong>
-<label><input type="checkbox" class="scenario-check" data-scenario="moderate"> ✓ Reached observation/admit branch</label>
-</div>
-<label style="margin-top:10px">Notes (branching issues, unclear orders):</label>
-<textarea id="scenario2_notes" placeholder="Where did branching feel unclear or incorrect?"></textarea>
-</div>
-
-<div class="scenario-card">
-<h3>Scenario 3: High-Risk Escalation</h3>
-<p><strong>Vignette:</strong> 58M, diaphoresis, ECG with new ST depressions V4–V6, elevated troponin.</p>
-<ul class="tasks">
-<li>Trigger high-risk branch and required meds (antiplatelet/anticoag)</li>
-<li>Confirm escalation to cath lab/inpatient cardiology is reached</li>
-<li>Verify no pathway steps block time-sensitive care</li>
-</ul>
-<div class="checklist">
-<strong>Did the pathway land on the correct end-node?</strong>
-<label><input type="checkbox" class="scenario-check" data-scenario="highrisk"> ✓ Reached escalation/cath lab branch</label>
-</div>
-<label style="margin-top:10px">Notes (delays, blockers, missing meds):</label>
-<textarea id="scenario3_notes" placeholder="Note any delays or wrong routing for high-risk ACS..."></textarea>
-</div>
+{scenario_blocks_html}
 
 <hr style="margin:30px 0;border:none;border-top:2px solid var(--border-gray)">
 
@@ -1192,54 +1021,7 @@ function downloadCSV() {{
   // Scenarios
   csv += 'Scenario Testing,Item,Notes\\n';
     const s1Check = document.querySelector('input[data-scenario="lowrisk"]').checked ? 'Completed' : 'Not Completed';
-  const s1Notes = document.getElementById('scenario1_notes').value.replace(/"/g, '""');
-    csv += `Scenario 1 - LowRisk,${{s1Check}},"${{s1Notes}}"\n`;
-  
-    const s2Check = document.querySelector('input[data-scenario="moderate"]').checked ? 'Completed' : 'Not Completed';
-  const s2Notes = document.getElementById('scenario2_notes').value.replace(/"/g, '""');
-    csv += `Scenario 2 - Moderate,${{s2Check}},"${{s2Notes}}"\n`;
-  
-    const s3Check = document.querySelector('input[data-scenario="highrisk"]').checked ? 'Completed' : 'Not Completed';
-  const s3Notes = document.getElementById('scenario3_notes').value.replace(/"/g, '""');
-    csv += `Scenario 3 - HighRisk,${{s3Check}},"${{s3Notes}}"\n`;
-  csv += '\\n';
-  
-  // Heuristics
-  csv += 'Nielsen Heuristic,Rating,Comments\\n';
-  HEURISTICS.forEach(h => {{
-    const rating = document.querySelector(`input[name="${{h.id}}_rating"]:checked`).value;
-    const comments = document.getElementById(`${{h.id}}_comments`).value.replace(/"/g, '""');
-    csv += `"${{h.name}}",${{rating}},"${{comments}}"\\n`;
-  }});
-  csv += '\\n';
-  
-  // Overall
-  csv += 'Overall Feedback,Rating,Comments\\n';
-  const overall = document.getElementById('overall_rating').value;
-  const workflow = document.getElementById('workflow_fit').value;
-  const strengths = document.getElementById('strengths').value.replace(/"/g, '""');
-  const improvements = document.getElementById('improvements').value.replace(/"/g, '""');
-  csv += `Overall Quality,${{overall}},"N/A"\\n`;
-  csv += `Workflow Fit,${{workflow}},"N/A"\\n`;
-  csv += `Strengths,"N/A","${{strengths}}"\\n`;
-  csv += `Improvements Needed,"N/A","${{improvements}}"\\n`;
-  
-  const blob = new Blob([csv], {{ type: 'text/csv' }});
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `BetaTesting_${{condition.replace(/\\s+/g, '_')}}_${{name.replace(/\\s+/g, '_')}}_${{new Date().toISOString().slice(0,10)}}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  
-  alert('Beta testing feedback downloaded successfully!');
-}}
-
-// Initialize on load
-initializeHeuristics();
-</script>
+{scenario_blocks_html}
 </body>
 </html>
 """
@@ -1248,61 +1030,489 @@ initializeHeuristics();
 
 def generate_education_module_html(
     condition: str,
-    modules: list = None,
-    organization: str = "CarePathIQ"
+    nodes: list = None,
+    target_audience: str = "",
+    care_setting: str = "",
+    genai_client=None
 ) -> str:
     """
-    Generate standalone interactive education module with certificate.
+    Generate simplified single-page education module with 5 MC quiz and CSV export.
     
     Args:
-        condition: Topic/condition being taught
-        modules: List of modules, each with 'title', 'content', 'quiz' (optional)
-                If None, generates default module structure
-        organization: Organization name
+        condition: Clinical condition
+        nodes: Pathway nodes for context
+        target_audience: Who this education is for
+        care_setting: Setting where pathway is used
+        genai_client: Optional AI client for generating education content and questions
         
     Returns:
-        Complete standalone HTML string with embedded education content
+        Complete standalone HTML string
     """
     
-    if modules is None:
-        modules = [
+    # Generate education content and quiz questions using AI if client available
+    if genai_client and nodes:
+        # Generate customized education content
+        edu_prompt = f"""Create a brief, focused education section for {target_audience} about {condition} management in {care_setting}.
+        
+Pathway context ({len(nodes)} nodes): {json.dumps(nodes[:5])}
+
+Provide:
+1. Key learning points (3-4 bullet points) specific to what {target_audience} needs to know
+2. How this pathway improves their workflow/decision-making
+
+Keep it concise (2-3 sentences per point). Return as plain text."""
+        
+        try:
+            edu_content = genai_client.generate_content(edu_prompt).text
+        except:
+            edu_content = f"This education module covers {condition} management for {target_audience} in {care_setting}."
+    else:
+        edu_content = f"This education module covers {condition} management for {target_audience} in {care_setting}."
+    
+    # Generate 5 multiple choice questions
+    quiz_prompt = f"""Generate exactly 5 multiple choice questions for {target_audience} learning about {condition} pathway.
+    
+Format each question as JSON:
+{{
+  "question": "Question text?",
+  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+  "correct": "A",
+  "explanation": "Why this is correct..."
+}}
+
+Return ONLY a JSON array of 5 questions."""
+    
+    questions = []
+    if genai_client:
+        try:
+            quiz_response = genai_client.generate_content(quiz_prompt).text
+            # Extract JSON from response
+            json_match = re.search(r'\[.*\]', quiz_response, re.DOTALL)
+            if json_match:
+                questions = json.loads(json_match.group())
+        except:
+            pass
+    
+    # Default questions if AI generation fails
+    if not questions or len(questions) < 5:
+        questions = [
             {
-                "title": "Module 1: Clinical Presentation",
-                "content": f"<p>This module covers the clinical presentation of {condition}.</p><p>Key features include patient history, vital signs, and initial assessment findings.</p>",
-                "quiz": [
-                    {
-                        "question": f"Which is a key feature of {condition}?",
-                        "options": ["Option A", "Option B", "Option C", "Option D"],
-                        "correct": 0
-                    }
-                ]
+                "question": f"Which is a key clinical indicator for {condition}?",
+                "options": ["A) Symptom A", "B) Symptom B", "C) Symptom C", "D) Symptom D"],
+                "correct": "A",
+                "explanation": "This is the primary presenting sign that guides initial assessment."
             },
             {
-                "title": "Module 2: Diagnostic Workup",
-                "content": f"<p>Learn the recommended diagnostic tests and interpretations for {condition}.</p>",
-                "quiz": [
-                    {
-                        "question": "Which test is most specific?",
-                        "options": ["Test A", "Test B", "Test C", "Test D"],
-                        "correct": 1
-                    }
-                ]
+                "question": f"What is the first diagnostic step in this pathway?",
+                "options": ["A) Lab test", "B) Imaging", "C) Physical exam", "D) History"],
+                "correct": "C",
+                "explanation": "Clinical evaluation forms the foundation before confirmatory testing."
             },
             {
-                "title": "Module 3: Management Strategy",
-                "content": f"<p>Understand the evidence-based management approach for {condition}.</p>",
-                "quiz": [
-                    {
-                        "question": "First-line treatment is:",
-                        "options": ["Treatment A", "Treatment B", "Treatment C", "Treatment D"],
-                        "correct": 2
-                    }
-                ]
+                "question": f"Which treatment approach is recommended?",
+                "options": ["A) Medical", "B) Surgical", "C) Supportive", "D) Watchful waiting"],
+                "correct": "A",
+                "explanation": "Evidence supports this first-line approach in most cases."
+            },
+            {
+                "question": f"How often should follow-up assessment occur?",
+                "options": ["A) Daily", "B) Weekly", "C) Monthly", "D) As needed"],
+                "correct": "D",
+                "explanation": "Follow-up timing depends on individual patient response and risk stratification."
+            },
+            {
+                "question": f"What is the primary goal of this pathway?",
+                "options": ["A) Reduce cost", "B) Standardize decision-making", "C) Shorten stay", "D) All of above"],
+                "correct": "D",
+                "explanation": "The pathway addresses multiple objectives: safety, consistency, efficiency, and value."
             }
         ]
     
-    modules_json = json.dumps(modules)
-    total_sections = len(modules)
+    # Pre-compute JSON for JavaScript embedding
+    questions_json = json.dumps(questions)
+    
+    # Build HTML
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{condition} Education Module</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #98d8c8 0%, #f7f7f7 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }}
+        .container {{
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #5D4037 0%, #6D4C41 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }}
+        .header h1 {{
+            font-size: 28px;
+            margin-bottom: 10px;
+        }}
+        .header p {{
+            font-size: 14px;
+            opacity: 0.9;
+        }}
+        .content {{
+            padding: 40px;
+        }}
+        .section {{
+            margin-bottom: 40px;
+        }}
+        .section h2 {{
+            color: #5D4037;
+            margin-bottom: 15px;
+            font-size: 20px;
+            border-bottom: 2px solid #98d8c8;
+            padding-bottom: 10px;
+        }}
+        .learning-points {{
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #98d8c8;
+            margin-bottom: 20px;
+        }}
+        .learning-points ul {{
+            list-style: none;
+            padding-left: 20px;
+        }}
+        .learning-points li {{
+            margin: 8px 0;
+            line-height: 1.6;
+        }}
+        .learning-points li:before {{
+            content: "→ ";
+            color: #98d8c8;
+            font-weight: bold;
+            margin-right: 10px;
+        }}
+        .quiz-question {{
+            background: #fafafa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }}
+        .quiz-question h3 {{
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }}
+        .option {{
+            margin: 10px 0;
+            display: flex;
+            align-items: flex-start;
+        }}
+        .option input[type="radio"] {{
+            margin-top: 4px;
+            margin-right: 10px;
+            cursor: pointer;
+        }}
+        .option label {{
+            cursor: pointer;
+            flex: 1;
+        }}
+        .feedback {{
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 4px;
+            display: none;
+            font-size: 14px;
+            line-height: 1.5;
+        }}
+        .feedback.show {{
+            display: block;
+        }}
+        .feedback.correct {{
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }}
+        .feedback.incorrect {{
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }}
+        .button-row {{
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: center;
+        }}
+        button {{
+            padding: 12px 24px;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+        .btn-submit {{
+            background: #5D4037;
+            color: white;
+        }}
+        .btn-submit:hover {{
+            background: #4E342E;
+        }}
+        .btn-download {{
+            background: #98d8c8;
+            color: #333;
+        }}
+        .btn-download:hover {{
+            background: #7ec9b6;
+        }}
+        .results {{
+            background: #f0f8f5;
+            padding: 20px;
+            border-radius: 6px;
+            margin-top: 30px;
+            text-align: center;
+            display: none;
+        }}
+        .results.show {{
+            display: block;
+        }}
+        .results h3 {{
+            color: #5D4037;
+            margin-bottom: 10px;
+        }}
+        .score {{
+            font-size: 32px;
+            color: #98d8c8;
+            font-weight: bold;
+            margin: 10px 0;
+        }}
+        .footer {{
+            background: #f5f5f5;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            border-top: 1px solid #e0e0e0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{condition} Education Module</h1>
+            <p>Interactive Pathway-Based Learning for {target_audience}</p>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <h2>Learning Objectives</h2>
+                <div class="learning-points">
+                    <ul>
+                        <li>Understand the evidence-based approach to {condition} management in {care_setting}</li>
+                        <li>Apply pathway decision points to clinical decision-making</li>
+                        <li>Recognize key clinical indicators and escalation triggers</li>
+                        <li>Integrate pathway protocols into your clinical practice</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Key Teaching Points</h2>
+                <div class="learning-points">
+                    <p>{edu_content}</p>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Knowledge Check - 5 Questions</h2>
+                <form id="quizForm">
+"""
+    
+    # Add quiz questions
+    for idx, q in enumerate(questions):
+        correct_letter = q.get('correct', 'A')
+        html += f"""
+                    <div class="quiz-question">
+                        <h3>Question {idx + 1}: {q.get('question', '')}</h3>
+"""
+        for i, option in enumerate(q.get('options', [])):
+            option_letter = chr(65 + i)  # A, B, C, D
+            html += f"""
+                        <div class="option">
+                            <input type="radio" id="q{idx}_opt{option_letter}" name="q{idx}" value="{option_letter}" required>
+                            <label for="q{idx}_opt{option_letter}">{option}</label>
+                        </div>
+"""
+        html += f"""
+                        <div class="feedback" id="feedback{idx}"></div>
+                    </div>
+"""
+    
+    html += f"""
+                <div class="button-row">
+                    <button class="btn-submit" onclick="submitQuiz()">Submit Answers</button>
+                </div>
+                
+                <div class="results" id="results">
+                    <h3>Your Score</h3>
+                    <div class="score" id="scoreDisplay">0%</div>
+                    <p id="scoreMessage"></p>
+                    <div id="perfectScoreSection" style="display:none; margin-top: 20px;">
+                        <p style="color: #155724; font-weight: bold; margin-bottom: 15px;">🎉 Perfect Score! You have completed this education module successfully.</p>
+                        <div style="margin: 15px 0;">
+                            <label for="certName">Name for Certificate:</label><br>
+                            <input type="text" id="certName" placeholder="Enter your full name" style="padding: 10px; width: 300px; max-width: 100%; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <button class="btn-download" onclick="downloadCertificate()">Download Certificate (PNG)</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>© 2024 CarePathIQ. All rights reserved. Licensed under CC BY-SA 4.0</p>
+            <p>{condition} | {care_setting} | {target_audience}</p>
+        </div>
+    </div>
+    
+    <script>
+        const quizData = {questions_json};
+        const pathwayName = "{condition}";
+        const caregSetting = "{care_setting}";
+        let userResponses = {{}};
+        
+        function submitQuiz() {{
+            const form = document.getElementById('quizForm');
+            const formData = new FormData(form);
+            
+            let correct = 0;
+            let total = quizData.length;
+            
+            quizData.forEach((q, idx) => {{
+                const userAnswer = formData.get('q' + idx);
+                userResponses['q' + idx] = userAnswer;
+                
+                const feedbackEl = document.getElementById('feedback' + idx);
+                if (userAnswer === q.correct) {{
+                    correct++;
+                    feedbackEl.className = 'feedback show correct';
+                    feedbackEl.innerHTML = '<strong>✓ Correct!</strong> ' + q.explanation;
+                }} else {{
+                    feedbackEl.className = 'feedback show incorrect';
+                    feedbackEl.innerHTML = '<strong>✗ Incorrect.</strong> Correct answer: ' + q.correct + '. ' + q.explanation;
+                }}
+            }});
+            
+            const percentage = Math.round((correct / total) * 100);
+            document.getElementById('scoreDisplay').textContent = percentage + '%';
+            document.getElementById('scoreMessage').textContent = 'You answered ' + correct + ' out of ' + total + ' questions correctly.';
+            
+            if (percentage === 100) {{
+                document.getElementById('perfectScoreSection').style.display = 'block';
+            }}
+            
+            document.getElementById('results').classList.add('show');
+            
+            window.scrollTo(0, document.getElementById('results').offsetTop - 100);
+        }}
+        
+        function downloadCertificate() {{
+            const name = document.getElementById('certName').value.trim();
+            if (!name) {{
+                alert('Please enter your name on the certificate.');
+                return;
+            }}
+            
+            // Create canvas for certificate
+            const canvas = document.createElement('canvas');
+            canvas.width = 1200;
+            canvas.height = 800;
+            const ctx = canvas.getContext('2d');
+            
+            // Background
+            ctx.fillStyle = '#f5f5dc';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Border
+            ctx.strokeStyle = '#5D4037';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+            
+            // Inner border
+            ctx.strokeStyle = '#98d8c8';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(40, 40, canvas.width - 80, canvas.height - 80);
+            
+            // Title
+            ctx.fillStyle = '#5D4037';
+            ctx.font = 'bold 48px Georgia, serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Certificate of Completion', canvas.width / 2, 120);
+            
+            // Logo placeholder (CarePathIQ text)
+            ctx.font = '24px Arial, sans-serif';
+            ctx.fillStyle = '#98d8c8';
+            ctx.fillText('CarePathIQ', 80, 100);
+            
+            // Pathway name
+            ctx.fillStyle = '#333';
+            ctx.font = '32px Georgia, serif';
+            ctx.fillText(pathwayName + ' Pathway', canvas.width / 2, 280);
+            
+            // Message
+            ctx.font = '18px Arial';
+            ctx.fillStyle = '#666';
+            ctx.textAlign = 'center';
+            ctx.fillText('This certifies that', canvas.width / 2, 380);
+            
+            // Name
+            ctx.fillStyle = '#5D4037';
+            ctx.font = 'bold 36px Georgia, serif';
+            ctx.fillText(name, canvas.width / 2, 480);
+            
+            // Bottom message
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#666';
+            ctx.fillText('has successfully completed the education module for', canvas.width / 2, 560);
+            ctx.fillText(pathwayName + ' in ' + caregSetting, canvas.width / 2, 600);
+            
+            // Date
+            const today = new Date();
+            const dateStr = today.toLocaleDateString('en-US', {{ year: 'numeric', month: 'long', day: 'numeric' }});
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#999';
+            ctx.fillText('Date: ' + dateStr, canvas.width / 2, 680);
+            
+            // Download
+            canvas.toBlob(function(blob) {{
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name.replace(/\\s+/g, '_') + '_Certificate.png';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            }});
+        }}
+    </script>
+</body>
+</html>"""
+    
+    return html
+
     
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1730,6 +1940,56 @@ def generate_education_module_html(
 # ==========================================
 # HELPER FOR EXECUTIVE SUMMARY (using python-docx)
 # ==========================================
+
+def infer_audience_from_description(target_audience: str, genai_client=None) -> dict:
+    """
+    Infer audience metadata (strategic vs operational focus) from free-text description.
+    Returns structured dict for content adaptation.
+    
+    Args:
+        target_audience: Free-text description of target audience (e.g., "department chair", "clinical team")
+        genai_client: Optional AI client (not used for now; kept for future enhancement)
+        
+    Returns:
+        dict with keys: strategic_focus, operational_focus, detail_level, emphasis_areas
+    """
+    audience_lower = (target_audience or "").lower()
+    
+    # Keywords indicating executive/strategic focus
+    executive_keywords = ['executive', 'c-suite', 'chief', 'director', 'chair', 'administrator', 'board', 'leadership', 'strategic', 'cfo', 'coo', 'ceo']
+    
+    # Keywords indicating clinical/operational focus
+    clinical_keywords = ['physician', 'doctor', 'nurse', 'rn', 'clinician', 'resident', 'fellow', 'staff', 'provider', 'practitioner', 'team']
+    
+    # Default metadata
+    metadata = {
+        'strategic_focus': False,
+        'operational_focus': True,
+        'detail_level': 'moderate',
+        'emphasis_areas': []
+    }
+    
+    # Determine focus
+    is_executive = any(kw in audience_lower for kw in executive_keywords)
+    is_clinical = any(kw in audience_lower for kw in clinical_keywords)
+    
+    if is_executive:
+        metadata['strategic_focus'] = True
+        metadata['operational_focus'] = False
+        metadata['detail_level'] = 'executive'
+        metadata['emphasis_areas'] = ['strategic impact', 'financial value', 'organizational outcomes']
+    elif is_clinical:
+        metadata['operational_focus'] = True
+        metadata['strategic_focus'] = False
+        metadata['detail_level'] = 'detailed'
+        metadata['emphasis_areas'] = ['clinical protocols', 'workflow integration', 'decision support']
+    else:
+        metadata['operational_focus'] = True
+        metadata['detail_level'] = 'moderate'
+        metadata['emphasis_areas'] = ['implementation readiness', 'stakeholder engagement']
+    
+    return metadata
+
 
 def create_phase5_executive_summary_docx(data: dict, condition: str, target_audience: str = "", genai_client=None):
     """
