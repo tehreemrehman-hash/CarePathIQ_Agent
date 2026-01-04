@@ -4374,55 +4374,6 @@ elif "Decision" in phase or "Tree" in phase:
             f"<b>Visit Phase 2</b> to review and finalize."
         )
 
-    def apply_large_pathway_recommendations():
-        current_nodes = st.session_state.data['phase3']['nodes']
-        ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
-        with ai_activity("Applying pathway recommendations…"):
-            prompt = f"""
-            The current decision tree for {cond} in {setting} has many nodes. Re-organize for better clarity and structure.
-
-            Current pathway (JSON):
-            {json.dumps(current_nodes, indent=2)}
-
-            Available Evidence:
-            {ev_context}
-
-            Requirements:
-            - Keep fields: type, label, evidence, (optional) detail.
-            - Preserve ALL existing nodes and clinical content—DO NOT reduce complexity or remove nodes.
-            - Group logically into clear clinical stages (e.g., Initial Evaluation, Risk Stratification, Diagnosis, Treatment, Disposition).
-            - Apply sophisticated clinical patterns to enhance clarity and implementability:
-              * Validated clinical scores: Ensure score thresholds are explicit (Wells' ≤1, 2-6, ≥7)
-              * Special populations: Ensure pregnancy checks, contraindications, age adjustments are clearly labeled
-              * Medication specificity: Use brand AND generic names with exact dosing details where present
-              * Resource contingencies: Clearly label alternative pathways when resources unavailable
-              * Follow-up instructions: Ensure specific timing and provider types in End nodes
-              * Risk level indicators: Add [Low Risk], [High Risk], [Alert], [Info] tags where appropriate
-            - Improve label clarity using standard medical abbreviations while maintaining clinical precision.
-            - Maintain complete clinical flow with all decision branches—no merging or eliminating edges cases.
-            - Preserve evidence citations when present; use "N/A" if none.
-            - Keep all edge cases and special population considerations—organize them into labeled subsections.
-            - GOAL: More readable organization, NOT fewer clinical considerations.
-            """
-            new_nodes = get_gemini_response(prompt, json_mode=True)
-        if isinstance(new_nodes, list) and new_nodes:
-            st.session_state.data['phase3']['nodes'] = new_nodes
-            st.session_state.data['phase3']['large_rec_applied'] = True
-            st.success("Recommendations applied to the decision tree.")
-            st.rerun()
-
-    applied_flag = st.session_state.data['phase3'].get('large_rec_applied', False)
-    if node_count > 20:
-        styled_info("<b>Note:</b> Large pathway detected. Click below to improve organization and section structure while preserving all clinical content.")
-        
-        # Determine button type and label
-        reco_button_type = "primary" if applied_flag else "secondary"
-        reco_button_label = "Applied" if applied_flag else "Apply Recommendations"
-        
-        if st.button(reco_button_label, type=reco_button_type, key="p3_apply_reco_btn"):
-            if not applied_flag:
-                apply_large_pathway_recommendations()
-
     st.divider()
 
     # PDF Pathway Upload (new feature)
@@ -4840,66 +4791,6 @@ EXAMPLE FORMAT:
         else:
             st.warning("SVG unavailable. Install Graphviz on the server and retry.")
 
-        if svg_str:
-            with st.expander("Open Preview", expanded=False):
-                st.caption("Inline preview with zoom. Use fullscreen or download for the highest fidelity.")
-                preview_html = """
-                <html>
-                <head>
-                <style>
-                    body { margin: 0; padding: 0; }
-                    #container { border: 1px solid #e0e0e0; padding: 8px; background: white; border-radius: 6px; }
-                    #controls { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
-                    button { padding: 6px 10px; cursor: pointer; }
-                    #cpq-canvas { transform: scale(1); transform-origin: top left; border: 1px solid #f0f0f0; padding: 6px; overflow: auto; max-height: 520px; }
-                    .info { font-size: 12px; color: #555; }
-                </style>
-                </head>
-                <body>
-                <div id="container">
-                    <div id="controls">
-                        <button id="cpq-zoom-out">-</button>
-                        <button id="cpq-zoom-in">+</button>
-                        <button id="cpq-fit">Fit</button>
-                        <span class="info">Quick zoom preview (fullscreen/download for production)</span>
-                    </div>
-                    <div id="cpq-canvas">""" + svg_str + """</div>
-                </div>
-                <script>
-                    (function() {
-                        const canvas = document.getElementById("cpq-canvas");
-                        let scale = 1.0;
-                        function applyScale() {
-                            canvas.style.transform = 'scale(' + scale + ')';
-                        }
-                        const zoomInBtn = document.getElementById("cpq-zoom-in");
-                        const zoomOutBtn = document.getElementById("cpq-zoom-out");
-                        const fitBtn = document.getElementById("cpq-fit");
-                        if (zoomInBtn) {
-                            zoomInBtn.addEventListener("click", function() {
-                                scale = Math.min(scale + 0.1, 3);
-                                applyScale();
-                            });
-                        }
-                        if (zoomOutBtn) {
-                            zoomOutBtn.addEventListener("click", function() {
-                                scale = Math.max(scale - 0.1, 0.5);
-                                applyScale();
-                            });
-                        }
-                        if (fitBtn) {
-                            fitBtn.addEventListener("click", function() {
-                                scale = 1.0;
-                                applyScale();
-                            });
-                        }
-                    })();
-                </script>
-                </body>
-                </html>
-                """
-                st.components.v1.html(preview_html, height=620, scrolling=True)
-
         st.divider()
 
         # EDIT PATHWAY DATA SECTION (immediately below visualization controls)
@@ -5216,13 +5107,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         ]
         # Refine section (collapsible, notes on the left for natural flow)
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Add discussion topics or attach evidence summaries to enhance the expert panel guide.")
+            st.markdown("**Tip:** Specify clinical specialties to review or add evaluation criteria to ensure comprehensive expert feedback on the pathway.")
             with st.form("p5_refine_expert_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
                     refine_expert = st.text_area(
                         "Refinement Notes",
-                        placeholder="Add usability metrics; clarify scenarios; shorten steps",
+                        placeholder="Include pharmacist review; add nursing workflow assessment; request specialist input on decision points",
                         key="p5_refine_expert",
                         height=90,
                         label_visibility="visible"
@@ -5302,13 +5193,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
 
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Add testing criteria or attach protocol documents to enhance the beta testing guide.")
+            st.markdown("**Tip:** Define testing scenarios or specify user groups to ensure the pilot captures meaningful real-world feedback.")
             with st.form("p5_refine_beta_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
                     refine_beta = st.text_area(
                         "Refinement Notes",
-                        placeholder="Add usability metrics; clarify scenarios; shorten steps",
+                        placeholder="Add ED triage scenarios; include night shift workflows; test with new residents",
                         key="p5_refine_beta",
                         height=90,
                         label_visibility="visible"
@@ -5332,7 +5223,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     submitted_beta = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
             
             if submitted_beta:
-                with st.spinner("Refining..."):
+                with st.status("Regenerating Beta Testing Guide...", expanded=True) as status:
+                    st.write("Incorporating feedback and building updated testing scenarios...")
                     refine_with_file = refine_beta
                     if st.session_state.get("file_p5_beta_review"):
                         refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
@@ -5349,7 +5241,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         phase4_data=st.session_state.data.get('phase4', {})
                     )
                     st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
-                    st.success("Refined!")
+                    status.update(label="Beta Testing Guide Regenerated", state="complete", expanded=False)
     
     st.divider()
     
@@ -5371,7 +5263,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
         if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
             st.session_state["p5_aud_edu"] = aud_edu
             st.session_state["p5_aud_edu_prev"] = aud_edu
-            with st.spinner("Generating education module (this may take a moment if API is busy)..."):
+            with st.status("Generating Education Module...", expanded=True) as status:
+                st.write(f"Building customized training content for {aud_edu}...")
                 try:
                     edu_html = generate_education_module_html(
                         condition=cond,
@@ -5381,6 +5274,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         genai_client=get_genai_client()
                     )
                     st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
+                    status.update(label="Education Module Generated", state="complete", expanded=False)
                 except Exception as e:
                     error_msg = str(e).lower()
                     if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
@@ -5403,13 +5297,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
 
         # Refine & Regenerate section (matching Expert Panel pattern)
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Add learning objectives or attach training materials to enhance the education module.")
+            st.markdown("**Tip:** Add learning objectives or specify competency focus areas to tailor training content for your audience.")
             with st.form("p5_refine_edu_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
                     refine_edu = st.text_area(
                         "Refinement Notes",
-                        placeholder="Add case studies; include quick checks; simplify objectives",
+                        placeholder="Emphasize medication safety; add case-based scenarios; include competency checkpoints",
                         key="p5_refine_edu",
                         height=90,
                         label_visibility="visible"
@@ -5433,7 +5327,8 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     submitted_edu = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
             
             if submitted_edu:
-                with st.spinner("Refining..."):
+                with st.status("Regenerating Education Module...", expanded=True) as status:
+                    st.write("Incorporating feedback and updating training content...")
                     # Include file context
                     refine_with_file = refine_edu
                     if st.session_state.get("file_p5_edu_review"):
@@ -5582,7 +5477,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                                 genai_client=get_genai_client()
                             )
                             st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
-                            st.success("Refined!")
+                            status.update(label="Education Module Regenerated", state="complete", expanded=False)
                         except Exception as e:
                             error_msg = str(e).lower()
                             if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
@@ -5625,13 +5520,13 @@ elif "Operationalize" in phase or "Deploy" in phase:
         
         # Refine & Regenerate section for Executive Summary
         with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Add strategic context or attach supporting documents to enhance the executive summary.")
+            st.markdown("**Tip:** Highlight strategic priorities or attach supporting data to strengthen the business case for leadership review.")
             with st.form("p5_refine_exec_form"):
                 col_text, col_file = columns_top([2, 1])
                 with col_text:
                     st.text_area(
                         "Refinement Notes",
-                        placeholder="Emphasize ROI; highlight key metrics; focus on strategic alignment",
+                        placeholder="Emphasize cost savings; include benchmark comparisons; align with quality initiatives",
                         key="p5_refine_exec",
                         height=90,
                         label_visibility="visible"

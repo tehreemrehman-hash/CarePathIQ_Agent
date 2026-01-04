@@ -741,88 +741,11 @@ def generate_beta_form_html(
 
     def build_beta_test_scenarios(condition: str, nodes: list, care_setting: str, genai_client=None, 
                                      phase1_data=None, phase2_data=None, phase3_data=None, phase4_data=None):
-        """Create three concise test scenarios using LLM context from Phase 1-4 with safe fallback."""
-        # Build context-aware default scenarios based on condition/setting
-        cond_lower = (condition or "").lower()
-        setting_lower = (care_setting or "").lower()
+        """Create three concise test scenarios using LLM context from Phase 1-4 with retry logic."""
+        import time as time_module
         
-        # Dynamically generate default scenarios based on condition type
-        if "syncope" in cond_lower:
-            default_scenarios = [
-                {
-                    "title": "Low-Risk Syncope Discharge",
-                    "vignette": f"32F, vasovagal episode after prolonged standing in {care_setting or 'clinic'}, no prodrome, normal ECG, no cardiac history, San Francisco Rule negative.",
-                    "tasks": [
-                        "Apply pathway risk stratification criteria",
-                        "Confirm low-risk features per pathway algorithm",
-                        "Select discharge with PCP follow-up per pathway",
-                    ],
-                    "success_criteria": "Did the pathway correctly identify low-risk and reach discharge?",
-                    "notes_placeholder": "Note any unclear risk stratification steps...",
-                },
-                {
-                    "title": "Intermediate-Risk Workup",
-                    "vignette": f"58M, syncope during exertion in {care_setting or 'ED'}, HTN, borderline ECG, no witnessed seizure activity.",
-                    "tasks": [
-                        "Follow intermediate risk branch per pathway",
-                        "Confirm appropriate workup (echo, telemetry) selected",
-                        "Verify observation vs admission decision pathway",
-                    ],
-                    "success_criteria": "Did the pathway reach appropriate observation/workup?",
-                    "notes_placeholder": "Document if any branch points were ambiguous...",
-                },
-                {
-                    "title": "High-Risk Cardiac Syncope",
-                    "vignette": f"72M, syncope with chest pain in {care_setting or 'ED'}, known CAD, new LBBB on ECG, family hx sudden death.",
-                    "tasks": [
-                        "Trigger high-risk/cardiac pathway branch",
-                        "Confirm cardiology consult pathway activated",
-                        "Verify admission pathway with appropriate monitoring",
-                    ],
-                    "success_criteria": "Did the pathway escalate to cardiology/admission?",
-                    "notes_placeholder": "Note any delays in high-risk identification...",
-                },
-            ]
-        else:
-            # Generic scenarios that adapt to condition/setting
-            default_scenarios = [
-                {
-                    "title": f"Low-Risk {condition} - Standard Management",
-                    "vignette": f"Patient with uncomplicated {condition.lower()} presentation in {care_setting or 'care setting'}, no red flags, stable vitals.",
-                    "tasks": [
-                        f"Apply pathway criteria for low-risk {condition.lower()}",
-                        "Confirm standard workup per pathway algorithm",
-                        "Select appropriate disposition per pathway",
-                    ],
-                    "success_criteria": f"Did the pathway reach the standard {condition.lower()} management branch?",
-                    "notes_placeholder": "Describe any mismatch between scenario and pathway...",
-                },
-                {
-                    "title": f"Moderate Complexity {condition}",
-                    "vignette": f"Patient with {condition.lower()} in {care_setting or 'care setting'} with comorbidities requiring additional workup.",
-                    "tasks": [
-                        "Follow moderate complexity branch per pathway",
-                        "Confirm additional testing/consultation selected",
-                        "Verify appropriate level of care determination",
-                    ],
-                    "success_criteria": "Did the pathway appropriately escalate workup?",
-                    "notes_placeholder": "Note where decision points were unclear...",
-                },
-                {
-                    "title": f"High-Acuity {condition} - Escalation",
-                    "vignette": f"Patient with severe {condition.lower()} in {care_setting or 'care setting'}, red flag features requiring urgent intervention.",
-                    "tasks": [
-                        "Trigger high-acuity pathway branch",
-                        "Confirm urgent intervention/consultation pathway",
-                        "Verify no pathway steps delay time-sensitive care",
-                    ],
-                    "success_criteria": "Did the pathway reach urgent escalation?",
-                    "notes_placeholder": "Note any barriers to rapid escalation...",
-                },
-            ]
-
         if not genai_client:
-            return default_scenarios
+            raise ValueError("Gemini AI client is required to generate clinical scenarios")
 
         # Build rich context from Phase 1-4 data
         p1 = phase1_data or {}
@@ -892,32 +815,51 @@ Return ONLY a JSON array with exactly 3 items:
 
 Make scenarios specific to {condition} in {care_setting or 'the care setting'}. Use realistic clinical values and terminology."""
 
-        try:
-            response = genai_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[{"text": prompt}]
-            )
-            scenarios_raw = json.loads(extract_json_from_response(response.text))
-            scenarios = []
-            for scenario in scenarios_raw[:3]:
-                title = scenario.get("title") or "Scenario"
-                vignette = scenario.get("vignette") or "Clinical scenario"
-                tasks = [t for t in scenario.get("tasks", []) if t][:3] or ["Follow the pathway steps"]
-                success = scenario.get("success_criteria") or "Did the pathway reach the intended outcome?"
-                notes = scenario.get("notes_placeholder") or "Describe any mismatch or blockers..."
-                scenarios.append({
-                    "title": title.strip(),
-                    "vignette": vignette.strip(),
-                    "tasks": tasks,
-                    "success_criteria": success.strip(),
-                    "notes_placeholder": notes.strip(),
-                })
-            if len(scenarios) == 3:
-                return scenarios
-        except Exception:
-            pass
-
-        return default_scenarios
+        # Retry loop with exponential backoff for rate limits
+        max_retries = 10  # Will retry for up to ~15 minutes total
+        for attempt in range(max_retries):
+            try:
+                response = genai_client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=[{"text": prompt}]
+                )
+                scenarios_raw = json.loads(extract_json_from_response(response.text))
+                scenarios = []
+                for scenario in scenarios_raw[:3]:
+                    title = scenario.get("title") or "Scenario"
+                    vignette = scenario.get("vignette") or "Clinical scenario"
+                    tasks = [t for t in scenario.get("tasks", []) if t][:3] or ["Follow the pathway steps"]
+                    success = scenario.get("success_criteria") or "Did the pathway reach the intended outcome?"
+                    notes = scenario.get("notes_placeholder") or "Describe any mismatch or blockers..."
+                    scenarios.append({
+                        "title": title.strip(),
+                        "vignette": vignette.strip(),
+                        "tasks": tasks,
+                        "success_criteria": success.strip(),
+                        "notes_placeholder": notes.strip(),
+                    })
+                if len(scenarios) == 3:
+                    return scenarios
+                # If we got less than 3 scenarios, retry
+                if attempt < max_retries - 1:
+                    time_module.sleep(5)
+                    continue
+            except Exception as e:
+                error_str = str(e).lower()
+                # Check if it's a rate limit error
+                if '429' in str(e) or 'resource_exhausted' in error_str or 'quota' in error_str:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: 15s, 30s, 60s, 90s, 120s...
+                        wait_time = min(15 * (2 ** min(attempt, 3)), 120)
+                        time_module.sleep(wait_time)
+                        continue
+                # For other errors, also retry with shorter wait
+                if attempt < max_retries - 1:
+                    time_module.sleep(10)
+                    continue
+                raise e
+        
+        raise Exception("Unable to generate clinical scenarios after multiple retries. Please try again later.")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nodes_json = json.dumps(nodes or [])
     condition_clean = (condition or "Pathway").strip()
@@ -949,8 +891,11 @@ Make scenarios specific to {condition} in {care_setting or 'the care setting'}. 
 {tasks_html}
 </ul>
 <div class=\"checklist\">
-<strong>{scenario.get('success_criteria', 'Did the pathway land on the correct end-node?')}</strong>
-<label><input type=\"checkbox\" class=\"scenario-check\" data-scenario=\"{slug}\" data-label=\"{scenario.get('title', 'Scenario')}\" data-notes-id=\"scenario{idx}_notes\"> ✓ Reached the intended outcome</label>
+<strong>{scenario.get('success_criteria', 'Did the pathway reach the intended outcome?')}</strong>
+<div style=\"display:flex;gap:20px;margin-top:8px\">
+<label style=\"display:flex;align-items:center;gap:6px;cursor:pointer\"><input type=\"radio\" name=\"scenario{idx}_outcome\" value=\"yes\" class=\"scenario-radio\" data-scenario=\"{slug}\" data-label=\"{scenario.get('title', 'Scenario')}\" data-notes-id=\"scenario{idx}_notes\"> Yes</label>
+<label style=\"display:flex;align-items:center;gap:6px;cursor:pointer\"><input type=\"radio\" name=\"scenario{idx}_outcome\" value=\"no\" class=\"scenario-radio\" data-scenario=\"{slug}\" data-label=\"{scenario.get('title', 'Scenario')}\" data-notes-id=\"scenario{idx}_notes\"> No</label>
+</div>
 </div>
 <label style=\"margin-top:10px\">Notes:</label>
 <textarea id=\"scenario{idx}_notes\" placeholder=\"{scenario.get('notes_placeholder', 'Document issues or blockers...')}\"></textarea>
@@ -1141,29 +1086,70 @@ function downloadCSV() {{
   csv += `Tester Name,${{name}},"${{name}}"\\n`;
   csv += `Tester Email,${{email}},"${{email}}"\\n`;
   csv += `Tester Role,${{role}},"${{role}}"\\n`;
-  csv += `Condition,"{condition}","{condition}"\\n`;
+  csv += `Condition,"{condition_clean}","{condition_clean}"\\n`;
   csv += `Test Date,"${{new Date().toLocaleDateString()}}","${{new Date().toISOString()}}"\\n`;
   csv += '\\n';
   
-  // Scenarios
-  csv += 'Scenario Testing,Item,Notes\\n';
-    const s1Check = document.querySelector('input[data-scenario="lowrisk"]').checked ? 'Completed' : 'Not Completed';
-{scenario_blocks_html}
+  // Scenarios - collect radio button responses
+  csv += 'Scenario Testing,Outcome,Notes\\n';
+  document.querySelectorAll('.scenario-card').forEach((card, idx) => {{
+    const scenarioTitle = card.querySelector('h3').textContent;
+    const selectedRadio = card.querySelector('input[type="radio"]:checked');
+    const outcome = selectedRadio ? (selectedRadio.value === 'yes' ? 'Yes' : 'No') : 'Not answered';
+    const notes = card.querySelector('textarea').value.replace(/"/g, '""');
+    csv += `"${{scenarioTitle}}",${{outcome}},"${{notes}}"\\n`;
+  }});
+  csv += '\\n';
+  
+  // Heuristics ratings
+  csv += 'Heuristic,Rating,Comments\\n';
+  HEURISTICS.forEach(h => {{
+    const rating = document.querySelector(`input[name="${{h.id}}_rating"]:checked`)?.value || '3';
+    const comments = (document.getElementById(`${{h.id}}_comments`)?.value || '').replace(/"/g, '""');
+    csv += `"${{h.name}}",${{rating}},"${{comments}}"\\n`;
+  }});
+  csv += '\\n';
+  
+  // Overall feedback
+  csv += 'Overall Feedback,Item,Value\\n';
+  csv += `Overall Rating,${{document.getElementById('overall_rating').value}},""\\n`;
+  csv += `Workflow Fit,${{document.getElementById('workflow_fit').value}},""\\n`;
+  const strengths = (document.getElementById('strengths').value || '').replace(/"/g, '""');
+  const improvements = (document.getElementById('improvements').value || '').replace(/"/g, '""');
+  csv += `Strengths,,"${{strengths}}"\\n`;
+  csv += `Improvements,,"${{improvements}}"\\n`;
+  
+  // Download file
+  const blob = new Blob([csv], {{type: 'text/csv'}});
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `BetaTest_{condition_clean.replace(' ', '_')}_${{new Date().toISOString().split('T')[0]}}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+}}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', initializeHeuristics);
+</script>
 </body>
 </html>
 """
     return html
 
 
-def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 3):
+def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 10):
     """
     Call Gemini API with exponential backoff retry for rate limits.
+    Keeps retrying until API token is available.
     
     Args:
         genai_client: Google Generative AI client
         prompt: The prompt to send
         model: Model to use
-        max_retries: Maximum retry attempts
+        max_retries: Maximum retry attempts (default 10 = ~15 minutes total)
         
     Returns:
         API response text
@@ -1185,12 +1171,16 @@ def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.0-f
             # Check if it's a rate limit error
             if '429' in str(e) or 'resource_exhausted' in error_str or 'quota' in error_str:
                 if attempt < max_retries - 1:
-                    # Exponential backoff: 15s, 30s, 60s
-                    wait_time = 15 * (2 ** attempt)
+                    # Exponential backoff: 15s, 30s, 60s, 120s (capped)
+                    wait_time = min(15 * (2 ** min(attempt, 3)), 120)
                     time_module.sleep(wait_time)
                     continue
+            # For other errors, also retry with shorter wait
+            if attempt < max_retries - 1:
+                time_module.sleep(10)
+                continue
             raise e
-    raise Exception("Max retries exceeded for Gemini API call")
+    raise Exception("Unable to connect to AI service after multiple retries. Please try again later.")
 
 
 def generate_education_module_html(
@@ -1226,7 +1216,25 @@ def generate_education_module_html(
     
     condition_clean = (condition or "Clinical Pathway").strip()
     care_setting_clean = (care_setting or "healthcare setting").strip()
-    audience_clean = (target_audience or "clinical staff").strip()
+    
+    # Auto-infer audience based on care setting and pathway complexity if not provided
+    if not target_audience or not target_audience.strip():
+        # Infer appropriate audience from care setting context
+        setting_lower = care_setting_clean.lower()
+        if any(term in setting_lower for term in ['icu', 'intensive', 'critical']):
+            audience_clean = "ICU nurses, residents, and critical care fellows"
+        elif any(term in setting_lower for term in ['ed', 'emergency', 'urgent']):
+            audience_clean = "Emergency medicine residents and ED nursing staff"
+        elif any(term in setting_lower for term in ['primary', 'outpatient', 'clinic', 'office']):
+            audience_clean = "Primary care physicians and clinic nursing staff"
+        elif any(term in setting_lower for term in ['inpatient', 'hospital', 'ward', 'floor']):
+            audience_clean = "Internal medicine residents and inpatient nursing staff"
+        elif any(term in setting_lower for term in ['surgical', 'periop', 'or ']):
+            audience_clean = "Surgical residents and perioperative nursing staff"
+        else:
+            audience_clean = "Clinical staff including physicians, residents, and nursing staff"
+    else:
+        audience_clean = target_audience.strip()
     
     # Extract key pathway information for AI context - include more detail
     decision_nodes = []
