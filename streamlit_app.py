@@ -2185,12 +2185,26 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
     valid_nodes = harden_nodes(nodes)
     from collections import defaultdict
     swimlanes = defaultdict(list)
+    start_node_idx = None  # Track the Start node index for positioning
     for i, n in enumerate(valid_nodes):
         swimlanes[n.get('role', 'Unassigned')].append((i, n))
+        if n.get('type') == 'Start' and start_node_idx is None:
+            start_node_idx = i
     rankdir = 'TB' if orientation == 'TD' else 'LR'
     lines = ["digraph G {", f"  rankdir={rankdir};", "  node [fontname=Helvetica];", "  edge [fontname=Helvetica];"]
     node_id_map = {}
-    notes_nodes = []  # Track nodes with notes for annotation boxes
+    notes_list = []  # Collect notes for numbered legend (note_num, notes_text)
+    notes_node_map = {}  # Map node index to note number
+    
+    # First pass: identify all nodes with notes and assign note numbers
+    note_counter = 1
+    for i, n in enumerate(valid_nodes):
+        notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
+        if notes_text and str(notes_text).strip():
+            notes_list.append((note_counter, str(notes_text).strip()))
+            notes_node_map[i] = note_counter
+            note_counter += 1
+    
     # Clusters by role
     for role, n_list in swimlanes.items():
         cluster_name = re.sub(r"[^A-Za-z0-9_]", "_", str(role) or "Unassigned")
@@ -2203,7 +2217,11 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             raw_label = n.get('label', 'Step')
             # Normalize literal \n to actual newlines for wrapping, then wrap
             raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
-            full_label = _escape_label(_wrap_label(raw_label))
+            wrapped_label = _wrap_label(raw_label)
+            # Add "See Note #X" reference if this node has notes
+            if i in notes_node_map:
+                wrapped_label = wrapped_label + f"\n(See Note {notes_node_map[i]})"
+            full_label = _escape_label(wrapped_label)
             ntype = n.get('type', 'Process')
             if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
             elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
@@ -2211,21 +2229,25 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
             else: shape, fill = 'box', '#FFF2CC'
             fill = _role_fill(n.get('role', ''), fill)
             lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
-            # Track nodes with notes for blue trapezoid annotations
-            notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
-            if notes_text and str(notes_text).strip():
-                notes_nodes.append((i, nid, notes_text))
         lines.append("  }")
     
-    # Add blue trapezoid notes annotations connected with dashed lines
-    for i, nid, notes_text in notes_nodes:
-        notes_id = f"Notes_{i}"
-        # Wrap and escape notes text
-        wrapped_notes = _escape_label(_wrap_label(str(notes_text).strip(), max_width=40))
-        # Blue trapezoid for notes
-        lines.append(f"  {notes_id} [label=\"{wrapped_notes}\", shape=trapezium, style=filled, fillcolor=\"#B3D9FF\", fontsize=10];")
-        # Dashed line connecting note to its node
-        lines.append(f"  {nid} -> {notes_id} [style=dashed, color=\"#4A90D9\", arrowhead=none];")
+    # Force Start node to appear at top-left using rank constraint
+    if start_node_idx is not None:
+        start_nid = node_id_map.get(start_node_idx)
+        if start_nid:
+            lines.append(f"  {{ rank=min; {start_nid}; }}")
+    
+    # Add notes legend at the bottom as a single box (if there are notes)
+    if notes_list:
+        legend_lines = ["NOTES:"]
+        for note_num, note_text in notes_list:
+            # Wrap note text for readability
+            wrapped_note = _wrap_label(note_text, max_width=60)
+            legend_lines.append(f"[{note_num}] {wrapped_note}")
+        legend_text = _escape_label("\n".join(legend_lines))
+        lines.append(f"  NotesLegend [label=\"{legend_text}\", shape=box, style=filled, fillcolor=\"#B3D9FF\", fontsize=10];")
+        # Force legend to bottom
+        lines.append("  { rank=max; NotesLegend; }")
     
     # Edges - support explicit 'target' field for parallel pathways
     for i, n in enumerate(valid_nodes):
@@ -2267,19 +2289,33 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
     valid_nodes = harden_nodes(nodes or [])
     from collections import defaultdict
     swimlanes = defaultdict(list)
+    start_node_idx = None  # Track the Start node index for positioning
     for i, n in enumerate(valid_nodes):
         # Skip creating swimlane entries for nodes without a role - they'll be added to default process group
         role = n.get('role', '')
         if not role or role == 'Unassigned':
             role = 'Process'  # Default role instead of 'Unassigned'
         swimlanes[role].append((i, n))
+        if n.get('type') == 'Start' and start_node_idx is None:
+            start_node_idx = i
     rankdir = 'TB' if orientation == 'TD' else 'LR'
     g = graphviz.Digraph(format='svg')
     g.attr(rankdir=rankdir)
     g.attr('node', fontname='Helvetica')
     g.attr('edge', fontname='Helvetica')
     node_id_map = {}
-    notes_nodes = []  # Track nodes with notes for blue trapezoid annotations
+    notes_list = []  # Collect notes for numbered legend (note_num, notes_text)
+    notes_node_map = {}  # Map node index to note number
+    
+    # First pass: identify all nodes with notes and assign note numbers
+    note_counter = 1
+    for i, n in enumerate(valid_nodes):
+        notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
+        if notes_text and str(notes_text).strip():
+            notes_list.append((note_counter, str(notes_text).strip()))
+            notes_node_map[i] = note_counter
+            note_counter += 1
+    
     for role, n_list in swimlanes.items():
         with g.subgraph(name=f"cluster_{re.sub(r'[^A-Za-z0-9_]', '_', str(role) or 'Process')}") as c:
             c.attr(label=str(role))
@@ -2290,7 +2326,11 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 raw_label = n.get('label', 'Step')
                 # Normalize literal \n to spaces for cleaner display, then wrap
                 raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
-                full_label = _escape_label(_wrap_label(raw_label))
+                wrapped_label = _wrap_label(raw_label)
+                # Add "See Note #X" reference if this node has notes
+                if i in notes_node_map:
+                    wrapped_label = wrapped_label + f"\n(See Note {notes_node_map[i]})"
+                full_label = _escape_label(wrapped_label)
                 ntype = n.get('type', 'Process')
                 if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
                 elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
@@ -2298,20 +2338,28 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                 else: shape, fill = 'box', '#FFF2CC'
                 fill = _role_fill(n.get('role', ''), fill)
                 c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
-                # Track nodes with notes for blue trapezoid annotations
-                notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
-                if notes_text and str(notes_text).strip():
-                    notes_nodes.append((i, nid, notes_text))
     
-    # Add blue trapezoid notes annotations connected with dashed lines
-    for i, nid, notes_text in notes_nodes:
-        notes_id = f"Notes_{i}"
-        # Wrap and escape notes text
-        wrapped_notes = _escape_label(_wrap_label(str(notes_text).strip(), max_width=40))
-        # Blue trapezoid for notes
-        g.node(notes_id, wrapped_notes, shape='trapezium', style='filled', fillcolor='#B3D9FF', fontsize='10')
-        # Dashed line connecting note to its node
-        g.edge(nid, notes_id, style='dashed', color='#4A90D9', arrowhead='none')
+    # Force Start node to appear at top-left using rank constraint
+    if start_node_idx is not None:
+        start_nid = node_id_map.get(start_node_idx)
+        if start_nid:
+            with g.subgraph() as s:
+                s.attr(rank='min')
+                s.node(start_nid)
+    
+    # Add notes legend at the bottom as a single box (if there are notes)
+    if notes_list:
+        legend_lines = ["NOTES:"]
+        for note_num, note_text in notes_list:
+            # Wrap note text for readability
+            wrapped_note = _wrap_label(note_text, max_width=60)
+            legend_lines.append(f"[{note_num}] {wrapped_note}")
+        legend_text = _escape_label("\n".join(legend_lines))
+        g.node('NotesLegend', legend_text, shape='box', style='filled', fillcolor='#B3D9FF', fontsize='10')
+        # Force legend to bottom
+        with g.subgraph() as s:
+            s.attr(rank='max')
+            s.node('NotesLegend')
     
     # Edges - support explicit 'target' field for parallel pathways
     for i, n in enumerate(valid_nodes):
@@ -4777,251 +4825,251 @@ EXAMPLE FORMAT:
     # DEBUG: Log SVG generation status
     debug_log(f"SVG generation - graphviz: {graphviz is not None}, svg_bytes: {svg_bytes is not None}, svg_b64 len: {len(svg_b64)}, svg_str len: {len(svg_str)}")
 
-    col_left, col_right = st.columns([3, 2])
+    # SINGLE COLUMN LAYOUT for better UX flow
+    # Order: Pathway Visualization → Nielsen Heuristics → Edit Pathway Data → Refine & Regenerate
+    
+    # ========== 1. PATHWAY VISUALIZATION ==========
+    st.subheader("Pathway Visualization")
+    if svg_bytes:
+        c1, c2 = columns_top([1, 1])
+        with c1:
+            st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
+        with c2:
+            st.caption("Re‑download the SVG after each edit to see updates.")
+    else:
+        st.warning("SVG unavailable. Install Graphviz on the server and retry.")
 
-    # LEFT: Fullscreen open + manual edit + refine/regenerate
-    with col_left:
-        st.subheader("Pathway Visualization")
-        if svg_bytes:
-            c1, c2 = columns_top([1, 1])
-            with c1:
-                st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
-            with c2:
-                st.caption("Re‑download the SVG after each edit to see updates.")
-        else:
-            st.warning("SVG unavailable. Install Graphviz on the server and retry.")
+    st.divider()
 
-        st.divider()
+    # ========== 2. NIELSEN'S HEURISTICS EVALUATION ==========
+    st.subheader("Nielsen's Heuristics Evaluation")
+    h_data = p4_state.get('heuristics_data', {})
 
-        # EDIT PATHWAY DATA SECTION (immediately below visualization controls)
-        st.subheader("Edit Pathway Manually")
-        with st.expander("Edit Pathway Data", expanded=False):
-            df_p4 = pd.DataFrame(nodes)
-            if 'node_id' not in df_p4.columns:
-                df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
+    if not h_data:
+        styled_info("Heuristics are generated automatically. They will appear here shortly.")
+        # Add manual retry button if auto-generation hasn't completed
+        if nodes and st.button("Generate Heuristics Now", key="p4_manual_heuristics", type="secondary"):
+            p4_state['auto_heuristics_done'] = False
+            st.rerun()
+    else:
+        # Display ALL heuristics H1-H10 without pre-filtering
+        # AI will intelligently evaluate each and apply only those that improve the pathway
+        ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
+        st.caption("Review each heuristic. AI agent will evaluate all and apply those that improve pathway structure. Results will show what was applied and what was skipped.")
+
+        for heuristic_key in ordered_keys:
+            insight = h_data.get(heuristic_key, "")
+            # Format insight as bullet list if it's a list, or format string bullets properly
+            if isinstance(insight, list):
+                # Convert list to HTML bullet points
+                formatted_insight = "<ul style='margin: 0; padding-left: 20px;'>" + "".join(f"<li>{item}</li>" for item in insight) + "</ul>"
+            elif isinstance(insight, str):
+                # Convert string with bullet characters or newlines to HTML list
+                lines = [line.strip() for line in insight.replace('•', '\n').split('\n') if line.strip()]
+                if len(lines) > 1:
+                    formatted_insight = "<ul style='margin: 0; padding-left: 20px;'>" + "".join(f"<li>{line.lstrip('- •')}</li>" for line in lines) + "</ul>"
+                else:
+                    formatted_insight = insight
             else:
-                df_p4['node_id'] = range(1, len(df_p4) + 1)
-            # Ensure notes column exists (may be 'detail' in older data)
-            if 'notes' not in df_p4.columns:
-                if 'detail' in df_p4.columns:
-                    df_p4['notes'] = df_p4['detail']
-                else:
-                    df_p4['notes'] = ""
-            # Show node_id, type, label, notes columns (remove evidence for cleaner view)
-            display_cols = ['node_id', 'type', 'label', 'notes'] if 'notes' in df_p4.columns else ['node_id', 'type', 'label']
-            display_cols = [col for col in display_cols if col in df_p4.columns]
-            df_p4_display = df_p4[display_cols]
-            edited_p4_display = st.data_editor(
-                df_p4_display,
-                column_config={
-                    "node_id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-                    "type": st.column_config.SelectboxColumn(
-                        "Type",
-                        options=["Start", "Decision", "Process", "End"],
-                        required=True,
-                        width="small"
-                    ),
-                    "label": st.column_config.TextColumn("Clinical Step", width="large"),
-                    "notes": st.column_config.TextColumn(
-                        "Notes",
-                        width="medium",
-                        help="Actionable details: red flags, thresholds, monitoring (shown as blue trapezoid)"
-                    )
-                },
-                num_rows="dynamic",
-                key="p4_editor"
-            )
-            manual_changed = not df_p4_display.equals(edited_p4_display)
-            if manual_changed:
-                if 'node_id' in edited_p4_display.columns:
-                    edited_p4_display = edited_p4_display.drop('node_id', axis=1)
-                # Preserve evidence column from original nodes
-                for idx, row in edited_p4_display.iterrows():
-                    if 'evidence' in df_p4.columns and idx < len(df_p4):
-                        edited_p4_display.at[idx, 'evidence'] = df_p4.at[idx, 'evidence']
-                st.session_state.data['phase3']['nodes'] = edited_p4_display.to_dict('records')
-                p4_state['viz_cache'] = {}
-                st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
+                formatted_insight = str(insight)
+            # Get label from HEURISTIC_DEFS
+            label_stub = HEURISTIC_DEFS.get(heuristic_key, "Heuristic").split(' (')[0].split(':')[0]
 
-            regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
-            if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", disabled=regen_disabled):
-                p4_state['viz_cache'] = {}
-                st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
-                st.rerun()
+            with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
+                st.caption(f"*{HEURISTIC_DEFS.get(heuristic_key, 'N/A')}*")
+                st.markdown(
+                    f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; border-left: 4px solid #5D4037; margin-top: 8px;'>{formatted_insight}</div>",
+                    unsafe_allow_html=True
+                )
 
-        st.divider()
-
-        # REFINE AND REGENERATE SECTION (collapsed for cleaner UI)
-        h_data = p4_state.get('heuristics_data', {})
-        with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 4 content and downloads.")
-            regen_submitted = False
-            with st.form("p4_refine_form"):
-                col_text, col_file = columns_top([2, 1])
-                with col_text:
-                    refine_notes = st.text_area(
-                        "Refinement Notes",
-                        placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
-                        key="p4_refine_notes",
-                        height=90,
-                        label_visibility="visible"
-                    )
-
-                with col_file:
-                    st.caption("Supporting Documents (optional)")
-                    uploaded = st.file_uploader(
-                        "Drag and drop file here",
-                        key="p4_upload",
-                        accept_multiple_files=False,
-                        label_visibility="collapsed",
-                        help="Limit 200MB per file"
-                    )
-                    if uploaded:
-                        file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
-                        if file_result:
-                            with st.expander("File Review", expanded=False):
-                                st.markdown(file_result["review"])
-
-                col_form_gap, col_form_btn = st.columns([3, 1])
-                with col_form_btn:
-                    regen_submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
-
-            apply_refine_clicked = st.button("Apply Refinements", key="p4_apply_refine", type="primary", use_container_width=True)
-
-            if regen_submitted or apply_refine_clicked:
-                refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
-                if refine_with_file:
-                    if st.session_state.get("file_p4_refine_file"):
-                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_file')}"
-                    with st.spinner("Applying refinements..."):
-                        refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
-                        if refined:
-                            st.session_state.data['phase3']['nodes'] = refined
-                            p4_state['viz_cache'] = {}
-                            st.success("Refinements applied. Regenerated nodes below.")
-                            st.rerun()
-                        else:
-                            st.warning("Could not apply refinements. Please try different notes or regenerate.")
-
-    # RIGHT: Nielsen's heuristics panel
-    with col_right:
-        st.subheader("Nielsen's Heuristics Evaluation")
-        h_data = p4_state.get('heuristics_data', {})
-
-        if not h_data:
-            styled_info("Heuristics are generated automatically. They will appear here shortly.")
-            # Add manual retry button if auto-generation hasn't completed
-            if nodes and st.button("Generate Heuristics Now", key="p4_manual_heuristics", type="secondary"):
-                p4_state['auto_heuristics_done'] = False
-                st.rerun()
-        else:
-            # Display ALL heuristics H1-H10 without pre-filtering
-            # AI will intelligently evaluate each and apply only those that improve the pathway
-            ordered_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
-            st.caption("Review each heuristic. AI agent will evaluate all and apply those that improve pathway structure. Results will show what was applied and what was skipped.")
-
-            for heuristic_key in ordered_keys:
-                insight = h_data.get(heuristic_key, "")
-                # Format insight as bullet list if it's a list, or format string bullets properly
-                if isinstance(insight, list):
-                    # Convert list to HTML bullet points
-                    formatted_insight = "<ul style='margin: 0; padding-left: 20px;'>" + "".join(f"<li>{item}</li>" for item in insight) + "</ul>"
-                elif isinstance(insight, str):
-                    # Convert string with bullet characters or newlines to HTML list
-                    lines = [line.strip() for line in insight.replace('•', '\n').split('\n') if line.strip()]
-                    if len(lines) > 1:
-                        formatted_insight = "<ul style='margin: 0; padding-left: 20px;'>" + "".join(f"<li>{line.lstrip('- •')}</li>" for line in lines) + "</ul>"
-                    else:
-                        formatted_insight = insight
-                else:
-                    formatted_insight = str(insight)
-                # Get label from HEURISTIC_DEFS
-                label_stub = HEURISTIC_DEFS.get(heuristic_key, "Heuristic").split(' (')[0].split(':')[0]
-
-                with st.expander(f"**{heuristic_key}** - {label_stub}", expanded=False):
-                    st.caption(f"*{HEURISTIC_DEFS.get(heuristic_key, 'N/A')}*")
-                    st.markdown(
-                        f"<div style='background-color: white; color: black; padding: 12px; border-radius: 5px; border: 1px solid #ddd; border-left: 4px solid #5D4037; margin-top: 8px;'>{formatted_insight}</div>",
-                        unsafe_allow_html=True
-                    )
-
-            # APPLY + UNDO BUTTONS
-            has_heuristics = bool(h_data)
-            if has_heuristics:
-                if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
-                    st.success("✅ Applied")
-                    with st.expander("View what was applied & what requires UX engineer", expanded=True):
-                        if p4_state.get('applied_heuristics'):
-                            applied_list = p4_state['applied_heuristics']
-                            applied_with_defs = []
-                            for h in applied_list:
+        # APPLY + UNDO BUTTONS
+        has_heuristics = bool(h_data)
+        if has_heuristics:
+            if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
+                st.success("✅ Applied")
+                with st.expander("View what was applied & what requires UX engineer", expanded=True):
+                    if p4_state.get('applied_heuristics'):
+                        applied_list = p4_state['applied_heuristics']
+                        applied_with_defs = []
+                        for h in applied_list:
+                            h_def = HEURISTIC_DEFS.get(h, "")
+                            short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
+                            applied_with_defs.append(f"{h}: {short_def}")
+                        st.markdown("**✅ Applied to Pathway:**")
+                        for item in applied_with_defs:
+                            st.markdown(f"  - {item}")
+                        
+                        # Show skipped heuristics that require UI/UX work
+                        all_h = set([f"H{i}" for i in range(1, 11)])
+                        skipped = sorted(list(all_h - set(applied_list)), key=lambda x: int(x[1:]))
+                        if skipped:
+                            st.divider()
+                            st.markdown("**🎨 Requires UX/UI Engineer:**")
+                            for h in skipped:
                                 h_def = HEURISTIC_DEFS.get(h, "")
                                 short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
-                                applied_with_defs.append(f"{h}: {short_def}")
-                            st.markdown("**✅ Applied to Pathway:**")
-                            for item in applied_with_defs:
-                                st.markdown(f"  - {item}")
-                            
-                            # Show skipped heuristics that require UI/UX work
-                            all_h = set([f"H{i}" for i in range(1, 11)])
-                            skipped = sorted(list(all_h - set(applied_list)), key=lambda x: int(x[1:]))
-                            if skipped:
-                                st.divider()
-                                st.markdown("**🎨 Requires UX/UI Engineer:**")
-                                for h in skipped:
-                                    h_def = HEURISTIC_DEFS.get(h, "")
-                                    short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
-                                    st.caption(f"  • {h}: {short_def}")
-                        st.divider()
-                        st.markdown("**Changes Made:**")
-                        st.markdown(p4_state['applied_summary_detail'])
-                
-                col_apply, col_undo = st.columns([1, 1])
-                with col_apply:
-                    btn_applied = p4_state.get('applied_status', False)
-                    btn_label = "Applied ✓" if btn_applied else "Apply"
-                    btn_type = "primary" if btn_applied else "secondary"
-                    if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
-                        # Initialize history if needed
-                        if 'nodes_history' not in p4_state:
-                            p4_state['nodes_history'] = []
-                        
-                        # Save current state to history BEFORE applying
-                        p4_state['nodes_history'].append(copy.deepcopy(nodes))
-                        p4_state['applying_heuristics'] = True  # Set flag to prevent re-analysis
-                        
-                        with ai_activity("Applying heuristics…"):
-                            improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
-                            if improved_nodes and len(improved_nodes) > 0:
-                                st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
-                                p4_state['viz_cache'] = {}
-                                p4_state['applied_status'] = True
-                                p4_state['applied_heuristics'] = applied_heuristics
-                                p4_state['applied_summary_detail'] = apply_summary
-                                st.rerun()
-                            else:
-                                # Remove from history if apply failed
-                                if p4_state.get('nodes_history'):
-                                    p4_state['nodes_history'].pop()
-                                st.error("Could not process recommendations. AI returned no valid nodes. Please try again.")
-
-                with col_undo:
-                    history_count = len(p4_state.get('nodes_history', []))
-                    undo_disabled = history_count == 0
-                    if st.button("Undo Last Changes", key="p4_undo_all", type="secondary", disabled=undo_disabled):
-                        if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
-                            prev_nodes = p4_state['nodes_history'].pop()
-                            st.session_state.data['phase3']['nodes'] = prev_nodes
+                                st.caption(f"  • {h}: {short_def}")
+                    st.divider()
+                    st.markdown("**Changes Made:**")
+                    st.markdown(p4_state['applied_summary_detail'])
+            
+            col_apply, col_undo = st.columns([1, 1])
+            with col_apply:
+                btn_applied = p4_state.get('applied_status', False)
+                btn_label = "Applied ✓" if btn_applied else "Apply"
+                btn_type = "primary" if btn_applied else "secondary"
+                if st.button(btn_label, key="p4_apply_all_actionable", type=btn_type, disabled=btn_applied):
+                    # Initialize history if needed
+                    if 'nodes_history' not in p4_state:
+                        p4_state['nodes_history'] = []
+                    
+                    # Save current state to history BEFORE applying
+                    p4_state['nodes_history'].append(copy.deepcopy(nodes))
+                    p4_state['applying_heuristics'] = True  # Set flag to prevent re-analysis
+                    
+                    with ai_activity("Applying heuristics…"):
+                        improved_nodes, applied_heuristics, apply_summary = apply_actionable_heuristics_incremental(nodes, h_data)
+                        if improved_nodes and len(improved_nodes) > 0:
+                            st.session_state.data['phase3']['nodes'] = harden_nodes(improved_nodes)
                             p4_state['viz_cache'] = {}
-                            p4_state['applied_status'] = False
-                            p4_state['applied_summary_detail'] = ""
-                            p4_state['applied_heuristics'] = []
-                            st.success(f"✓ Reverted to previous version ({len(prev_nodes)} nodes)")
+                            p4_state['applied_status'] = True
+                            p4_state['applied_heuristics'] = applied_heuristics
+                            p4_state['applied_summary_detail'] = apply_summary
                             st.rerun()
                         else:
-                            st.info("No changes to undo")
-                    if history_count > 0:
-                        st.caption(f"{history_count} version(s) in history")
+                            # Remove from history if apply failed
+                            if p4_state.get('nodes_history'):
+                                p4_state['nodes_history'].pop()
+                            st.error("Could not process recommendations. AI returned no valid nodes. Please try again.")
+
+            with col_undo:
+                history_count = len(p4_state.get('nodes_history', []))
+                undo_disabled = history_count == 0
+                if st.button("Undo Last Changes", key="p4_undo_all", type="secondary", disabled=undo_disabled):
+                    if p4_state.get('nodes_history') and len(p4_state['nodes_history']) > 0:
+                        prev_nodes = p4_state['nodes_history'].pop()
+                        st.session_state.data['phase3']['nodes'] = prev_nodes
+                        p4_state['viz_cache'] = {}
+                        p4_state['applied_status'] = False
+                        p4_state['applied_summary_detail'] = ""
+                        p4_state['applied_heuristics'] = []
+                        st.success(f"✓ Reverted to previous version ({len(prev_nodes)} nodes)")
+                        st.rerun()
+                    else:
+                        st.info("No changes to undo")
+                if history_count > 0:
+                    st.caption(f"{history_count} version(s) in history")
+
+    st.divider()
+
+    # ========== 3. EDIT PATHWAY DATA MANUALLY ==========
+    st.subheader("Edit Pathway Data")
+    with st.expander("Edit Pathway Data", expanded=False):
+        df_p4 = pd.DataFrame(nodes)
+        if 'node_id' not in df_p4.columns:
+            df_p4.insert(0, 'node_id', range(1, len(df_p4) + 1))
+        else:
+            df_p4['node_id'] = range(1, len(df_p4) + 1)
+        # Ensure notes column exists (may be 'detail' in older data)
+        if 'notes' not in df_p4.columns:
+            if 'detail' in df_p4.columns:
+                df_p4['notes'] = df_p4['detail']
+            else:
+                df_p4['notes'] = ""
+        # Show node_id, type, label, notes columns (remove evidence for cleaner view)
+        display_cols = ['node_id', 'type', 'label', 'notes'] if 'notes' in df_p4.columns else ['node_id', 'type', 'label']
+        display_cols = [col for col in display_cols if col in df_p4.columns]
+        df_p4_display = df_p4[display_cols]
+        edited_p4_display = st.data_editor(
+            df_p4_display,
+            column_config={
+                "node_id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                "type": st.column_config.SelectboxColumn(
+                    "Type",
+                    options=["Start", "Decision", "Process", "End"],
+                    required=True,
+                    width="small"
+                ),
+                "label": st.column_config.TextColumn("Clinical Step", width="large"),
+                "notes": st.column_config.TextColumn(
+                    "Notes",
+                    width="medium",
+                    help="Actionable details: red flags, thresholds, monitoring (appears in notes legend)"
+                )
+            },
+            num_rows="dynamic",
+            key="p4_editor"
+        )
+        manual_changed = not df_p4_display.equals(edited_p4_display)
+        if manual_changed:
+            if 'node_id' in edited_p4_display.columns:
+                edited_p4_display = edited_p4_display.drop('node_id', axis=1)
+            # Preserve evidence column from original nodes
+            for idx, row in edited_p4_display.iterrows():
+                if 'evidence' in df_p4.columns and idx < len(df_p4):
+                    edited_p4_display.at[idx, 'evidence'] = df_p4.at[idx, 'evidence']
+            st.session_state.data['phase3']['nodes'] = edited_p4_display.to_dict('records')
+            p4_state['viz_cache'] = {}
+            st.info("Nodes updated. Click 'Regenerate Visualization & Downloads' to refresh.")
+
+        regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
+        if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", disabled=regen_disabled):
+            p4_state['viz_cache'] = {}
+            st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
+            st.rerun()
+
+    st.divider()
+
+    # ========== 4. REFINE AND REGENERATE ==========
+    with st.expander("Refine & Regenerate", expanded=False):
+        st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 4 content and downloads.")
+        regen_submitted = False
+        with st.form("p4_refine_form"):
+            col_text, col_file = columns_top([2, 1])
+            with col_text:
+                refine_notes = st.text_area(
+                    "Refinement Notes",
+                    placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
+                    key="p4_refine_notes",
+                    height=90,
+                    label_visibility="visible"
+                )
+
+            with col_file:
+                st.caption("Supporting Documents (optional)")
+                uploaded = st.file_uploader(
+                    "Drag and drop file here",
+                    key="p4_upload",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed",
+                    help="Limit 200MB per file"
+                )
+                if uploaded:
+                    file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
+                    if file_result:
+                        with st.expander("File Review", expanded=False):
+                            st.markdown(file_result["review"])
+
+            col_form_gap, col_form_btn = st.columns([3, 1])
+            with col_form_btn:
+                regen_submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+
+        apply_refine_clicked = st.button("Apply Refinements", key="p4_apply_refine", type="primary", use_container_width=True)
+
+        if regen_submitted or apply_refine_clicked:
+            refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
+            if refine_with_file:
+                if st.session_state.get("file_p4_refine_file"):
+                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_file')}"
+                with st.spinner("Applying refinements..."):
+                    refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
+                    if refined:
+                        st.session_state.data['phase3']['nodes'] = refined
+                        p4_state['viz_cache'] = {}
+                        st.success("Refinements applied. Regenerated nodes below.")
+                        st.rerun()
+                    else:
+                        st.warning("Could not apply refinements. Please try different notes or regenerate.")
 
     render_bottom_navigation()
     st.stop()
@@ -5491,32 +5539,44 @@ elif "Operationalize" in phase or "Deploy" in phase:
     with col4:
         st.markdown(f"<h3>{deliverables['executive']}</h3>", unsafe_allow_html=True)
         
-        # Auto-generate executive summary if not already done
-        if not st.session_state.data['phase5'].get('exec_summary'):
-            st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}"
+        # Check if we have cached docx bytes
+        if 'exec_docx_bytes' not in st.session_state:
+            st.session_state['exec_docx_bytes'] = None
         
-        # Download centered - always show if we have pathway data
-        if st.session_state.data['phase5'].get('exec_summary'):
-            try:
-                docx_bytes = create_phase5_executive_summary_docx(
-                    data=st.session_state.data,
-                    condition=cond,
-                    genai_client=get_genai_client()
-                )
-                dl_l, dl_c, dl_r = st.columns([1,2,1])
-                with dl_c:
-                    st.download_button(
-                        "Download (.docx)",
-                        docx_bytes,
-                        f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        # Auto-generate executive summary on first visit if pathway data exists
+        if nodes and st.session_state['exec_docx_bytes'] is None:
+            with st.status("Generating Executive Summary...", expanded=True) as status:
+                st.write("Building comprehensive executive summary...")
+                try:
+                    docx_bytes = create_phase5_executive_summary_docx(
+                        data=st.session_state.data,
+                        condition=cond,
+                        genai_client=get_genai_client()
                     )
-            except Exception as e:
-                error_msg = str(e).lower()
-                if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
-                    st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
-                else:
-                    st.error(f"Error generating summary: {str(e)[:100]}")
+                    st.session_state['exec_docx_bytes'] = docx_bytes
+                    st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}"
+                    status.update(label="Executive Summary Generated", state="complete", expanded=False)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
+                        status.update(label="⏳ Rate limit - please wait", state="error", expanded=False)
+                        st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
+                    else:
+                        status.update(label="Error generating summary", state="error", expanded=False)
+                        st.error(f"Error generating summary: {str(e)[:100]}")
+        
+        # Download button - show if we have generated docx
+        if st.session_state.get('exec_docx_bytes'):
+            dl_l, dl_c, dl_r = st.columns([1,2,1])
+            with dl_c:
+                st.download_button(
+                    "Download (.docx)",
+                    st.session_state['exec_docx_bytes'],
+                    f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+        elif not nodes:
+            st.info("Complete Phase 3 to generate the Executive Summary.")
         
         # Refine & Regenerate section for Executive Summary
         with st.expander("Refine & Regenerate", expanded=False):
@@ -5551,13 +5611,29 @@ elif "Operationalize" in phase or "Deploy" in phase:
             if submitted_exec:
                 refine_exec = st.session_state.get('p5_refine_exec', '').strip()
                 if refine_exec or st.session_state.get("file_p5_exec_review"):
-                    with ai_activity("Regenerating Executive Summary…"):
+                    with st.status("Regenerating Executive Summary...", expanded=True) as status:
                         refine_with_file = refine_exec
                         if st.session_state.get("file_p5_exec_review"):
                             refine_with_file += f"\n\n**Strategic Context:**\n{st.session_state.get('file_p5_exec_review')}"
-                        st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}. Notes: {refine_with_file}"
-                    st.success("Executive Summary regenerated!")
-                    st.rerun()
+                        try:
+                            # Store refinement notes for use in docx generation
+                            st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}. Notes: {refine_with_file}"
+                            # Regenerate the docx with refinements
+                            docx_bytes = create_phase5_executive_summary_docx(
+                                data=st.session_state.data,
+                                condition=cond,
+                                genai_client=get_genai_client()
+                            )
+                            st.session_state['exec_docx_bytes'] = docx_bytes
+                            status.update(label="Executive Summary Regenerated", state="complete", expanded=False)
+                            st.rerun()
+                        except Exception as e:
+                            error_msg = str(e).lower()
+                            if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
+                                status.update(label="⏳ Rate limit - please wait", state="error", expanded=False)
+                            else:
+                                status.update(label="Error regenerating", state="error", expanded=False)
+                                st.error(f"Error: {str(e)[:100]}")
                 else:
                     st.warning("Please enter refinement notes or attach supporting documents.")
     
