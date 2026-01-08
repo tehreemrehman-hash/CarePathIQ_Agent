@@ -21,6 +21,27 @@ import hashlib
 import textwrap
 from google import genai
 
+# Clinical pathway generation modules
+try:
+    from pathway_generator import (
+        PathwayGenerator, Order, EvidenceBasedAddition,
+        DispositionCriteria, DispositionType,
+        create_mermaid_from_nodes, create_dot_from_nodes,
+        export_pathway_markdown
+    )
+    PATHWAY_GENERATOR_AVAILABLE = True
+except ImportError:
+    PATHWAY_GENERATOR_AVAILABLE = False
+
+try:
+    from llm_prompt_templates import (
+        format_comprehensive_prompt, format_refinement_prompt,
+        build_evidence_context, build_pathway_summary
+    )
+    LLM_TEMPLATES_AVAILABLE = True
+except ImportError:
+    LLM_TEMPLATES_AVAILABLE = False
+
 def _get_query_param(name: str):
     try:
         # Streamlit >= 1.33
@@ -2150,7 +2171,23 @@ def validate_decision_science_pathway(nodes_list):
     }
 
 def generate_mermaid_code(nodes, orientation="TD"):
-    """Legacy function - now redirects to DOT format for compatibility."""
+    """
+    Generate Mermaid flowchart code from pathway nodes.
+    Uses pathway_generator module if available, otherwise falls back to DOT.
+    
+    Args:
+        nodes: List of pathway node dictionaries
+        orientation: "TD" (top-down) or "LR" (left-right)
+    
+    Returns:
+        Mermaid diagram source code (or DOT code as fallback)
+    """
+    if PATHWAY_GENERATOR_AVAILABLE:
+        try:
+            return create_mermaid_from_nodes(nodes, include_styling=True)
+        except Exception as e:
+            debug_log(f"Mermaid generation error: {e}")
+            return dot_from_nodes(nodes, orientation)
     return dot_from_nodes(nodes, orientation)
 
 # --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
@@ -4853,14 +4890,49 @@ EXAMPLE FORMAT:
     
     # ========== 1. PATHWAY VISUALIZATION ==========
     st.subheader("Pathway Visualization")
+    
+    # Generate Mermaid code for export (using pathway_generator if available)
+    mermaid_code = generate_mermaid_code(nodes_for_viz, "TD")
+    mermaid_available = PATHWAY_GENERATOR_AVAILABLE and mermaid_code and not mermaid_code.startswith("digraph")
+    
+    # Generate Markdown documentation
+    markdown_doc = None
+    if PATHWAY_GENERATOR_AVAILABLE and nodes:
+        try:
+            condition = st.session_state.data.get('phase1', {}).get('condition', 'Clinical Pathway')
+            setting = st.session_state.data.get('phase1', {}).get('setting', 'ED')
+            markdown_doc = export_pathway_markdown(nodes, condition, setting)
+        except Exception as e:
+            debug_log(f"Markdown export error: {e}")
+    
     if svg_bytes:
-        c1, c2 = columns_top([1, 1])
-        with c1:
-            st.download_button("Download (SVG)", svg_bytes, file_name="pathway.svg", mime="image/svg+xml")
-        with c2:
-            st.caption("Re‑download the SVG after each edit to see updates.")
+        # Create download buttons in columns
+        cols = columns_top([1, 1, 1, 1] if mermaid_available else [1, 1, 1])
+        with cols[0]:
+            st.download_button("📊 Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", help="High-quality vector graphic for presentations")
+        with cols[1]:
+            st.download_button("📝 Download DOT", dot_src.encode('utf-8'), file_name="pathway.dot", mime="text/plain", help="Graphviz DOT source for editing")
+        if mermaid_available:
+            with cols[2]:
+                st.download_button("🔀 Download Mermaid", mermaid_code.encode('utf-8'), file_name="pathway.mmd", mime="text/plain", help="Mermaid diagram for markdown/web embedding")
+            with cols[3]:
+                if markdown_doc:
+                    st.download_button("📄 Download MD", markdown_doc.encode('utf-8'), file_name="pathway_documentation.md", mime="text/markdown", help="Full pathway documentation with embedded diagram")
+        else:
+            with cols[2]:
+                if markdown_doc:
+                    st.download_button("📄 Download MD", markdown_doc.encode('utf-8'), file_name="pathway_documentation.md", mime="text/markdown", help="Full pathway documentation")
+        
+        st.caption("💡 Re-download after each edit to see updates. SVG for presentations, Mermaid for web/docs.")
     else:
         st.warning("SVG unavailable. Install Graphviz on the server and retry.")
+        # Still offer text-based exports
+        cols = columns_top([1, 1])
+        with cols[0]:
+            st.download_button("📝 Download DOT", dot_src.encode('utf-8'), file_name="pathway.dot", mime="text/plain")
+        if mermaid_available:
+            with cols[1]:
+                st.download_button("🔀 Download Mermaid", mermaid_code.encode('utf-8'), file_name="pathway.mmd", mime="text/plain")
 
     st.divider()
 
