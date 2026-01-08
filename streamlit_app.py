@@ -4863,12 +4863,19 @@ EXAMPLE FORMAT:
     # FULLSCREEN-ONLY VISUALIZATION + RIGHT-SIDE HEURISTICS LAYOUT
     # Build or retrieve SVG for visualization (no inline preview)
     svg_bytes = cache.get(sig, {}).get("svg")
-    if svg_bytes is None:
+    
+    # Always regenerate SVG fresh to ensure downloads work after heuristics are applied
+    # The cache can sometimes get stale after rerun
+    if svg_bytes is None or p4_state.get('applied_status'):
         g = build_graphviz_from_nodes(nodes_for_viz, "TD")
         if g:
             new_svg = render_graphviz_bytes(g, "svg")
-            cache[sig] = {"svg": new_svg}
-            svg_bytes = new_svg
+            if new_svg:
+                cache[sig] = {"svg": new_svg}
+                svg_bytes = new_svg
+                debug_log(f"SVG regenerated: {len(new_svg)} bytes")
+            else:
+                debug_log("render_graphviz_bytes returned None - graphviz may not be rendering")
         else:
             debug_log(f"build_graphviz_from_nodes returned None. graphviz module: {graphviz}")
     p4_state['viz_cache'] = {sig: cache.get(sig, {})}
@@ -4891,48 +4898,11 @@ EXAMPLE FORMAT:
     # ========== 1. PATHWAY VISUALIZATION ==========
     st.subheader("Pathway Visualization")
     
-    # Generate Mermaid code for export (using pathway_generator if available)
-    mermaid_code = generate_mermaid_code(nodes_for_viz, "TD")
-    mermaid_available = PATHWAY_GENERATOR_AVAILABLE and mermaid_code and not mermaid_code.startswith("digraph")
-    
-    # Generate Markdown documentation
-    markdown_doc = None
-    if PATHWAY_GENERATOR_AVAILABLE and nodes:
-        try:
-            condition = st.session_state.data.get('phase1', {}).get('condition', 'Clinical Pathway')
-            setting = st.session_state.data.get('phase1', {}).get('setting', 'ED')
-            markdown_doc = export_pathway_markdown(nodes, condition, setting)
-        except Exception as e:
-            debug_log(f"Markdown export error: {e}")
-    
     if svg_bytes:
-        # Create download buttons in columns
-        cols = columns_top([1, 1, 1, 1] if mermaid_available else [1, 1, 1])
-        with cols[0]:
-            st.download_button("📊 Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", help="High-quality vector graphic for presentations")
-        with cols[1]:
-            st.download_button("📝 Download DOT", dot_src.encode('utf-8'), file_name="pathway.dot", mime="text/plain", help="Graphviz DOT source for editing")
-        if mermaid_available:
-            with cols[2]:
-                st.download_button("🔀 Download Mermaid", mermaid_code.encode('utf-8'), file_name="pathway.mmd", mime="text/plain", help="Mermaid diagram for markdown/web embedding")
-            with cols[3]:
-                if markdown_doc:
-                    st.download_button("📄 Download MD", markdown_doc.encode('utf-8'), file_name="pathway_documentation.md", mime="text/markdown", help="Full pathway documentation with embedded diagram")
-        else:
-            with cols[2]:
-                if markdown_doc:
-                    st.download_button("📄 Download MD", markdown_doc.encode('utf-8'), file_name="pathway_documentation.md", mime="text/markdown", help="Full pathway documentation")
-        
-        st.caption("💡 Re-download after each edit to see updates. SVG for presentations, Mermaid for web/docs.")
+        st.download_button("📊 Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", help="High-quality vector graphic for presentations and email", use_container_width=False)
+        st.caption("💡 Re-download after applying heuristics to get the updated pathway.")
     else:
         st.warning("SVG unavailable. Install Graphviz on the server and retry.")
-        # Still offer text-based exports
-        cols = columns_top([1, 1])
-        with cols[0]:
-            st.download_button("📝 Download DOT", dot_src.encode('utf-8'), file_name="pathway.dot", mime="text/plain")
-        if mermaid_available:
-            with cols[1]:
-                st.download_button("🔀 Download Mermaid", mermaid_code.encode('utf-8'), file_name="pathway.mmd", mime="text/plain")
 
     st.divider()
 
@@ -5187,110 +5157,33 @@ elif "Operationalize" in phase or "Deploy" in phase:
         st.stop()
     
     # Single info box at top
-    styled_info("<b>Tip:</b> Deliverables auto-generate using your pathway context. Download the HTML file to share—it opens in any browser and allows feedback export as CSV.")
+    styled_info("<b>Tip:</b> Click 'Generate' for each deliverable you need. Downloads appear after generation completes.")
     
     cond = st.session_state.data['phase1']['condition'] or "Pathway"
     setting = st.session_state.data['phase1'].get('setting', '') or ""
     nodes = st.session_state.data['phase3']['nodes'] or []
     
-    # Initialize session state for each deliverable
-    deliverables = {
-        "expert": "Expert Panel Feedback",
-        "beta": "Beta Testing Guide",
-        "education": "Education Module",
-        "executive": "Executive Summary"
-    }
+    if not nodes:
+        st.warning("Complete Phase 3 first to generate deliverables.")
+        render_bottom_navigation()
+        st.stop()
     
-    for key in deliverables:
-        if f"p5_aud_{key}" not in st.session_state:
-            st.session_state[f"p5_aud_{key}"] = ""
-    
-    # 2x2 GRID LAYOUT
+    # 2x2 GRID LAYOUT - Each deliverable has Generate button + Download
     col1, col2 = st.columns(2)
 
     # ========== TOP LEFT: EXPERT PANEL FEEDBACK ==========
     with col1:
-        st.markdown(f"<h3>{deliverables['expert']}</h3>", unsafe_allow_html=True)
-
-        # Auto-generate on first visit if pathway nodes exist
-        if nodes and not st.session_state.data['phase5'].get('expert_html'):
+        st.markdown("<h3>Expert Panel Feedback</h3>", unsafe_allow_html=True)
+        
+        # Generate button
+        if st.button("Generate Expert Feedback Form", key="p5_gen_expert", type="secondary"):
             with st.spinner("Generating expert feedback form..."):
-                # Generate SVG for pathway visualization in downloaded form
-                g = build_graphviz_from_nodes(nodes, "TD")
-                svg_bytes = render_graphviz_bytes(g, "svg") if g else None
-                svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
-                
-                expert_html = generate_expert_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    organization=cond,
-                    care_setting=setting,
-                    pathway_svg_b64=svg_b64,
-                    genai_client=get_genai_client()
-                )
-                st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
-
-        if st.session_state.data['phase5'].get('expert_html'):
-                exp_html = st.session_state.data['phase5']['expert_html']
-                dl_l, dl_c, dl_r = st.columns([1, 2, 1])
-                with dl_c:
-                        st.download_button(
-                                "Download (.html)",
-                                exp_html,
-                                f"ExpertFeedback_{cond.replace(' ', '_')}.html",
-                                "text/html",
-                                
-                        )
-
-                        # Inline pathway preview (similar to Phase 4) for expert panel context
-                        nodes_for_viz = nodes if nodes else [
-                                {"label": "Start", "type": "Start"},
-                                {"label": "Add nodes in Phase 3", "type": "Process"},
-                                {"label": "End", "type": "End"},
-                        ]
-        # Refine section (collapsible, notes on the left for natural flow)
-        with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Specify clinical specialties to review or add evaluation criteria to ensure comprehensive expert feedback on the pathway.")
-            with st.form("p5_refine_expert_form"):
-                col_text, col_file = columns_top([2, 1])
-                with col_text:
-                    refine_expert = st.text_area(
-                        "Refinement Notes",
-                        placeholder="Include pharmacist review; add nursing workflow assessment; request specialist input on decision points",
-                        key="p5_refine_expert",
-                        height=90,
-                        label_visibility="visible"
-                    )
-                with col_file:
-                    st.caption("Supporting Documents (optional)")
-                    p5e_uploaded = st.file_uploader(
-                        "Drag & drop or browse",
-                        key="p5_expert_upload",
-                        accept_multiple_files=False,
-                        label_visibility="collapsed"
-                    )
-                    if p5e_uploaded:
-                        file_result = upload_and_review_file(p5e_uploaded, "p5_expert", "expert panel feedback form")
-                        if file_result:
-                            with st.expander("File Review", expanded=True):
-                                st.markdown(file_result["review"])
-                
-                col_form_gap, col_form_btn = st.columns([3, 1])
-                with col_form_btn:
-                    submitted_expert = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
-            
-            if submitted_expert:
-                with st.spinner("Refining..."):
-                    refine_with_file = refine_expert
-                    if st.session_state.get("file_p5_expert_review"):
-                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_expert_review')}"
-                    
-                    # Generate SVG for pathway visualization in downloaded form
+                try:
                     g = build_graphviz_from_nodes(nodes, "TD")
                     svg_bytes = render_graphviz_bytes(g, "svg") if g else None
                     svg_b64 = base64.b64encode(svg_bytes).decode('utf-8') if svg_bytes else None
                     
-                    refined_html = generate_expert_form_html(
+                    expert_html = generate_expert_form_html(
                         condition=cond,
                         nodes=nodes,
                         organization=cond,
@@ -5298,81 +5191,34 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         pathway_svg_b64=svg_b64,
                         genai_client=get_genai_client()
                     )
-                    st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(refined_html)
-                    st.success("Refined!")
+                    st.session_state.data['phase5']['expert_html'] = ensure_carepathiq_branding(expert_html)
+                    st.success("✓ Generated!")
+                    st.rerun()
+                except Exception as e:
+                    if '429' in str(e) or 'quota' in str(e).lower():
+                        st.error("⏳ API rate limit. Wait 15-30 seconds and try again.")
+                    else:
+                        st.error(f"Error: {str(e)[:100]}")
+        
+        # Download button (only shows if generated)
+        if st.session_state.data['phase5'].get('expert_html'):
+            st.download_button(
+                "📥 Download Expert Feedback (.html)",
+                st.session_state.data['phase5']['expert_html'],
+                f"ExpertFeedback_{cond.replace(' ', '_')}.html",
+                "text/html",
+                key="p5_dl_expert"
+            )
 
-# ========== TOP RIGHT: BETA TESTING GUIDE ==========
+    # ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
-        st.markdown(f"<h3>{deliverables['beta']}</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>Beta Testing Guide</h3>", unsafe_allow_html=True)
         
-        # Auto-generate on first visit if pathway nodes exist
-        if nodes and not st.session_state.data['phase5'].get('beta_html'):
+        # Generate button
+        if st.button("Generate Beta Testing Guide", key="p5_gen_beta", type="secondary"):
             with st.spinner("Generating beta testing guide..."):
-                beta_html = generate_beta_form_html(
-                    condition=cond,
-                    nodes=nodes,
-                    organization=cond,
-                    care_setting=setting,
-                    genai_client=get_genai_client(),
-                    phase1_data=st.session_state.data.get('phase1', {}),
-                    phase2_data=st.session_state.data.get('phase2', {}),
-                    phase3_data=st.session_state.data.get('phase3', {}),
-                    phase4_data=st.session_state.data.get('phase4', {})
-                )
-                st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
-        
-        # Download centered
-        if st.session_state.data['phase5'].get('beta_html'):
-            beta_html = st.session_state.data['phase5']['beta_html']
-            dl_l, dl_c, dl_r = st.columns([1,2,1])
-            with dl_c:
-                st.download_button(
-                    "Download (.html)",
-                    beta_html,
-                    f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
-                    "text/html",
-                    
-                )
-
-        # Refine & Regenerate section (matching Expert Panel pattern)
-        with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Define testing scenarios or specify user groups to ensure the pilot captures meaningful real-world feedback.")
-            with st.form("p5_refine_beta_form"):
-                col_text, col_file = columns_top([2, 1])
-                with col_text:
-                    refine_beta = st.text_area(
-                        "Refinement Notes",
-                        placeholder="Add ED triage scenarios; include night shift workflows; test with new residents",
-                        key="p5_refine_beta",
-                        height=90,
-                        label_visibility="visible"
-                    )
-                with col_file:
-                    st.caption("Supporting Documents (optional)")
-                    p5b_uploaded = st.file_uploader(
-                        "Drag & drop or browse",
-                        key="p5_beta_upload",
-                        accept_multiple_files=False,
-                        label_visibility="collapsed"
-                    )
-                    if p5b_uploaded:
-                        file_result = upload_and_review_file(p5b_uploaded, "p5_beta", "beta testing guide")
-                        if file_result:
-                            with st.expander("File Review", expanded=True):
-                                st.markdown(file_result["review"])
-                
-                col_form_gap, col_form_btn = st.columns([3, 1])
-                with col_form_btn:
-                    submitted_beta = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
-            
-            if submitted_beta:
-                with st.status("Regenerating Beta Testing Guide...", expanded=True) as status:
-                    st.write("Incorporating feedback and building updated testing scenarios...")
-                    refine_with_file = refine_beta
-                    if st.session_state.get("file_p5_beta_review"):
-                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_beta_review')}"
-                    
-                    refined_html = generate_beta_form_html(
+                try:
+                    beta_html = generate_beta_form_html(
                         condition=cond,
                         nodes=nodes,
                         organization=cond,
@@ -5383,265 +5229,80 @@ elif "Operationalize" in phase or "Deploy" in phase:
                         phase3_data=st.session_state.data.get('phase3', {}),
                         phase4_data=st.session_state.data.get('phase4', {})
                     )
-                    st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(refined_html)
-                    status.update(label="Beta Testing Guide Regenerated", state="complete", expanded=False)
+                    st.session_state.data['phase5']['beta_html'] = ensure_carepathiq_branding(beta_html)
+                    st.success("✓ Generated!")
+                    st.rerun()
+                except Exception as e:
+                    if '429' in str(e) or 'quota' in str(e).lower():
+                        st.error("⏳ API rate limit. Wait 15-30 seconds and try again.")
+                    else:
+                        st.error(f"Error: {str(e)[:100]}")
+        
+        # Download button (only shows if generated)
+        if st.session_state.data['phase5'].get('beta_html'):
+            st.download_button(
+                "📥 Download Beta Testing (.html)",
+                st.session_state.data['phase5']['beta_html'],
+                f"BetaTestingGuide_{cond.replace(' ', '_')}.html",
+                "text/html",
+                key="p5_dl_beta"
+            )
     
     st.divider()
     
-    col3, col4 = columns_top(2)
+    col3, col4 = st.columns(2)
     
     # ========== BOTTOM LEFT: EDUCATION MODULE ==========
     with col3:
-        st.markdown(f"<h3>{deliverables['education']}</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>Education Module</h3>", unsafe_allow_html=True)
         
-        # Simple audience input
+        # Target audience input
         aud_edu = st.text_input(
             "Target Audience",
-            value=st.session_state.get("p5_aud_edu", ""),
             placeholder="e.g., Residents, Nursing Staff",
             key="p5_aud_edu_input"
         )
         
-        # Auto-generate on input change
-        if aud_edu and aud_edu != st.session_state.get("p5_aud_edu_prev", ""):
-            st.session_state["p5_aud_edu"] = aud_edu
-            st.session_state["p5_aud_edu_prev"] = aud_edu
-            with st.status("Generating Education Module...", expanded=True) as status:
-                st.write(f"Building customized training content for {aud_edu}...")
-                try:
-                    edu_html = generate_education_module_html(
-                        condition=cond,
-                        nodes=nodes,
-                        target_audience=aud_edu,
-                        care_setting=setting,
-                        genai_client=get_genai_client()
-                    )
-                    st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
-                    status.update(label="Education Module Generated", state="complete", expanded=False)
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
-                        st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
-                    else:
-                        st.error(f"Error generating education module: {str(e)[:200]}")
+        # Generate button
+        if st.button("Generate Education Module", key="p5_gen_edu", type="secondary"):
+            if not aud_edu:
+                st.warning("Please enter target audience first.")
+            else:
+                with st.spinner("Generating education module..."):
+                    try:
+                        edu_html = generate_education_module_html(
+                            condition=cond,
+                            nodes=nodes,
+                            target_audience=aud_edu,
+                            care_setting=setting,
+                            genai_client=get_genai_client()
+                        )
+                        st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(edu_html)
+                        st.success("✓ Generated!")
+                        st.rerun()
+                    except Exception as e:
+                        if '429' in str(e) or 'quota' in str(e).lower():
+                            st.error("⏳ API rate limit. Wait 15-30 seconds and try again.")
+                        else:
+                            st.error(f"Error: {str(e)[:100]}")
         
-        # Download centered
+        # Download button (only shows if generated)
         if st.session_state.data['phase5'].get('edu_html'):
-            edu_html = st.session_state.data['phase5']['edu_html']
-            dl_l, dl_c, dl_r = st.columns([1,2,1])
-            with dl_c:
-                st.download_button(
-                    "Download (.html)",
-                    edu_html,
-                    f"EducationModule_{cond.replace(' ', '_')}.html",
-                    "text/html",
-                    
-                )
+            st.download_button(
+                "📥 Download Education Module (.html)",
+                st.session_state.data['phase5']['edu_html'],
+                f"EducationModule_{cond.replace(' ', '_')}.html",
+                "text/html",
+                key="p5_dl_edu"
+            )
 
-        # Refine & Regenerate section (matching Expert Panel pattern)
-        with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Add learning objectives or specify competency focus areas to tailor training content for your audience.")
-            with st.form("p5_refine_edu_form"):
-                col_text, col_file = columns_top([2, 1])
-                with col_text:
-                    refine_edu = st.text_area(
-                        "Refinement Notes",
-                        placeholder="Emphasize medication safety; add case-based scenarios; include competency checkpoints",
-                        key="p5_refine_edu",
-                        height=90,
-                        label_visibility="visible"
-                    )
-                with col_file:
-                    st.caption("Supporting Documents (optional)")
-                    p5ed_uploaded = st.file_uploader(
-                        "Drag & drop or browse",
-                        key="p5_edu_upload",
-                        accept_multiple_files=False,
-                        label_visibility="collapsed"
-                    )
-                    if p5ed_uploaded:
-                        file_result = upload_and_review_file(p5ed_uploaded, "p5_edu", "education module")
-                        if file_result:
-                            with st.expander("File Review", expanded=False):
-                                st.markdown(file_result["review"])
-                
-                col_form_gap, col_form_btn = st.columns([3, 1])
-                with col_form_btn:
-                    submitted_edu = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
-            
-            if submitted_edu:
-                with st.status("Regenerating Education Module...", expanded=True) as status:
-                    st.write("Incorporating feedback and updating training content...")
-                    # Include file context
-                    refine_with_file = refine_edu
-                    if st.session_state.get("file_p5_edu_review"):
-                        refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p5_edu_review')}"
-                    
-                    # Get existing modules and add refinement notes
-                    existing_html = st.session_state.data['phase5'].get('edu_html', '')
-                    if existing_html:
-                        # Append refinement notes to existing content
-                        edu_topics = []
-                        charter = st.session_state.data['phase1'].get('charter', '')
-                        overall_objectives = []
-                    
-                        # Extract objectives (same as initial generation)
-                        if charter:
-                            lines = charter.split('\n')
-                            for i, line in enumerate(lines):
-                                if any(word in line.lower() for word in ['goal', 'objective', 'aim']):
-                                    for j in range(i+1, min(i+5, len(lines))):
-                                        if lines[j].strip().startswith(('-', '•', '*', '1.', '2.', '3.')):
-                                            obj_text = lines[j].strip().lstrip('-•*123456789. ')
-                                            if len(obj_text) > 10:
-                                                overall_objectives.append(obj_text)
-                    
-                        if not overall_objectives:
-                            overall_objectives = [
-                                f"Understand the clinical approach to {cond}",
-                                f"Apply evidence-based decision-making in {setting or 'clinical practice'}",
-                                "Recognize key decision points in the care pathway",
-                                "Implement standardized protocols effectively"
-                            ]
-                    
-                        # Rebuild modules with refinement
-                        if nodes and len(nodes) > 1:
-                            decision_nodes = [n for n in nodes if n.get('type') in ['Decision', 'Process', 'Action'] and n.get('label', '').strip()]
-                            nodes_per_module = max(1, len(decision_nodes) // 3)
-                            module_groups = [decision_nodes[i:i + nodes_per_module] for i in range(0, len(decision_nodes), nodes_per_module)][:4]
-                        
-                            for mod_idx, module_nodes in enumerate(module_groups):
-                                if not module_nodes:
-                                    continue
-                            
-                                module_title = module_nodes[0].get('label', f'Module {mod_idx + 1}')
-                                if len(module_title) > 60:
-                                    module_title = module_title[:60] + '...'
-                            
-                                content_html = f"<h4>Pathway Steps</h4>"
-                                quiz_questions = []
-                            
-                                for node in module_nodes:
-                                    node_label = node.get('label', 'Decision point')
-                                    node_type = node.get('type', 'Process')
-                                    node_evidence = node.get('evidence', 'N/A')
-                                
-                                    content_html += f"<div style='margin: 15px 0; padding: 10px; background: #f8f9fa; border-left: 3px solid #6c757d;'>"
-                                    content_html += f"<strong>{node_type}:</strong> {node_label}"
-                                    if node_evidence and node_evidence != 'N/A':
-                                        content_html += f"<br><small style='color: #666;'>Evidence: {node_evidence}</small>"
-                                    content_html += "</div>"
-                                
-                                    if node_type == 'Decision' and len(quiz_questions) < 3:
-                                        quiz_questions.append({
-                                            "question": f"What is the recommended approach when: {node_label[:80]}?",
-                                            "options": [
-                                                "Follow the evidence-based pathway protocol",
-                                                "Skip assessment and proceed to treatment",
-                                                "Wait for additional consultation before acting",
-                                                "Defer decision-making to ancillary services"
-                                            ],
-                                            "correct": 0,
-                                            "explanation": f"The pathway recommends following evidence-based protocols. {node_evidence if node_evidence != 'N/A' else ''}"
-                                        })
-                            
-                                # Add refinement notes section
-                                content_html += "<h4>Key Clinical Pearls</h4><ul>"
-                                content_html += f"<li>Early recognition and assessment improves outcomes</li>"
-                                content_html += f"<li>Evidence-based pathways reduce variation in care</li>"
-                                content_html += f"<li>Clear documentation supports care coordination</li>"
-                                content_html += "</ul>"
-                                content_html += f"<div style='margin-top: 20px; padding: 15px; background: #fff3cd; border-left: 3px solid #ffc107;'>"
-                                content_html += f"<strong>Additional Guidance:</strong><br>{refine_with_file}</div>"
-                            
-                                if not quiz_questions:
-                                    quiz_questions.append({
-                                        "question": f"What is a key principle in this module?",
-                                        "options": [
-                                            "Follow evidence-based protocols",
-                                            "Skip documentation steps",
-                                            "Delay patient care",
-                                            "Avoid clinical guidelines"
-                                        ],
-                                        "correct": 0,
-                                        "explanation": "Evidence-based protocols improve patient outcomes and standardize care."
-                                    })
-                            
-                                edu_topics.append({
-                                    "title": f"Module {mod_idx + 1}: {module_title}",
-                                    "content": content_html,
-                                    "learning_objectives": [
-                                        f"Understand decision points in {module_title.lower()}",
-                                        "Apply evidence-based clinical reasoning",
-                                        "Recognize appropriate care pathway steps"
-                                    ],
-                                    "quiz": quiz_questions,
-                                    "time_minutes": 5
-                                })
-                    
-                        if not edu_topics:
-                            edu_topics = [{
-                                "title": f"Module 1: {cond} Pathway Overview",
-                                "content": f"""
-                                    <h4>Introduction</h4>
-                                    <p>This module introduces the evidence-based clinical pathway for {cond} in {setting or 'clinical practice'}.</p>
-                                    <h4>Core Principles</h4>
-                                    <ul>
-                                        <li>Standardized assessment and triage</li>
-                                        <li>Evidence-based decision making</li>
-                                        <li>Coordinated multidisciplinary care</li>
-                                        <li>Clear documentation and communication</li>
-                                    </ul>
-                                    <div style='margin-top: 20px; padding: 15px; background: #fff3cd; border-left: 3px solid #ffc107;'>
-                                        <strong>Additional Guidance:</strong><br>{refine_with_file}
-                                    </div>
-                                """,
-                                "learning_objectives": overall_objectives[:3],
-                                "quiz": [{
-                                    "question": "What is the primary benefit of using clinical pathways?",
-                                    "options": [
-                                        "Standardize care and improve patient safety",
-                                        "Increase documentation burden",
-                                        "Slow down clinical decision-making",
-                                        "Eliminate clinical judgment"
-                                    ],
-                                    "correct": 0,
-                                    "explanation": "Clinical pathways standardize high-quality care while preserving clinical judgment."
-                                }],
-                                "time_minutes": 5
-                            }]
-                    
-                        try:
-                            refined_html = generate_education_module_html(
-                                condition=cond,
-                                nodes=nodes,
-                                target_audience=st.session_state.get("p5_aud_edu", ""),
-                                care_setting=setting,
-                                genai_client=get_genai_client()
-                            )
-                            st.session_state.data['phase5']['edu_html'] = ensure_carepathiq_branding(refined_html)
-                            status.update(label="Education Module Regenerated", state="complete", expanded=False)
-                        except Exception as e:
-                            error_msg = str(e).lower()
-                            if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
-                                st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
-                            else:
-                                st.error(f"Error: {str(e)[:200]}")
-                    else:
-                        st.warning("Please generate the education module first before refining.")
-    
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
     with col4:
-        st.markdown(f"<h3>{deliverables['executive']}</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>Executive Summary</h3>", unsafe_allow_html=True)
         
-        # Check if we have cached docx bytes
-        if 'exec_docx_bytes' not in st.session_state:
-            st.session_state['exec_docx_bytes'] = None
-        
-        # Auto-generate executive summary on first visit if pathway data exists
-        if nodes and st.session_state['exec_docx_bytes'] is None:
-            with st.status("Generating Executive Summary...", expanded=True) as status:
-                st.write("Building comprehensive executive summary...")
+        # Generate button
+        if st.button("Generate Executive Summary", key="p5_gen_exec", type="secondary"):
+            with st.spinner("Generating executive summary..."):
                 try:
                     docx_bytes = create_phase5_executive_summary_docx(
                         data=st.session_state.data,
@@ -5650,87 +5311,23 @@ elif "Operationalize" in phase or "Deploy" in phase:
                     )
                     st.session_state['exec_docx_bytes'] = docx_bytes
                     st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}"
-                    status.update(label="Executive Summary Generated", state="complete", expanded=False)
+                    st.success("✓ Generated!")
+                    st.rerun()
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
-                        status.update(label="⏳ Rate limit - please wait", state="error", expanded=False)
-                        st.error("⏳ API rate limit reached. Please wait 15-30 seconds and try again.")
+                    if '429' in str(e) or 'quota' in str(e).lower():
+                        st.error("⏳ API rate limit. Wait 15-30 seconds and try again.")
                     else:
-                        status.update(label="Error generating summary", state="error", expanded=False)
-                        st.error(f"Error generating summary: {str(e)[:100]}")
+                        st.error(f"Error: {str(e)[:100]}")
         
-        # Download button - show if we have generated docx
+        # Download button (only shows if generated)
         if st.session_state.get('exec_docx_bytes'):
-            dl_l, dl_c, dl_r = st.columns([1,2,1])
-            with dl_c:
-                st.download_button(
-                    "Download (.docx)",
-                    st.session_state['exec_docx_bytes'],
-                    f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                )
-        elif not nodes:
-            st.info("Complete Phase 3 to generate the Executive Summary.")
-        
-        # Refine & Regenerate section for Executive Summary
-        with st.expander("Refine & Regenerate", expanded=False):
-            st.markdown("**Tip:** Highlight strategic priorities or attach supporting data to strengthen the business case for leadership review.")
-            with st.form("p5_refine_exec_form"):
-                col_text, col_file = columns_top([2, 1])
-                with col_text:
-                    st.text_area(
-                        "Refinement Notes",
-                        placeholder="Emphasize cost savings; include benchmark comparisons; align with quality initiatives",
-                        key="p5_refine_exec",
-                        height=90,
-                        label_visibility="visible"
-                    )
-                with col_file:
-                    st.caption("Supporting Documents (optional)")
-                    p5ex_uploaded = st.file_uploader(
-                        "Drag & drop or browse",
-                        key="p5_exec_upload",
-                        accept_multiple_files=False,
-                        label_visibility="collapsed"
-                    )
-                    if p5ex_uploaded:
-                        file_result = upload_and_review_file(p5ex_uploaded, "p5_exec", "executive summary")
-                        if file_result:
-                            with st.expander("File Review", expanded=False):
-                                st.markdown(file_result["review"])
-                
-                col_form_gap, col_form_btn = st.columns([3, 1])
-                with col_form_btn:
-                    submitted_exec = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
-            if submitted_exec:
-                refine_exec = st.session_state.get('p5_refine_exec', '').strip()
-                if refine_exec or st.session_state.get("file_p5_exec_review"):
-                    with st.status("Regenerating Executive Summary...", expanded=True) as status:
-                        refine_with_file = refine_exec
-                        if st.session_state.get("file_p5_exec_review"):
-                            refine_with_file += f"\n\n**Strategic Context:**\n{st.session_state.get('file_p5_exec_review')}"
-                        try:
-                            # Store refinement notes for use in docx generation
-                            st.session_state.data['phase5']['exec_summary'] = f"Executive Summary for {cond}. Notes: {refine_with_file}"
-                            # Regenerate the docx with refinements
-                            docx_bytes = create_phase5_executive_summary_docx(
-                                data=st.session_state.data,
-                                condition=cond,
-                                genai_client=get_genai_client()
-                            )
-                            st.session_state['exec_docx_bytes'] = docx_bytes
-                            status.update(label="Executive Summary Regenerated", state="complete", expanded=False)
-                            st.rerun()
-                        except Exception as e:
-                            error_msg = str(e).lower()
-                            if '429' in str(e) or 'quota' in error_msg or 'resource_exhausted' in error_msg:
-                                status.update(label="⏳ Rate limit - please wait", state="error", expanded=False)
-                            else:
-                                status.update(label="Error regenerating", state="error", expanded=False)
-                                st.error(f"Error: {str(e)[:100]}")
-                else:
-                    st.warning("Please enter refinement notes or attach supporting documents.")
+            st.download_button(
+                "📥 Download Executive Summary (.docx)",
+                st.session_state['exec_docx_bytes'],
+                f"ExecutiveSummary_{cond.replace(' ', '_')}.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="p5_dl_exec"
+            )
     
     render_bottom_navigation()
     st.stop()
