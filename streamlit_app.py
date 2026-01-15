@@ -1691,9 +1691,15 @@ def create_references_docx(citations, style="APA"):
     return buffer
 
 def harden_nodes(nodes_list):
-    """Validate and fix node structure, ensuring Decision nodes have proper branches."""
+    """Validate and fix node structure, ensuring Decision nodes have proper branches.
+    
+    IMPORTANT: Preserves existing branch structure when valid. Only creates default
+    branches when none exist or when branches are malformed.
+    """
     if not isinstance(nodes_list, list): return []
     validated = []
+    n = len(nodes_list)
+    
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict): continue
         # Ensure required fields
@@ -1721,26 +1727,71 @@ def harden_nodes(nodes_list):
                 notes = re.sub(r'\s+', ' ', notes).strip()
                 node[notes_field] = notes
         
-        # Validate Decision nodes have branches
+        # Validate Decision nodes have branches - PRESERVE existing valid branches
         if node['type'] == 'Decision':
-            if 'branches' not in node or not isinstance(node['branches'], list) or len(node['branches']) == 0:
-                # Create default branches pointing to next nodes if they exist
-                next_idx = i + 1
-                alt_idx = i + 2 if i + 2 < len(nodes_list) else i + 1
-                node['branches'] = [
-                    {'label': 'Yes', 'target': next_idx}, 
-                    {'label': 'No', 'target': alt_idx}
-                ]
-            # Ensure branches have valid structure and targets are within bounds
-            for branch in node['branches']:
-                if 'label' not in branch:
-                    branch['label'] = 'Option'
-                if 'target' not in branch or not isinstance(branch.get('target'), (int, float)):
-                    branch['target'] = min(i + 1, len(nodes_list) - 1)
+            existing_branches = node.get('branches', [])
+            
+            # Check if existing branches are valid
+            valid_branches = []
+            if isinstance(existing_branches, list):
+                for branch in existing_branches:
+                    if isinstance(branch, dict):
+                        target = branch.get('target')
+                        # Check if target is valid (numeric and in range)
+                        if isinstance(target, (int, float)) and 0 <= int(target) < n:
+                            # Keep this branch, just ensure it has a label
+                            if 'label' not in branch or not branch.get('label'):
+                                branch['label'] = 'Option'
+                            valid_branches.append(branch)
+                        elif isinstance(target, (int, float)):
+                            # Target out of range - clamp it
+                            branch['target'] = max(0, min(int(target), n - 1))
+                            if 'label' not in branch or not branch.get('label'):
+                                branch['label'] = 'Option'
+                            valid_branches.append(branch)
+            
+            if len(valid_branches) >= 2:
+                # Keep the existing valid branches - PRESERVE branching logic
+                node['branches'] = valid_branches
+            elif len(valid_branches) == 1:
+                # Only one valid branch - try to find another appropriate target
+                existing_target = int(valid_branches[0].get('target', i + 1))
+                # Find an End node or another branch point
+                alt_targets = []
+                for j in range(i + 1, n):
+                    if j != existing_target:
+                        alt_targets.append(j)
+                if alt_targets:
+                    alt_idx = alt_targets[0]  # Use first available alternative
+                    node['branches'] = valid_branches + [{'label': 'No', 'target': alt_idx}]
                 else:
-                    # Clamp target to valid range
-                    target = int(branch['target'])
-                    branch['target'] = max(0, min(target, len(nodes_list) - 1))
+                    # No alternative found, create default
+                    node['branches'] = valid_branches + [{'label': 'No', 'target': min(i + 1, n - 1)}]
+            else:
+                # No valid branches - create default divergent branches
+                # Look for End nodes to create meaningful branches
+                end_nodes = [j for j in range(i + 1, n) if nodes_list[j].get('type') == 'End']
+                
+                if len(end_nodes) >= 2:
+                    # Branch to different End nodes
+                    node['branches'] = [
+                        {'label': 'Yes', 'target': end_nodes[0]}, 
+                        {'label': 'No', 'target': end_nodes[1]}
+                    ]
+                elif len(end_nodes) == 1 and i + 1 < n and i + 1 != end_nodes[0]:
+                    # Branch to next node and End node
+                    node['branches'] = [
+                        {'label': 'Yes', 'target': i + 1}, 
+                        {'label': 'No', 'target': end_nodes[0]}
+                    ]
+                else:
+                    # Fallback: sequential branches (less ideal but functional)
+                    next_idx = min(i + 1, n - 1)
+                    alt_idx = min(i + 2, n - 1) if i + 2 < n else next_idx
+                    node['branches'] = [
+                        {'label': 'Yes', 'target': next_idx}, 
+                        {'label': 'No', 'target': alt_idx}
+                    ]
         
         validated.append(node)
     return validated
@@ -1820,8 +1871,7 @@ def fix_decision_flow_issues(nodes_list):
     # Multiple End nodes are allowed for different pathways
     end_indices = [i for i, node in enumerate(nodes_list) if isinstance(node, dict) and node.get('type') == 'End']
     
-    # Validate Decision node branches
-    reconvergence_issues = []
+    # Validate Decision node branches and FIX reconvergence issues
     for i, node in enumerate(nodes_list):
         if not isinstance(node, dict):
             continue
@@ -1837,21 +1887,28 @@ def fix_decision_flow_issues(nodes_list):
                 
                 # CHECK FOR RECONVERGENCE: Do all branches point to the same target?
                 branch_targets = [int(b.get('target', -1)) for b in valid_branches]
-                if len(set(branch_targets)) == 1 and len(branch_targets) > 1:
-                    # All branches point to same node - this is artificial reconvergence
-                    decision_label = node.get('label', 'Decision')
-                    target_node = nodes_list[branch_targets[0]] if branch_targets[0] < len(nodes_list) else {}
-                    target_label = target_node.get('label', 'Unknown') if isinstance(target_node, dict) else 'Unknown'
-                    reconvergence_issues.append(
-                        f"Node {i}: '{decision_label}' - All branches reconverge to node {branch_targets[0]} ('{target_label}'). "
-                        f"Decision logic may be unclear or redundant."
-                    )
-    
-    # Log reconvergence warnings (but don't block - let user review)
-    if reconvergence_issues:
-        import warnings
-        for issue in reconvergence_issues:
-            warnings.warn(f"Decision Tree Logic: {issue}", stacklevel=2)
+                unique_targets = set(branch_targets)
+                
+                if len(unique_targets) == 1 and len(branch_targets) > 1:
+                    # All branches point to same node - FIX this by finding alternative targets
+                    original_target = branch_targets[0]
+                    
+                    # Find alternative End nodes or Process nodes to create actual divergence
+                    alternative_targets = []
+                    for j in range(i + 1, len(nodes_list)):
+                        if j != original_target:
+                            # Prefer End nodes, then other Process nodes
+                            alternative_targets.append(j)
+                    
+                    if alternative_targets:
+                        # Reassign branches to create true divergence
+                        for branch_idx, branch in enumerate(node['branches']):
+                            if branch_idx == 0:
+                                branch['target'] = original_target  # Keep first branch on original
+                            else:
+                                # Assign to different targets
+                                alt_idx = (branch_idx - 1) % len(alternative_targets)
+                                branch['target'] = alternative_targets[alt_idx]
     
     return nodes_list
 
@@ -2218,205 +2275,339 @@ def _role_fill(role: str, default_fill: str) -> str:
     return ROLE_COLORS.get(role, ROLE_COLORS.get(str(role).title(), default_fill))
 
 def dot_from_nodes(nodes, orientation="TD") -> str:
-    """Generate Graphviz DOT source from pathway nodes. Does not require graphviz package."""
+    """Generate Graphviz DOT source from pathway nodes with clean decision tree layout.
+    
+    LAYOUT PRINCIPLES:
+    1. Start node at top-left (rank=source)
+    2. Clear top-to-bottom flow (TB rankdir)
+    3. Decision nodes create true branching with distinct paths
+    4. End nodes at bottom (rank=sink)
+    5. No swimlane clustering (disrupts natural flow)
+    """
     if not nodes:
         return "digraph G {\n  // No nodes\n}"
     valid_nodes = harden_nodes(nodes)
-    from collections import defaultdict
-    swimlanes = defaultdict(list)
-    start_node_idx = None  # Track the Start node index for positioning
+    
+    # Identify special nodes for layout control
+    start_node_idx = None
+    end_node_indices = []
+    decision_node_indices = []
+    
     for i, n in enumerate(valid_nodes):
-        swimlanes[n.get('role', 'Unassigned')].append((i, n))
-        if n.get('type') == 'Start' and start_node_idx is None:
+        ntype = n.get('type', 'Process')
+        if ntype == 'Start' and start_node_idx is None:
             start_node_idx = i
+        elif ntype == 'End':
+            end_node_indices.append(i)
+        elif ntype == 'Decision':
+            decision_node_indices.append(i)
+    
     rankdir = 'TB' if orientation == 'TD' else 'LR'
-    lines = ["digraph G {", f"  rankdir={rankdir};", "  node [fontname=Helvetica];", "  edge [fontname=Helvetica];"]
+    
+    # Build DOT with graph attributes for clean decision tree layout
+    lines = [
+        "digraph G {",
+        f"  rankdir={rankdir};",
+        "  splines=ortho;",  # Orthogonal edges for cleaner routing
+        "  nodesep=0.8;",   # Horizontal spacing between nodes
+        "  ranksep=1.0;",   # Vertical spacing between ranks
+        "  node [fontname=Helvetica, fontsize=11];",
+        "  edge [fontname=Helvetica, fontsize=10];",
+    ]
+    
     node_id_map = {}
-    notes_list = []  # Collect notes for numbered legend (note_num, notes_text)
+    notes_list = []  # Collect notes for numbered legend
     notes_node_map = {}  # Map node index to note number
     
     # First pass: identify all nodes with notes and assign note numbers
     note_counter = 1
     for i, n in enumerate(valid_nodes):
-        notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
+        notes_text = n.get('notes', '') or n.get('detail', '')
         if notes_text and str(notes_text).strip():
             notes_list.append((note_counter, str(notes_text).strip()))
             notes_node_map[i] = note_counter
             note_counter += 1
     
-    # Clusters by role
-    for role, n_list in swimlanes.items():
-        cluster_name = re.sub(r"[^A-Za-z0-9_]", "_", str(role) or "Unassigned")
-        lines.append(f"  subgraph cluster_{cluster_name} {{")
-        lines.append(f"    label=\"{_escape_label(role)}\";")
-        lines.append("    style=filled; color=lightgrey;")
-        for i, n in n_list:
-            nid = f"N{i}"; node_id_map[i] = nid
-            # Only use label field for visualization
-            raw_label = n.get('label', 'Step')
-            # Normalize literal \n to actual newlines for wrapping, then wrap
-            raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
-            wrapped_label = _wrap_label(raw_label)
-            # Add "See Note #X" reference if this node has notes
-            if i in notes_node_map:
-                wrapped_label = wrapped_label + f"\n(See Note {notes_node_map[i]})"
-            full_label = _escape_label(wrapped_label)
-            ntype = n.get('type', 'Process')
-            if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
-            elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
-            elif ntype == 'Reevaluation': shape, fill = 'box', '#FFCC80'
-            else: shape, fill = 'box', '#FFF2CC'
-            fill = _role_fill(n.get('role', ''), fill)
-            lines.append(f"    {nid} [label=\"{full_label}\", shape={shape}, style=filled, fillcolor=\"{fill}\"];")
-        lines.append("  }")
+    # Create all nodes WITHOUT swimlane clustering (cleaner layout)
+    for i, n in enumerate(valid_nodes):
+        nid = f"N{i}"
+        node_id_map[i] = nid
+        
+        # Build label
+        raw_label = n.get('label', 'Step')
+        raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
+        wrapped_label = _wrap_label(raw_label, width=25)  # Slightly wider for readability
+        
+        # Add note reference if applicable
+        if i in notes_node_map:
+            wrapped_label = wrapped_label + f"\n(Note {notes_node_map[i]})"
+        
+        full_label = _escape_label(wrapped_label)
+        ntype = n.get('type', 'Process')
+        
+        # Node styling based on type
+        if ntype == 'Decision':
+            shape, fill = 'diamond', '#F8CECC'  # Red/pink for decisions
+        elif ntype == 'Start':
+            shape, fill = 'oval', '#D5E8D4'  # Green for start
+        elif ntype == 'End':
+            shape, fill = 'oval', '#D5E8D4'  # Green for end
+        elif ntype == 'Reevaluation':
+            shape, fill = 'box', '#FFCC80'  # Orange for reevaluation
+        else:  # Process
+            shape, fill = 'box', '#FFF2CC'  # Yellow for process
+        
+        # Apply role-based coloring if role is specified
+        role = n.get('role', '')
+        if role:
+            fill = _role_fill(role, fill)
+        
+        lines.append(f'  {nid} [label="{full_label}", shape={shape}, style=filled, fillcolor="{fill}"];')
     
-    # Force Start node to appear at top-left using rank constraint
+    lines.append("")
+    
+    # LAYOUT CONSTRAINTS for proper decision tree structure
+    # 1. Start node at source rank (top)
     if start_node_idx is not None:
         start_nid = node_id_map.get(start_node_idx)
         if start_nid:
-            lines.append(f"  {{ rank=min; {start_nid}; }}")
+            lines.append(f"  {{ rank=source; {start_nid}; }}")
     
-    # Add notes legend at the bottom as a single box (if there are notes)
+    # 2. End nodes at sink rank (bottom)
+    if end_node_indices:
+        end_nids = [node_id_map.get(i) for i in end_node_indices if node_id_map.get(i)]
+        if end_nids:
+            lines.append(f"  {{ rank=sink; {'; '.join(end_nids)}; }}")
+    
+    # 3. Group Decision nodes with their immediate branches for better alignment
+    for dec_idx in decision_node_indices:
+        dec_node = valid_nodes[dec_idx]
+        branches = dec_node.get('branches', [])
+        if len(branches) >= 2:
+            # Get target nodes for each branch
+            branch_targets = []
+            for b in branches:
+                t = b.get('target')
+                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
+                    target_nid = node_id_map.get(int(t))
+                    if target_nid:
+                        branch_targets.append(target_nid)
+            # Put branch targets at same rank for proper side-by-side branching
+            if len(branch_targets) >= 2:
+                lines.append(f"  {{ rank=same; {'; '.join(branch_targets)}; }}")
+    
+    lines.append("")
+    
+    # Add notes legend at the bottom
     if notes_list:
         legend_lines = ["NOTES:"]
         for note_num, note_text in notes_list:
-            # Wrap note text for readability
             wrapped_note = _wrap_label(note_text, max_width=60)
             legend_lines.append(f"[{note_num}] {wrapped_note}")
         legend_text = _escape_label("\n".join(legend_lines))
-        lines.append(f"  NotesLegend [label=\"{legend_text}\", shape=box, style=filled, fillcolor=\"#B3D9FF\", fontsize=10];")
-        # Force legend to bottom
+        lines.append(f'  NotesLegend [label="{legend_text}", shape=box, style=filled, fillcolor="#B3D9FF", fontsize=10];')
         lines.append("  { rank=max; NotesLegend; }")
     
-    # Edges - support explicit 'target' field for parallel pathways
+    lines.append("")
+    
+    # EDGES - Critical for proper branching visualization
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
         if not src:
             continue
-        if n.get('type') == 'Decision' and 'branches' in n:
+        
+        ntype = n.get('type', 'Process')
+        
+        if ntype == 'Decision' and 'branches' in n:
+            # Decision nodes: use explicit branch targets with labels
             for b in n.get('branches', []):
                 t = b.get('target')
-                lbl = _escape_label(b.get('label', 'Yes'))
+                lbl = _escape_label(b.get('label', ''))
                 if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
                     dst = node_id_map.get(int(t))
                     if dst:
-                        lines.append(f"  {src} -> {dst} [label=\"{lbl}\"];")
-        elif n.get('type') == 'End':
+                        if lbl:
+                            lines.append(f'  {src} -> {dst} [label="{lbl}"];')
+                        else:
+                            lines.append(f'  {src} -> {dst};')
+        elif ntype == 'End':
             # End nodes are terminal - no outgoing edges
             pass
         else:
-            # For non-decision nodes, check for explicit 'target' field to support parallel pathways
+            # Process/Start nodes: check for explicit target first, then sequential
             explicit_target = n.get('target')
             if explicit_target is not None and isinstance(explicit_target, (int, float)):
                 target_idx = int(explicit_target)
                 if 0 <= target_idx < len(valid_nodes):
                     dst = node_id_map.get(target_idx)
                     if dst:
-                        lines.append(f"  {src} -> {dst};")
+                        lines.append(f'  {src} -> {dst};')
             elif i + 1 < len(valid_nodes):
-                # Default: connect to next node only if no explicit target
-                dst = node_id_map.get(i + 1)
-                if dst:
-                    lines.append(f"  {src} -> {dst};")
+                # Default: connect to next node (sequential flow)
+                next_node = valid_nodes[i + 1]
+                # Skip if next node is an End (we're at a branch point) and this isn't explicitly targeted
+                # This prevents linear connections that bypass decision logic
+                if next_node.get('type') != 'End' or len(valid_nodes) <= i + 2:
+                    dst = node_id_map.get(i + 1)
+                    if dst:
+                        lines.append(f'  {src} -> {dst};')
+    
     lines.append("}")
     return "\n".join(lines)
 
 def build_graphviz_from_nodes(nodes, orientation="TD"):
-    """Build a graphviz.Digraph from nodes if graphviz is available; otherwise return None."""
+    """Build a graphviz.Digraph from nodes with clean decision tree layout.
+    
+    LAYOUT PRINCIPLES (same as dot_from_nodes):
+    1. Start node at top (rank=source)
+    2. Clear top-to-bottom flow
+    3. Decision nodes create true branching with distinct paths
+    4. End nodes at bottom (rank=sink)
+    5. No swimlane clustering (disrupts natural flow)
+    """
     if graphviz is None:
         return None
     valid_nodes = harden_nodes(nodes or [])
-    from collections import defaultdict
-    swimlanes = defaultdict(list)
-    start_node_idx = None  # Track the Start node index for positioning
+    
+    # Identify special nodes for layout control
+    start_node_idx = None
+    end_node_indices = []
+    decision_node_indices = []
+    
     for i, n in enumerate(valid_nodes):
-        # Skip creating swimlane entries for nodes without a role - they'll be added to default process group
-        role = n.get('role', '')
-        if not role or role == 'Unassigned':
-            role = 'Process'  # Default role instead of 'Unassigned'
-        swimlanes[role].append((i, n))
-        if n.get('type') == 'Start' and start_node_idx is None:
+        ntype = n.get('type', 'Process')
+        if ntype == 'Start' and start_node_idx is None:
             start_node_idx = i
+        elif ntype == 'End':
+            end_node_indices.append(i)
+        elif ntype == 'Decision':
+            decision_node_indices.append(i)
+    
     rankdir = 'TB' if orientation == 'TD' else 'LR'
+    
     g = graphviz.Digraph(format='svg')
     g.attr(rankdir=rankdir)
-    g.attr('node', fontname='Helvetica')
-    g.attr('edge', fontname='Helvetica')
-    node_id_map = {}
-    notes_list = []  # Collect notes for numbered legend (note_num, notes_text)
-    notes_node_map = {}  # Map node index to note number
+    g.attr(splines='ortho')      # Orthogonal edges for cleaner routing
+    g.attr(nodesep='0.8')        # Horizontal spacing
+    g.attr(ranksep='1.0')        # Vertical spacing
+    g.attr('node', fontname='Helvetica', fontsize='11')
+    g.attr('edge', fontname='Helvetica', fontsize='10')
     
-    # First pass: identify all nodes with notes and assign note numbers
+    node_id_map = {}
+    notes_list = []
+    notes_node_map = {}
+    
+    # First pass: identify all nodes with notes
     note_counter = 1
     for i, n in enumerate(valid_nodes):
-        notes_text = n.get('notes', '') or n.get('detail', '')  # Support both field names
+        notes_text = n.get('notes', '') or n.get('detail', '')
         if notes_text and str(notes_text).strip():
             notes_list.append((note_counter, str(notes_text).strip()))
             notes_node_map[i] = note_counter
             note_counter += 1
     
-    for role, n_list in swimlanes.items():
-        with g.subgraph(name=f"cluster_{re.sub(r'[^A-Za-z0-9_]', '_', str(role) or 'Process')}") as c:
-            c.attr(label=str(role))
-            c.attr(style='filled', color='lightgrey')
-            for i, n in n_list:
-                nid = f"N{i}"; node_id_map[i] = nid
-                # Only use label field for visualization
-                raw_label = n.get('label', 'Step')
-                # Normalize literal \n to spaces for cleaner display, then wrap
-                raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
-                wrapped_label = _wrap_label(raw_label)
-                # Add "See Note #X" reference if this node has notes
-                if i in notes_node_map:
-                    wrapped_label = wrapped_label + f"\n(See Note {notes_node_map[i]})"
-                full_label = _escape_label(wrapped_label)
-                ntype = n.get('type', 'Process')
-                if ntype == 'Decision': shape, fill = 'diamond', '#F8CECC'
-                elif ntype in ('Start', 'End'): shape, fill = 'oval', '#D5E8D4'
-                elif ntype == 'Reevaluation': shape, fill = 'box', '#FFCC80'
-                else: shape, fill = 'box', '#FFF2CC'
-                fill = _role_fill(n.get('role', ''), fill)
-                c.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
+    # Create all nodes WITHOUT swimlane clustering
+    for i, n in enumerate(valid_nodes):
+        nid = f"N{i}"
+        node_id_map[i] = nid
+        
+        raw_label = n.get('label', 'Step')
+        raw_label = str(raw_label).replace('\\n', ' ').replace('\n', ' ')
+        wrapped_label = _wrap_label(raw_label, width=25)
+        
+        if i in notes_node_map:
+            wrapped_label = wrapped_label + f"\n(Note {notes_node_map[i]})"
+        
+        full_label = _escape_label(wrapped_label)
+        ntype = n.get('type', 'Process')
+        
+        if ntype == 'Decision':
+            shape, fill = 'diamond', '#F8CECC'
+        elif ntype == 'Start':
+            shape, fill = 'oval', '#D5E8D4'
+        elif ntype == 'End':
+            shape, fill = 'oval', '#D5E8D4'
+        elif ntype == 'Reevaluation':
+            shape, fill = 'box', '#FFCC80'
+        else:
+            shape, fill = 'box', '#FFF2CC'
+        
+        role = n.get('role', '')
+        if role:
+            fill = _role_fill(role, fill)
+        
+        g.node(nid, full_label, shape=shape, style='filled', fillcolor=fill)
     
-    # Force Start node to appear at top-left using rank constraint
+    # LAYOUT CONSTRAINTS
+    # 1. Start node at source rank
     if start_node_idx is not None:
         start_nid = node_id_map.get(start_node_idx)
         if start_nid:
             with g.subgraph() as s:
-                s.attr(rank='min')
+                s.attr(rank='source')
                 s.node(start_nid)
     
-    # Add notes legend at the bottom as a single box (if there are notes)
+    # 2. End nodes at sink rank
+    if end_node_indices:
+        with g.subgraph() as s:
+            s.attr(rank='sink')
+            for end_idx in end_node_indices:
+                end_nid = node_id_map.get(end_idx)
+                if end_nid:
+                    s.node(end_nid)
+    
+    # 3. Group Decision branch targets at same rank for side-by-side branching
+    for dec_idx in decision_node_indices:
+        dec_node = valid_nodes[dec_idx]
+        branches = dec_node.get('branches', [])
+        if len(branches) >= 2:
+            branch_targets = []
+            for b in branches:
+                t = b.get('target')
+                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
+                    target_nid = node_id_map.get(int(t))
+                    if target_nid:
+                        branch_targets.append(target_nid)
+            if len(branch_targets) >= 2:
+                with g.subgraph() as s:
+                    s.attr(rank='same')
+                    for tnid in branch_targets:
+                        s.node(tnid)
+    
+    # Add notes legend
     if notes_list:
         legend_lines = ["NOTES:"]
         for note_num, note_text in notes_list:
-            # Wrap note text for readability
             wrapped_note = _wrap_label(note_text, max_width=60)
             legend_lines.append(f"[{note_num}] {wrapped_note}")
         legend_text = _escape_label("\n".join(legend_lines))
         g.node('NotesLegend', legend_text, shape='box', style='filled', fillcolor='#B3D9FF', fontsize='10')
-        # Force legend to bottom
         with g.subgraph() as s:
             s.attr(rank='max')
             s.node('NotesLegend')
     
-    # Edges - support explicit 'target' field for parallel pathways
+    # EDGES - Critical for proper branching
     for i, n in enumerate(valid_nodes):
         src = node_id_map.get(i)
         if not src:
             continue
-        if n.get('type') == 'Decision' and 'branches' in n:
+        
+        ntype = n.get('type', 'Process')
+        
+        if ntype == 'Decision' and 'branches' in n:
             for b in n.get('branches', []):
-                t = b.get('target'); lbl = _escape_label(b.get('label', 'Yes'))
+                t = b.get('target')
+                lbl = _escape_label(b.get('label', ''))
                 if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
                     dst = node_id_map.get(int(t))
                     if dst:
-                        g.edge(src, dst, label=lbl)
-        elif n.get('type') == 'End':
-            # End nodes are terminal - no outgoing edges
-            pass
+                        if lbl:
+                            g.edge(src, dst, label=lbl)
+                        else:
+                            g.edge(src, dst)
+        elif ntype == 'End':
+            pass  # Terminal - no outgoing edges
         else:
-            # For non-decision nodes, check for explicit 'target' field to support parallel pathways
             explicit_target = n.get('target')
             if explicit_target is not None and isinstance(explicit_target, (int, float)):
                 target_idx = int(explicit_target)
@@ -2425,10 +2616,12 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
                     if dst:
                         g.edge(src, dst)
             elif i + 1 < len(valid_nodes):
-                # Default: connect to next node only if no explicit target
-                dst = node_id_map.get(i + 1)
-                if dst:
-                    g.edge(src, dst)
+                next_node = valid_nodes[i + 1]
+                if next_node.get('type') != 'End' or len(valid_nodes) <= i + 2:
+                    dst = node_id_map.get(i + 1)
+                    if dst:
+                        g.edge(src, dst)
+    
     return g
 
 def render_graphviz_bytes(graph, fmt="svg"):
@@ -4073,7 +4266,7 @@ Output: ("diabetes"[MeSH Terms]) AND ("clinical pathway"[tiab] OR Practice Guide
 # --- PHASE 3 ---
 elif "Decision" in phase or "Tree" in phase:
     st.header(f"Phase 3. {PHASES[2]}")
-    styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can manually update text, add/remove nodes, or refine using natural language below.")
+    styled_info("<b>Tip:</b> The AI agent generated an evidence-based decision tree. You can update text, add/remove nodes, or refine using natural language below.")
     
     st.divider()
     
@@ -4348,6 +4541,48 @@ elif "Decision" in phase or "Tree" in phase:
         - NEVER create "diamond" patterns where both branches immediately go to the same node
         - If you find yourself pointing two branches to the same next step, STOP and create distinct pathways first
         - Test: For every Decision, trace each branch forward 3 steps - they should be DIFFERENT steps
+        
+        DECISION NODE JSON STRUCTURE (CRITICAL - Follow This Exactly):
+        
+        Decision nodes MUST include a "branches" array with explicit "target" indices pointing to DIFFERENT nodes:
+        
+        EXAMPLE CORRECT STRUCTURE (10 nodes showing proper branching):
+        ```json
+        [
+          {{"type": "Start", "label": "Patient presents to ED with chest pain", "evidence": "N/A"}},
+          {{"type": "Process", "label": "Obtain ECG, troponin, vitals", "evidence": "N/A"}},
+          {{"type": "Decision", "label": "STEMI on ECG?", "evidence": "N/A", "branches": [
+            {{"label": "Yes", "target": 3}},
+            {{"label": "No", "target": 6}}
+          ]}},
+          {{"type": "Process", "label": "Activate cath lab, give aspirin 325mg, heparin bolus", "evidence": "12345678"}},
+          {{"type": "Process", "label": "Transfer to cath lab for PCI", "evidence": "N/A"}},
+          {{"type": "End", "label": "Admit to CCU post-PCI with dual antiplatelet therapy", "evidence": "N/A"}},
+          {{"type": "Process", "label": "Serial troponins q3h x2, telemetry monitoring", "evidence": "N/A"}},
+          {{"type": "Decision", "label": "Troponin elevated or rising?", "evidence": "N/A", "branches": [
+            {{"label": "Yes", "target": 8}},
+            {{"label": "No", "target": 9}}
+          ]}},
+          {{"type": "End", "label": "Admit for NSTEMI workup, cardiology consult", "evidence": "N/A"}},
+          {{"type": "End", "label": "Discharge with PCP follow-up in 72h, return precautions", "evidence": "N/A"}}
+        ]
+        ```
+        
+        KEY POINTS FROM THIS EXAMPLE:
+        - Node 2 (Decision) branches to DIFFERENT nodes: target 3 (cath lab pathway) vs target 6 (serial troponin pathway)
+        - Node 7 (Decision) branches to DIFFERENT End nodes: target 8 (admit) vs target 9 (discharge)
+        - Each branch leads to its own distinct pathway
+        - Start node is index 0, all paths eventually reach End nodes
+        - The "target" values are 0-based indices into the node array
+        
+        COMMON MISTAKE TO AVOID:
+        ```json
+        {{"type": "Decision", "label": "Risk level?", "branches": [
+          {{"label": "High", "target": 5}},
+          {{"label": "Low", "target": 5}}  // WRONG! Both point to same node
+        ]}}
+        ```
+        This renders the decision meaningless. Each branch MUST point to a different target.
         """
         with ai_activity("Generating..."):
             nodes = get_gemini_response(prompt, json_mode=True)

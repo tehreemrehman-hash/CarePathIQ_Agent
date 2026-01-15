@@ -123,6 +123,36 @@ IMPORTANT GUIDELINES:
 8. Each Decision must have distinct branches (no immediate reconvergence)
 9. All pathways must terminate in End nodes
 
+DECISION NODE BRANCHING (CRITICAL):
+Decision nodes MUST include a "branches" array with explicit "target" indices pointing to DIFFERENT nodes.
+
+Example of CORRECT branching structure:
+```json
+{{
+  "type": "Decision",
+  "label": "STEMI on ECG?",
+  "evidence": "N/A",
+  "branches": [
+    {{"label": "Yes", "target": 5}},
+    {{"label": "No", "target": 8}}
+  ]
+}}
+```
+Note: target 5 and target 8 are DIFFERENT nodes, creating true pathway divergence.
+
+Example of WRONG branching (DO NOT DO THIS):
+```json
+{{
+  "type": "Decision",
+  "label": "Risk level?",
+  "branches": [
+    {{"label": "High", "target": 5}},
+    {{"label": "Low", "target": 5}}
+  ]
+}}
+```
+This is wrong because both branches point to the same node, making the decision meaningless.
+
 Generate the clinical pathway now.
 """
 

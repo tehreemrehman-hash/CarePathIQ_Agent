@@ -546,8 +546,14 @@ class PathwayGenerator:
     
     def dot_from_app_nodes(self, nodes: List[Dict[str, Any]], orientation: str = "TD") -> str:
         """
-        Generate Graphviz DOT source from app node format.
+        Generate Graphviz DOT source from app node format with clean decision tree layout.
         Compatible with streamlit_app.py's dot_from_nodes function.
+        
+        LAYOUT PRINCIPLES:
+        1. Start node at top (rank=source)
+        2. Clear top-to-bottom flow
+        3. Decision nodes create true branching
+        4. End nodes at bottom (rank=sink)
         
         Args:
             nodes: List of node dictionaries in app format
@@ -556,12 +562,29 @@ class PathwayGenerator:
         if not nodes:
             return "digraph G {\n  // No nodes\n}"
         
+        # Identify special nodes
+        start_node_idx = None
+        end_node_indices = []
+        decision_node_indices = []
+        
+        for i, node in enumerate(nodes):
+            node_type = node.get("type", "Process")
+            if node_type == "Start" and start_node_idx is None:
+                start_node_idx = i
+            elif node_type == "End":
+                end_node_indices.append(i)
+            elif node_type == "Decision":
+                decision_node_indices.append(i)
+        
         rankdir = 'TB' if orientation == 'TD' else 'LR'
         lines = [
             "digraph G {",
             f"  rankdir={rankdir};",
-            "  node [fontname=Helvetica];",
-            "  edge [fontname=Helvetica];"
+            "  splines=ortho;",
+            "  nodesep=0.8;",
+            "  ranksep=1.0;",
+            "  node [fontname=Helvetica, fontsize=11];",
+            "  edge [fontname=Helvetica, fontsize=10];"
         ]
         
         # Node definitions
@@ -573,7 +596,9 @@ class PathwayGenerator:
             # Determine shape and color
             if node_type == "Decision":
                 shape, fill = "diamond", "#F8CECC"
-            elif node_type in ("Start", "End"):
+            elif node_type == "Start":
+                shape, fill = "oval", "#D5E8D4"
+            elif node_type == "End":
                 shape, fill = "oval", "#D5E8D4"
             else:
                 shape, fill = "box", "#FFF2CC"
@@ -581,9 +606,32 @@ class PathwayGenerator:
             # Add notes reference if present
             notes = node.get("notes", "")
             if notes:
-                label += f"\\n[See Note {i+1}]"
+                label += f"\\n(Note {i+1})"
             
             lines.append(f'  {node_id} [label="{label}", shape={shape}, style=filled, fillcolor="{fill}"];')
+        
+        lines.append("")
+        
+        # Layout constraints
+        if start_node_idx is not None:
+            lines.append(f"  {{ rank=source; N{start_node_idx}; }}")
+        
+        if end_node_indices:
+            end_nids = [f"N{i}" for i in end_node_indices]
+            lines.append(f"  {{ rank=sink; {'; '.join(end_nids)}; }}")
+        
+        # Group Decision branch targets at same rank
+        for dec_idx in decision_node_indices:
+            dec_node = nodes[dec_idx]
+            branches = dec_node.get("branches", [])
+            if len(branches) >= 2:
+                branch_targets = []
+                for b in branches:
+                    t = b.get("target")
+                    if isinstance(t, int) and 0 <= t < len(nodes):
+                        branch_targets.append(f"N{t}")
+                if len(branch_targets) >= 2:
+                    lines.append(f"  {{ rank=same; {'; '.join(branch_targets)}; }}")
         
         lines.append("")
         
@@ -598,7 +646,10 @@ class PathwayGenerator:
                     label = self._escape_dot_label(branch.get("label", ""))
                     if isinstance(target, int) and 0 <= target < len(nodes):
                         dst = f"N{target}"
-                        lines.append(f'  {src} -> {dst} [label="{label}"];')
+                        if label:
+                            lines.append(f'  {src} -> {dst} [label="{label}"];')
+                        else:
+                            lines.append(f'  {src} -> {dst};')
             elif node_type == "End":
                 pass  # End nodes have no outgoing edges
             else:
