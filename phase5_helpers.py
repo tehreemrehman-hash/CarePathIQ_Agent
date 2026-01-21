@@ -13,6 +13,14 @@ from io import BytesIO
 from datetime import datetime
 from difflib import SequenceMatcher
 
+# Import Gemini API types for thinking config
+try:
+    from google.genai import types
+    from gemini_functions import get_generation_config, extract_function_call_result
+    GEMINI_FUNCTIONS_AVAILABLE = True
+except ImportError:
+    GEMINI_FUNCTIONS_AVAILABLE = False
+
 # ==========================================
 # HELPER FUNCTIONS 
 # ==========================================
@@ -819,9 +827,18 @@ Make scenarios specific to {condition} in {care_setting or 'the care setting'}. 
         max_retries = 10  # Will retry for up to ~15 minutes total
         for attempt in range(max_retries):
             try:
+                # Build config with thinking enabled for Gemini 3+ models
+                config_kwargs = {}
+                if GEMINI_FUNCTIONS_AVAILABLE:
+                    config_kwargs["config"] = get_generation_config(
+                        enable_thinking=True, 
+                        thinking_budget=1024
+                    )
+                
                 response = genai_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[{"text": prompt}]
+                    model="gemini-flash-latest",
+                    contents=[{"text": prompt}],
+                    **config_kwargs
                 )
                 scenarios_raw = json.loads(extract_json_from_response(response.text))
                 scenarios = []
@@ -1140,15 +1157,16 @@ document.addEventListener('DOMContentLoaded', initializeHeuristics);
     return html
 
 
-def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 10):
+def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-flash-latest", max_retries: int = 10):
     """
     Call Gemini API with exponential backoff retry for rate limits.
     Keeps retrying until API token is available.
+    Includes thinking config for Gemini 3+ thought signature validation.
     
     Args:
         genai_client: Google Generative AI client
         prompt: The prompt to send
-        model: Model to use
+        model: Model to use (default: gemini-flash-latest)
         max_retries: Maximum retry attempts (default 10 = ~15 minutes total)
         
     Returns:
@@ -1161,10 +1179,18 @@ def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.0-f
     
     for attempt in range(max_retries):
         try:
-            response = genai_client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
+            # Build config with thinking enabled for Gemini 3+ models
+            call_kwargs = {
+                "model": model,
+                "contents": prompt
+            }
+            if GEMINI_FUNCTIONS_AVAILABLE:
+                call_kwargs["config"] = get_generation_config(
+                    enable_thinking=True, 
+                    thinking_budget=1024
+                )
+            
+            response = genai_client.models.generate_content(**call_kwargs)
             return response.text
         except Exception as e:
             error_str = str(e).lower()
@@ -1313,7 +1339,7 @@ REQUIREMENTS:
 Return ONLY valid JSON."""
 
     # Single API call for all content
-    response_text = _call_genai_with_retry(genai_client, consolidated_prompt, model="gemini-2.0-flash")
+    response_text = _call_genai_with_retry(genai_client, consolidated_prompt, model="gemini-flash-latest")
     
     # Parse the consolidated response
     json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
@@ -2235,9 +2261,18 @@ Determine:
 
 Return ONLY valid JSON, no other text."""
             
+            # Build config with thinking enabled for Gemini 3+ models
+            config_kwargs = {}
+            if GEMINI_FUNCTIONS_AVAILABLE:
+                config_kwargs["config"] = get_generation_config(
+                    enable_thinking=True, 
+                    thinking_budget=512
+                )
+            
             response = genai_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=inference_prompt
+                model="gemini-flash-latest",
+                contents=inference_prompt,
+                **config_kwargs
             )
             json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
             if json_match:

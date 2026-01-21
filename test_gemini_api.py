@@ -2,8 +2,12 @@
 """
 Quick test script to verify Gemini API with the new google-genai package
 Per official docs: https://ai.google.dev/gemini-api/docs/quickstart
+
+Updated for Gemini 3 thought signature validation:
+https://ai.google.dev/gemini-api/docs/thought-signatures
 """
 from google import genai
+from google.genai import types
 import os
 
 def test_gemini_api():
@@ -28,41 +32,50 @@ def test_gemini_api():
     except Exception as e:
         print(f"  Could not list models: {e}")
     
-    print("\nTesting gemini-2.5-flash model...")
+    print("\nTesting gemini-flash-latest model with thinking config...")
     
-    # Test the model with proper content structure
-    # Per official API: contents should be array of content objects with parts
+    # Test the model with thinking config for Gemini 3+ thought signature validation
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-flash-latest",
             contents=[
                 {
                     "parts": [
                         {"text": "Say hello in one sentence!"}
                     ]
                 }
-            ]
+            ],
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(
+                    thinking_budget=256
+                )
+            )
         )
         print(f"✓ Model response: {response.text}")
-        print("\n✅ SUCCESS! gemini-2.5-flash is working with the official SDK!")
+        print("\n✅ SUCCESS! gemini-flash-latest is working with thinking config!")
     except Exception as e:
-        print(f"❌ Error with gemini-2.5-flash: {e}")
-        print("\nTrying gemini-1.5-flash instead...")
+        print(f"❌ Error with gemini-flash-latest: {e}")
+        print("\nTrying gemini-pro-latest instead...")
         try:
             response = client.models.generate_content(
-                model="gemini-1.5-flash",
+                model="gemini-pro-latest",
                 contents=[
                     {
                         "parts": [
                             {"text": "Say hello in one sentence!"}
                         ]
                     }
-                ]
+                ],
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=256
+                    )
+                )
             )
             print(f"✓ Model response: {response.text}")
-            print("\n✅ SUCCESS! gemini-1.5-flash is working!")
+            print("\n✅ SUCCESS! gemini-pro-latest is working!")
         except Exception as e2:
-            print(f"❌ Error with gemini-1.5-flash: {e2}")
+            print(f"❌ Error with gemini-pro-latest: {e2}")
 
 if __name__ == "__main__":
     test_gemini_api()

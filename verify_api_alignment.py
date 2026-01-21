@@ -35,9 +35,9 @@ def example_1_text_only():
         }
     ]
     
-    # Generate content
+    # Generate content with thinking config for Gemini 3+ models
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-flash-latest",
         contents=contents
     )
     
@@ -59,7 +59,7 @@ def example_2_simplified_text():
     # This is implementation-specific behavior
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-flash-latest",
             contents="What is the speed of light?"
         )
         print(f"\n📝 Response:\n{response.text}\n")
@@ -70,7 +70,7 @@ def example_2_simplified_text():
         
         # Fall back to full structure
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-flash-latest",
             contents=[{"parts": [{"text": "What is the speed of light?"}]}]
         )
         print(f"\n📝 Response:\n{response.text}\n")

@@ -20,6 +20,17 @@ import requests
 import hashlib
 import textwrap
 from google import genai
+from google.genai import types
+
+# Import Gemini function declarations and helpers
+from gemini_functions import (
+    PRIMARY_MODEL, MODEL_CASCADE,
+    GENERATE_PATHWAY_NODES, DEFINE_PATHWAY_SCOPE, CREATE_IHI_CHARTER,
+    GRADE_EVIDENCE, ANALYZE_HEURISTICS, APPLY_HEURISTICS,
+    GENERATE_BETA_TEST_SCENARIOS, ANALYZE_AUDIENCE,
+    get_tool, get_tools, get_generation_config, extract_function_call_result,
+    DEFAULT_THINKING_CONFIG, COMPLEX_THINKING_CONFIG, LIGHT_THINKING_CONFIG
+)
 
 # Clinical pathway generation modules
 try:
@@ -940,8 +951,9 @@ Keep the summary brief (3-5 sentences per section)."""
         ]
         
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents
+            model="gemini-flash-latest",
+            contents=contents,
+            config=get_generation_config(enable_thinking=True, thinking_budget=512)
         )
         
         return response.text if response and response.text else "✓ File uploaded successfully. Content available for AI analysis."
@@ -2636,46 +2648,57 @@ def render_graphviz_bytes(graph, fmt="svg"):
 def get_smart_model_cascade(requires_vision=False, requires_json=False):
     """Return prioritized list of models for Auto mode based on task requirements.
     
-    Model names per official docs: https://ai.google.dev/gemini-api/docs/models
-    - gemini-2.5-flash: Fast, multimodal, 1M token context (most sophisticated)
-    - gemini-3-flash: Newest model with improved performance
-    - gemini-2.5-flash-lite: Lightweight variant
-    - gemini-2.5-flash-tts: Multimodal with text-to-speech
+    Model names use -latest aliases for automatic updates:
+    - gemini-flash-latest: Primary model (maps to gemini-3-flash-preview after Jan 30, 2026)
+    - gemini-pro-latest: Fallback (maps to gemini-3-pro-preview after Jan 30, 2026)
+    
+    See: https://ai.google.dev/gemini-api/docs/thought-signatures
+    Thought signature validation required for Gemini 3+ models with function calling.
     
     Strategy: Try models from most to least sophisticated. Auto mode cascades through
     available models until quota is found. User-selected models fall back to alternatives.
     """
     if model_choice == "Auto":
-        # Cascade from most to least sophisticated (broader quota coverage)
-        if requires_vision:
-            return [
-                "gemini-2.5-flash",           # Most sophisticated for vision
-                "gemini-3-flash",              # Newest alternative
-                "gemini-2.5-flash-lite",       # Lighter weight fallback
-                "gemini-2.5-flash-tts",        # Text-to-speech variant
-            ]
-        else:
-            return [
-                "gemini-2.5-flash",           # Most sophisticated general model
-                "gemini-3-flash",              # Newest alternative
-                "gemini-2.5-flash-lite",       # Lighter weight fallback
-                "gemini-2.5-flash-tts",        # Alternative multimodal option
-            ]
+        # Cascade using -latest aliases for automatic model updates
+        return [
+            "gemini-flash-latest",         # Primary: auto-updates to latest flash
+            "gemini-pro-latest",           # Fallback: auto-updates to latest pro
+        ]
     else:
         # Use user-selected model with intelligent fallback
-        return [model_choice, "gemini-2.5-flash", "gemini-3-flash", "gemini-2.5-flash-lite"]
+        return [model_choice, "gemini-flash-latest", "gemini-pro-latest"]
 
-def get_gemini_response(prompt, json_mode=False, stream_container=None, image_data=None, timeout=30):
+def get_gemini_response(
+    prompt, 
+    json_mode=False, 
+    stream_container=None, 
+    image_data=None, 
+    timeout=30,
+    function_declaration=None,
+    enable_thinking=True,
+    thinking_budget=1024
+):
     """
     Send a prompt (with optional image) to Gemini and get a response.
+    Supports native function calling and thought signature validation for Gemini 3+ models.
+    
     Per official API: https://ai.google.dev/gemini-api/docs/api-key
+    Thought signatures: https://ai.google.dev/gemini-api/docs/thought-signatures
     
     Args:
         prompt: Text prompt string
-        json_mode: If True, extract JSON from response
+        json_mode: If True, extract JSON from response (legacy mode, prefer function_declaration)
         stream_container: Deprecated (v1 API)
         image_data: Optional dict with 'mime_type' and 'data' (base64 bytes) for image
         timeout: Seconds to wait per model before moving to next
+        function_declaration: Optional FunctionDeclaration for native function calling
+        enable_thinking: Enable thought signature validation (required for Gemini 3+ function calling)
+        thinking_budget: Token budget for internal reasoning (256-4096)
+    
+    Returns:
+        - If function_declaration provided: dict with 'function_name' and 'arguments'
+        - If json_mode: parsed JSON dict/list
+        - Otherwise: text string
     """
     client = get_genai_client()
     if not client:
@@ -2712,16 +2735,50 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
             }
         ]
 
+    # Build generation config with thinking and optional function calling
+    config_kwargs = {}
+    
+    # Configure thinking for thought signature validation (Gemini 3+ requirement)
+    if enable_thinking:
+        config_kwargs["thinking_config"] = types.ThinkingConfig(
+            thinking_budget=thinking_budget
+        )
+    
+    # Configure function calling if declaration provided
+    tools = None
+    if function_declaration:
+        tools = [types.Tool(function_declarations=[function_declaration])]
+        # Force function calling mode
+        config_kwargs["tool_config"] = types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+        )
+    
+    config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+
     response = None
     last_error = None
     skipped_models = []
     
     for model_name in candidates:
         try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-            )
+            # Build API call arguments
+            call_kwargs = {
+                "model": model_name,
+                "contents": contents,
+            }
+            if tools:
+                call_kwargs["tools"] = tools
+            if config:
+                call_kwargs["config"] = config
+            
+            response = client.models.generate_content(**call_kwargs)
+            
+            # Check for function call response
+            if function_declaration and response and response.candidates:
+                result = extract_function_call_result(response)
+                if result:
+                    return result
+            
             # Check if response has valid text
             if response and hasattr(response, 'text'):
                 break
@@ -2756,7 +2813,7 @@ def get_gemini_response(prompt, json_mode=False, stream_container=None, image_da
             return None
 
         if json_mode:
-            # Clean markdown code blocks
+            # Clean markdown code blocks (legacy JSON extraction mode)
             text = text.replace('```json', '').replace('```', '').strip()
             # Extract JSON object or array
             match = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', text)
@@ -2806,10 +2863,11 @@ def validate_ai_connection() -> bool:
     if not client:
         return False
     try:
-        # Use proper content structure per official API
+        # Use proper content structure per official API with thinking config
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[{"parts": [{"text": "ping"}]}]
+            model="gemini-flash-latest",
+            contents=[{"parts": [{"text": "ping"}]}],
+            config=get_generation_config(enable_thinking=True, thinking_budget=256)
         )
         return bool(resp and hasattr(resp, 'text') and resp.text)
     except Exception as e:
@@ -3131,8 +3189,8 @@ def get_local_faq_answer(user_question: str) -> str:
     if "api" in q or "key" in q or "gemini" in q or "model" in q:
         return (
             "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
-            "Supports gemini-2.5-flash, gemini-2.5-flash-lite, and gemini-3-flash models. Enter your API key "
-            "in the sidebar to activate all AI features."
+            "Uses gemini-flash-latest and gemini-pro-latest aliases for automatic model updates. "
+            "Thought signature validation enabled for Gemini 3+ models. Enter your API key in the sidebar."
         )
     if "files" in q or "structure" in q or "code" in q:
         return (
@@ -3272,7 +3330,7 @@ with st.sidebar:
     if gemini_api_key:
         available_models = get_available_models(gemini_api_key)
     
-    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"])
+    model_options = ["Auto"] + (available_models if available_models else ["gemini-flash-latest", "gemini-pro-latest"])
     model_choice = st.selectbox("Model", model_options, index=0)
     
     st.divider()
