@@ -1502,7 +1502,19 @@ Return JSON with keys:
 
 Return clean JSON ONLY. No markdown, no explanation."""
         
-        res = get_gemini_response(p_ihi, json_mode=True)
+        # Use native function calling for reliable structured output
+        result = get_gemini_response(
+            p_ihi, 
+            function_declaration=CREATE_IHI_CHARTER,
+            thinking_budget=1024
+        )
+        # Extract from function call or fall back
+        if isinstance(result, dict) and 'arguments' in result:
+            res = result['arguments']
+        elif isinstance(result, dict):
+            res = result
+        else:
+            res = get_gemini_response(p_ihi, json_mode=True)
         if res:
             st.session_state.data['phase1']['ihi_content'] = res
             doc = create_word_docx(st.session_state.data['phase1'])
@@ -1681,7 +1693,19 @@ VALIDATION CHECKLIST BEFORE RETURNING:
 - All 4 clinical stages still represented: Initial Evaluation, Diagnosis/Treatment, Re-evaluation, Final Disposition
 - Clinical depth enhanced, not reduced"""
 
-    response = get_gemini_response(prompt, json_mode=True)
+    # Use native function calling for reliable structured output
+    result = get_gemini_response(
+        prompt, 
+        function_declaration=APPLY_HEURISTICS,
+        thinking_budget=2048  # Complex heuristics application
+    )
+    # Extract from function call or fall back
+    if isinstance(result, dict) and 'arguments' in result:
+        response = result['arguments']
+    elif isinstance(result, dict) and 'updated_nodes' in result:
+        response = result
+    else:
+        response = get_gemini_response(prompt, json_mode=True)
     
     if response and isinstance(response, dict):
         updated_nodes = response.get("updated_nodes")
@@ -3671,7 +3695,19 @@ if "Scope" in phase:
         Format each list as a simple newline-separated text, NOT as a JSON array. Do not use markdown formatting (no asterisks, dashes for bullets). Use plain text only.
         """
         with ai_activity("Generating pathway scope…"):
-            data = get_gemini_response(prompt, json_mode=True)
+            # Use native function calling for reliable structured output
+            result = get_gemini_response(
+                prompt, 
+                function_declaration=DEFINE_PATHWAY_SCOPE,
+                thinking_budget=1024
+            )
+            # Extract from function call or fall back
+            if isinstance(result, dict) and 'arguments' in result:
+                data = result['arguments']
+            elif isinstance(result, dict):
+                data = result
+            else:
+                data = get_gemini_response(prompt, json_mode=True)
         if data and isinstance(data, dict):
             st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
             st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
@@ -3831,7 +3867,18 @@ Return ONLY a JSON object with these exact keys:
 - boundaries: object with in_scope (string) and out_of_scope (string)
 
 Return clean JSON ONLY. No markdown, no explanation."""
-                res = get_gemini_response(p_ihi, json_mode=True)
+                # Use native function calling for reliable structured output
+                result = get_gemini_response(
+                    p_ihi, 
+                    function_declaration=CREATE_IHI_CHARTER,
+                    thinking_budget=1024
+                )
+                if isinstance(result, dict) and 'arguments' in result:
+                    res = result['arguments']
+                elif isinstance(result, dict):
+                    res = result
+                else:
+                    res = get_gemini_response(p_ihi, json_mode=True)
                 if res:
                     st.session_state.data['phase1']['ihi_content'] = res
                     doc = create_word_docx(st.session_state.data['phase1'])
@@ -3901,7 +3948,18 @@ Return clean JSON ONLY. No markdown, no explanation."""
             Do not use markdown formatting (no asterisks for bold). Use plain text only.
             """
             with ai_activity("Applying refinements and auto-generating charter…"):
-                data = get_gemini_response(prompt, json_mode=True)
+                # Use native function calling for reliable structured output
+                result = get_gemini_response(
+                    prompt, 
+                    function_declaration=DEFINE_PATHWAY_SCOPE,
+                    thinking_budget=1024
+                )
+                if isinstance(result, dict) and 'arguments' in result:
+                    data = result['arguments']
+                elif isinstance(result, dict):
+                    data = result
+                else:
+                    data = get_gemini_response(prompt, json_mode=True)
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
@@ -4003,7 +4061,18 @@ elif "Evidence" in phase or "Appraise" in phase:
                     "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
                     "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
                 )
-                grades = get_gemini_response(prompt, json_mode=True)
+                # Use native function calling for reliable structured output
+                result = get_gemini_response(
+                    prompt, 
+                    function_declaration=GRADE_EVIDENCE,
+                    thinking_budget=1024
+                )
+                if isinstance(result, dict) and 'arguments' in result:
+                    grades = result['arguments'].get('grades', {})
+                elif isinstance(result, dict) and 'grades' not in result:
+                    grades = result
+                else:
+                    grades = get_gemini_response(prompt, json_mode=True)
                 if grades and isinstance(grades, dict):
                     for e in st.session_state.data['phase2']['evidence']:
                         pmid_str = str(e['id'])
@@ -4159,7 +4228,18 @@ Output: ("diabetes"[MeSH Terms]) AND ("clinical pathway"[tiab] OR Practice Guide
                                 "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
                                 "Example: {\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}"
                             )
-                            grades = get_gemini_response(prompt, json_mode=True)
+                            # Use native function calling for reliable structured output
+                            result = get_gemini_response(
+                                prompt, 
+                                function_declaration=GRADE_EVIDENCE,
+                                thinking_budget=1024
+                            )
+                            if isinstance(result, dict) and 'arguments' in result:
+                                grades = result['arguments'].get('grades', {})
+                            elif isinstance(result, dict) and 'grades' not in result:
+                                grades = result
+                            else:
+                                grades = get_gemini_response(prompt, json_mode=True)
                             if grades and isinstance(grades, dict):
                                 for e in st.session_state.data['phase2']['evidence']:
                                     pmid_str = str(e['id'])
