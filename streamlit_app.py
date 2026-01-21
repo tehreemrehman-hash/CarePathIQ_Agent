@@ -223,6 +223,22 @@ def regenerate_nodes_with_refinement(nodes, refine_text, heuristics_data=None):
     - Apply sophisticated patterns above to make pathway immediately implementable by clinicians
     """
 
+    # Use native function calling for structured output (with json_mode fallback)
+    result = get_gemini_response(
+        prompt, 
+        function_declaration=GENERATE_PATHWAY_NODES,
+        thinking_budget=2048  # Complex pathway generation needs more reasoning
+    )
+    
+    # Extract nodes from function call result or fall back to legacy parsing
+    if isinstance(result, dict) and 'arguments' in result:
+        return result['arguments'].get('nodes', [])
+    elif isinstance(result, dict) and 'nodes' in result:
+        return result.get('nodes', [])
+    elif isinstance(result, list):
+        return result
+    
+    # Fallback to json_mode if function calling didn't work
     return get_gemini_response(prompt, json_mode=True)
 
 # --- LIBRARY HANDLING ---
@@ -1535,10 +1551,23 @@ def auto_grade_evidence_list(evidence_list: list):
             "and provide a brief Rationale (1-2 sentences) for each article. "
             f"{json.dumps([{k:v for k,v in e.items() if k in ['id','title']} for e in evidence_list])}. "
             "Return ONLY valid JSON object where keys are PMID strings and values are objects with 'grade' and 'rationale' fields. "
-            '{"12345678": {"grade": "High (A)", "rationale": "text here"}}'
+            '{\"12345678\": {\"grade\": \"High (A)\", \"rationale\": \"text here\"}}'
         )
         
-        grades = get_gemini_response(prompt, json_mode=True)
+        # Use native function calling for reliable structured output
+        result = get_gemini_response(
+            prompt, 
+            function_declaration=GRADE_EVIDENCE,
+            thinking_budget=1024
+        )
+        # Extract grades from function call or fall back
+        if isinstance(result, dict) and 'arguments' in result:
+            grades = result['arguments'].get('grades', {})
+        elif isinstance(result, dict) and 'grades' not in result:
+            grades = result  # Already in expected format
+        else:
+            # Fallback to json_mode
+            grades = get_gemini_response(prompt, json_mode=True)
         
         if grades and isinstance(grades, dict):
             for e in evidence_list:
@@ -4643,7 +4672,22 @@ elif "Decision" in phase or "Tree" in phase:
         This renders the decision meaningless. Each branch MUST point to a different target.
         """
         with ai_activity("Generating..."):
-            nodes = get_gemini_response(prompt, json_mode=True)
+            # Use native function calling for reliable structured output
+            result = get_gemini_response(
+                prompt, 
+                function_declaration=GENERATE_PATHWAY_NODES,
+                thinking_budget=2048  # Complex pathway generation
+            )
+            # Extract nodes from function call or fall back to raw result
+            if isinstance(result, dict) and 'arguments' in result:
+                nodes = result['arguments'].get('nodes', [])
+            elif isinstance(result, dict) and 'nodes' in result:
+                nodes = result.get('nodes', [])
+            elif isinstance(result, list):
+                nodes = result
+            else:
+                # Fallback to json_mode
+                nodes = get_gemini_response(prompt, json_mode=True)
         if isinstance(nodes, list) and len(nodes) > 0:
             # Clean up common AI generation issues
             nodes = normalize_or_logic(nodes)  # Fix OR statements in End nodes
@@ -5019,7 +5063,22 @@ elif "Decision" in phase or "Tree" in phase:
                     - NO node count limit - build complete clinical flow
                     - If >20 nodes, organize into sections or sub-pathways
                     """
-                    nodes = get_gemini_response(prompt, json_mode=True)
+                    # Use native function calling for reliable structured output
+                    result = get_gemini_response(
+                        prompt, 
+                        function_declaration=GENERATE_PATHWAY_NODES,
+                        thinking_budget=2048  # Complex refinement needs reasoning
+                    )
+                    # Extract nodes from function call or fall back
+                    if isinstance(result, dict) and 'arguments' in result:
+                        nodes = result['arguments'].get('nodes', [])
+                    elif isinstance(result, dict) and 'nodes' in result:
+                        nodes = result.get('nodes', [])
+                    elif isinstance(result, list):
+                        nodes = result
+                    else:
+                        # Fallback to json_mode
+                        nodes = get_gemini_response(prompt, json_mode=True)
                     if isinstance(nodes, list) and len(nodes) > 0:
                         # Clean up common AI generation issues
                         nodes = normalize_or_logic(nodes)
@@ -5127,7 +5186,20 @@ EXAMPLE FORMAT:
   "H2": "• Expand less common abbreviations (e.g., SIRS definition) for novice users\n• Add node annotation explaining scoring systems (qSOFA)\n• Maintain all literature references—they strengthen credibility",
   ...
 }}"""
-            res = get_gemini_response(prompt, json_mode=True)
+            # Use native function calling for reliable structured heuristics output
+            result = get_gemini_response(
+                prompt, 
+                function_declaration=ANALYZE_HEURISTICS,
+                thinking_budget=1024
+            )
+            # Extract heuristics from function call or fall back
+            if isinstance(result, dict) and 'arguments' in result:
+                res = result['arguments']
+            elif isinstance(result, dict) and 'H1' in result:
+                res = result
+            else:
+                # Fallback to json_mode
+                res = get_gemini_response(prompt, json_mode=True)
             if res and isinstance(res, dict) and len(res) >= 10:
                 p4_state['heuristics_data'] = res
                 p4_state['auto_heuristics_done'] = True
