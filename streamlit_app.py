@@ -5356,8 +5356,7 @@ EXAMPLE FORMAT:
     h_data = p4_state.get('heuristics_data', {})
 
     if not h_data:
-        styled_info("Heuristics are generated automatically. They will appear here shortly.")
-        # Add manual retry button if auto-generation hasn't completed
+        # Manual generation button - user controls when to generate heuristics
         if nodes and st.button("Generate Heuristics Now", key="p4_manual_heuristics", type="secondary"):
             p4_state['auto_heuristics_done'] = False
             st.rerun()
@@ -5397,29 +5396,7 @@ EXAMPLE FORMAT:
         if has_heuristics:
             if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
                 st.success("✅ Applied")
-                with st.expander("View what was applied & what requires UX engineer", expanded=True):
-                    if p4_state.get('applied_heuristics'):
-                        applied_list = p4_state['applied_heuristics']
-                        applied_with_defs = []
-                        for h in applied_list:
-                            h_def = HEURISTIC_DEFS.get(h, "")
-                            short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
-                            applied_with_defs.append(f"{h}: {short_def}")
-                        st.markdown("**✅ Applied to Pathway:**")
-                        for item in applied_with_defs:
-                            st.markdown(f"  - {item}")
-                        
-                        # Show skipped heuristics that require UI/UX work
-                        all_h = set([f"H{i}" for i in range(1, 11)])
-                        skipped = sorted(list(all_h - set(applied_list)), key=lambda x: int(x[1:]))
-                        if skipped:
-                            st.divider()
-                            st.markdown("**🎨 Requires UX/UI Engineer:**")
-                            for h in skipped:
-                                h_def = HEURISTIC_DEFS.get(h, "")
-                                short_def = h_def.split(":")[0] if ":" in h_def else h_def.split(".")[0]
-                                st.caption(f"  • {h}: {short_def}")
-                    st.divider()
+                with st.expander("View Changes Made", expanded=True):
                     st.markdown("**Changes Made:**")
                     st.markdown(p4_state['applied_summary_detail'])
             
@@ -5700,12 +5677,16 @@ elif "Operationalize" in phase or "Deploy" in phase:
     # ========== BOTTOM LEFT: EDUCATION MODULE ==========
     with col3:
         st.markdown("<h3>Education Module</h3>", unsafe_allow_html=True)
+        # Hide "Press Enter to apply" hint for this section
+        st.markdown("<style>div[data-testid='stTextInput'] div[data-testid='InputInstructions'] { display: none; }</style>", unsafe_allow_html=True)
         
-        # Target audience input
+        # Target audience input (use value="" to suppress "Press Enter to apply" hint)
         aud_edu = st.text_input(
             "Target Audience",
+            value="",
             placeholder="e.g., Residents, Nursing Staff",
-            key="p5_aud_edu_input"
+            key="p5_aud_edu_input",
+            help="Enter the target audience for the education module"
         )
         
         # Generate button

@@ -1157,17 +1157,15 @@ document.addEventListener('DOMContentLoaded', initializeHeuristics);
     return html
 
 
-def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-flash-latest", max_retries: int = 10):
+def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-flash-latest", max_retries: int = 3):
     """
     Call Gemini API with exponential backoff retry for rate limits.
-    Keeps retrying until API token is available.
-    Includes thinking config for Gemini 3+ thought signature validation.
     
     Args:
         genai_client: Google Generative AI client
         prompt: The prompt to send
         model: Model to use (default: gemini-flash-latest)
-        max_retries: Maximum retry attempts (default 10 = ~15 minutes total)
+        max_retries: Maximum retry attempts (default 3)
         
     Returns:
         API response text
@@ -1197,16 +1195,28 @@ def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-flash
             # Check if it's a rate limit error
             if '429' in str(e) or 'resource_exhausted' in error_str or 'quota' in error_str:
                 if attempt < max_retries - 1:
-                    # Exponential backoff: 15s, 30s, 60s, 120s (capped)
-                    wait_time = min(15 * (2 ** min(attempt, 3)), 120)
+                    # Short backoff: 5s, 10s, 15s
+                    wait_time = 5 * (attempt + 1)
                     time_module.sleep(wait_time)
                     continue
-            # For other errors, also retry with shorter wait
-            if attempt < max_retries - 1:
-                time_module.sleep(10)
-                continue
+                raise Exception(f"API rate limit reached after {max_retries} attempts. Please wait 30-60 seconds and try again.")
+            # For other errors, raise immediately
             raise e
-    raise Exception("Unable to connect to AI service after multiple retries. Please try again later.")
+    raise Exception("Unable to connect to AI service. Please check your API key and try again.")
+
+
+def _simple_genai_call(genai_client, prompt: str):
+    """Simple single-shot API call without retries for faster response."""
+    try:
+        response = genai_client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=prompt
+        )
+        return response.text
+    except Exception as e:
+        if '429' in str(e) or 'quota' in str(e).lower():
+            raise Exception("API rate limit. Please wait 30 seconds and try again.")
+        raise e
 
 
 def generate_education_module_html(
@@ -1276,70 +1286,23 @@ def generate_education_module_html(
         elif node_type == 'Process':
             process_nodes.append(label)
     
-    # Provide rich pathway context for AI
-    nodes_context = f"""
-FULL PATHWAY STRUCTURE ({len(nodes)} nodes):
-{chr(10).join(all_node_labels[:15])}
-{'... and ' + str(len(nodes) - 15) + ' more nodes' if len(nodes) > 15 else ''}
-
-KEY DECISION POINTS ({len(decision_nodes)}):
-{chr(10).join(['- ' + d for d in decision_nodes[:10]])}
-
-KEY CLINICAL ACTIONS ({len(process_nodes)}):
-{chr(10).join(['- ' + p for p in process_nodes[:12]])}
-"""
+    # Provide brief pathway context for AI
+    nodes_context = f"Pathway has {len(nodes)} nodes including {len(decision_nodes)} decision points and {len(process_nodes)} clinical actions."
     
-    # === SINGLE CONSOLIDATED API CALL ===
-    # Generate all education content in ONE call to minimize API usage and avoid rate limits
-    consolidated_prompt = f"""You are a clinical educator creating a comprehensive education module for **{audience_clean}** about {condition_clean} management in {care_setting_clean}.
+    # === SIMPLIFIED SINGLE API CALL ===
+    prompt = f"""Create education content for {audience_clean} about {condition_clean} in {care_setting_clean}.
 
-TARGET AUDIENCE: {audience_clean}
-- Tailor content complexity and terminology to this specific role
-- Residents/trainees: clinical reasoning and decision-making
-- Nursing staff: assessment, recognition, escalation, care coordination
-- Physicians: evidence synthesis, risk stratification, management
-- Pharmacists: medication selection, dosing, interactions
-
-PATHWAY CONTEXT:
 {nodes_context}
 
-Generate ALL of the following in a SINGLE JSON response:
+Return JSON with:
+- "learning_objectives": 4 short objectives
+- "teaching_points": 5 paragraphs covering assessment, risk stratification, diagnostics, treatment, disposition
+- "quiz_questions": 5 items, each with "question", "options" (A-D), "correct" (letter), "explanation"
 
-{{
-  "learning_objectives": [
-    "4 specific, measurable learning objectives using Bloom's taxonomy verbs",
-    "Each references actual pathway decision points/criteria",
-    "Appropriate for {audience_clean} knowledge level",
-    "Include action verbs: apply, differentiate, evaluate, demonstrate"
-  ],
-  "teaching_points": [
-    "Paragraph 1: Initial Recognition & Assessment - red flags, vital sign thresholds, key history elements",
-    "Paragraph 2: Risk Stratification - specific scoring tools, cutoffs, application",
-    "Paragraph 3: Diagnostic Workup - tests to order, sequence, interpretation pearls",
-    "Paragraph 4: Treatment Protocols - medications with doses, timing, contraindications",
-    "Paragraph 5: Disposition & Follow-up - admission criteria, discharge requirements"
-  ],
-  "quiz_questions": [
-    {{
-      "question": "Clinical scenario question with specific patient details",
-      "options": ["A) Option", "B) Option", "C) Option", "D) Option"],
-      "correct": "B",
-      "explanation": "3-5 sentence explanation with pathway criteria, why correct, why others wrong, clinical pearl"
-    }}
-  ]
-}}
+JSON only:"""
 
-REQUIREMENTS:
-- learning_objectives: EXACTLY 4 strings, specific to {condition_clean} and {audience_clean}
-- teaching_points: EXACTLY 5 detailed paragraphs (3-4 sentences each) with clinical specifics
-- quiz_questions: EXACTLY 5 questions covering: assessment, risk stratification, diagnostics, treatment, disposition
-- All content must reference ACTUAL pathway nodes and clinical criteria
-- Quiz explanations must be detailed and educational (not brief)
-
-Return ONLY valid JSON."""
-
-    # Single API call for all content
-    response_text = _call_genai_with_retry(genai_client, consolidated_prompt, model="gemini-flash-latest")
+    # Single fast API call
+    response_text = _simple_genai_call(genai_client, prompt)
     
     # Parse the consolidated response
     json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
