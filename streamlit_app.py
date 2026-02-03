@@ -3806,12 +3806,10 @@ if "Scope" in phase:
     if st.session_state.get('p1_needs_draft'):
         st.session_state['p1_needs_draft'] = False  # Clear flag immediately
         if trigger_p1_draft():
-            # Copy results to widget keys so they display
-            p1 = st.session_state.data['phase1']
-            st.session_state['p1_inc'] = p1.get('inclusion', '')
-            st.session_state['p1_exc'] = p1.get('exclusion', '')
-            st.session_state['p1_prob'] = p1.get('problem', '')
-            st.session_state['p1_obj'] = p1.get('objectives', '')
+            # Clear widget keys so they pick up new values from data on rerun
+            for key in ['p1_inc', 'p1_exc', 'p1_prob', 'p1_obj']:
+                if key in st.session_state:
+                    del st.session_state[key]
             st.rerun()  # Rerun to display new values in text areas
 
     # 5) UI: Inputs
@@ -3834,11 +3832,10 @@ if "Scope" in phase:
                 st.session_state.data['phase1']['setting'] = s
                 # Now trigger draft
                 if trigger_p1_draft():
-                    p1 = st.session_state.data['phase1']
-                    st.session_state['p1_inc'] = p1.get('inclusion', '')
-                    st.session_state['p1_exc'] = p1.get('exclusion', '')
-                    st.session_state['p1_prob'] = p1.get('problem', '')
-                    st.session_state['p1_obj'] = p1.get('objectives', '')
+                    # Clear widget keys so they pick up new values from data on rerun
+                    for key in ['p1_inc', 'p1_exc', 'p1_prob', 'p1_obj']:
+                        if key in st.session_state:
+                            del st.session_state[key]
                     st.rerun()
             else:
                 st.warning("Please enter both Clinical Condition and Care Setting first.")
@@ -4113,11 +4110,10 @@ Return clean JSON ONLY. No markdown, no explanation."""
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                # Update widget values
-                st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
-                st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
-                st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
-                st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+                # Clear widget keys so they pick up new values on rerun
+                for key in ['p1_inc', 'p1_exc', 'p1_prob', 'p1_obj']:
+                    if key in st.session_state:
+                        del st.session_state[key]
                 st.success("Refinements applied!")
                 st.rerun()
             else:
