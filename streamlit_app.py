@@ -3538,17 +3538,24 @@ with st.sidebar:
                     st.session_state["ai_valid"] = True
                     st.session_state.pop("ai_error", None)
                 else:
-                    # Show concise message only
-                    err = st.session_state.get("ai_error")
-                    short_msg = err or "API key invalid or model unavailable."
-                    st.error(short_msg)
-                    st.session_state["ai_valid"] = False
+                    # Don't show rate limit errors on validation - just mark as ready to use
+                    err = st.session_state.get("ai_error", "")
+                    if "Rate limit" in err:
+                        st.info("API key saved. Ready to use when quota resets.")
+                        st.session_state["ai_valid"] = True  # Allow usage, quota may reset
+                        st.session_state.pop("ai_error", None)
+                    elif "Invalid" in err or "Permission" in err:
+                        st.error(err)
+                        st.session_state["ai_valid"] = False
+                    else:
+                        st.info("API key saved. Connection will be tested on first use.")
+                        st.session_state["ai_valid"] = True
             else:
                 # Preserve prior validation result
                 if st.session_state.get("ai_valid"):
                     st.success("AI Connected")
                 else:
-                    st.info("Key entered — awaiting first AI call")
+                    st.info("API key saved. Ready to use.")
         except Exception as e:
             st.error(f"Failed to initialize Gemini client: {str(e)[:120]}")
             st.stop()
