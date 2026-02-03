@@ -3723,11 +3723,16 @@ if "Scope" in phase:
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
 
     def sync_and_draft():
-        # First sync widget values to session state; Streamlit will rerun
-        # automatically after this callback. On the next run, we perform the
-        # AI draft, keeping the callback snappy and avoiding rerun warnings.
+        # First sync widget values to session state
         sync_p1_widgets()
-        st.session_state['p1_should_draft'] = True
+        # Immediately trigger AI draft (no rerun needed - happens during callback execution)
+        trigger_p1_draft()
+        # After draft completes, copy results back to widget keys so they display
+        p1 = st.session_state.data['phase1']
+        st.session_state['p1_inc'] = p1.get('inclusion', '')
+        st.session_state['p1_exc'] = p1.get('exclusion', '')
+        st.session_state['p1_prob'] = p1.get('problem', '')
+        st.session_state['p1_obj'] = p1.get('objectives', '')
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
@@ -3737,21 +3742,6 @@ if "Scope" in phase:
     st.session_state.setdefault('p1_exc',        p1.get('exclusion', ''))
     st.session_state.setdefault('p1_prob',       p1.get('problem', ''))
     st.session_state.setdefault('p1_obj',        p1.get('objectives', ''))
-
-    # If a widget change requested an auto-draft, run it now on the main pass
-    # (after the immediate UI refresh) and then clear the flag.
-    if st.session_state.get('p1_should_draft'):
-        import sys
-        print(f"[DEBUG] p1_should_draft flag detected. Calling trigger_p1_draft()...", file=sys.stderr)
-        st.session_state['p1_should_draft'] = False
-        trigger_p1_draft()
-        # Copy AI-generated values to widget keys so they display immediately
-        p1 = st.session_state.data['phase1']
-        st.session_state['p1_inc'] = p1.get('inclusion', '')
-        st.session_state['p1_exc'] = p1.get('exclusion', '')
-        st.session_state['p1_prob'] = p1.get('problem', '')
-        st.session_state['p1_obj'] = p1.get('objectives', '')
-        st.rerun()
 
     # 4) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
