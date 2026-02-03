@@ -2903,7 +2903,9 @@ def get_gemini_response(
             continue
 
     if not response:
-        # Silently return None - let the calling code handle the UI feedback
+        # Store the last error for debugging but don't show red banner
+        if last_error:
+            st.session_state['_last_api_error'] = last_error
         return None
 
     try:
@@ -4056,28 +4058,39 @@ Return clean JSON ONLY. No markdown, no explanation."""
             
             with ai_activity("Applying refinements from documents…"):
                 # Use native function calling for reliable structured output
-                result = get_gemini_response(
-                    prompt, 
-                    function_declaration=DEFINE_PATHWAY_SCOPE,
-                    thinking_budget=1024,
-                    contents=contents
-                )
-                if isinstance(result, dict) and 'arguments' in result:
-                    data = result['arguments']
-                elif isinstance(result, dict):
-                    data = result
-                else:
-                    data = get_gemini_response(prompt, json_mode=True, contents=contents)
+                try:
+                    result = get_gemini_response(
+                        prompt, 
+                        function_declaration=DEFINE_PATHWAY_SCOPE,
+                        thinking_budget=1024,
+                        contents=contents
+                    )
+                    if isinstance(result, dict) and 'arguments' in result:
+                        data = result['arguments']
+                    elif isinstance(result, dict):
+                        data = result
+                    else:
+                        data = get_gemini_response(prompt, json_mode=True, contents=contents)
+                except Exception as e:
+                    data = None
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
-                # Auto-generate charter
-                generate_p1_charter()
-                st.success("Refinements applied and Project Charter auto-generated!")
+                # Update widget values
+                st.session_state['p1_inc'] = st.session_state.data['phase1']['inclusion']
+                st.session_state['p1_exc'] = st.session_state.data['phase1']['exclusion']
+                st.session_state['p1_prob'] = st.session_state.data['phase1']['problem']
+                st.session_state['p1_obj'] = st.session_state.data['phase1']['objectives']
+                st.success("Refinements applied!")
+                st.rerun()
             else:
-                st.error("Failed to apply refinements. Please try again.")
+                last_err = st.session_state.get('_last_api_error', '')
+                if '429' in last_err or 'quota' in last_err.lower() or 'RESOURCE_EXHAUSTED' in last_err:
+                    st.warning("API quota exceeded. Please wait a minute and try again.")
+                else:
+                    st.warning("Could not apply refinements. Please try again.")
     render_bottom_navigation()
     st.stop()
 
