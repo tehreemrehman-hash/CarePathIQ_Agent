@@ -3678,10 +3678,11 @@ st.markdown("---")
 if "Scope" in phase:
     # 1) Draft helper
     def trigger_p1_draft():
+        """Run AI draft - call this from main script, not from callback."""
         c = st.session_state.get('p1_cond_input', '').strip()
         s = st.session_state.get('p1_setting', '').strip()
         if not (c and s):
-            return
+            return False
         prompt = f"""
         Act as a Chief Medical Officer creating a clinical care pathway. For "{c}" in "{s}", return a JSON object with exactly these keys: inclusion, exclusion, problem, objectives.
         
@@ -3694,29 +3695,28 @@ if "Scope" in phase:
         Format each list as a simple newline-separated text, NOT as a JSON array. Do not use markdown formatting (no asterisks, dashes for bullets). Use plain text only.
         """
         try:
-            # Use native function calling for reliable structured output
-            # Note: No st.status() here - callbacks can't create UI elements
-            result = get_gemini_response(
-                prompt, 
-                function_declaration=DEFINE_PATHWAY_SCOPE,
-                thinking_budget=1024
-            )
-            # Extract from function call or fall back
-            if isinstance(result, dict) and 'arguments' in result:
-                data = result['arguments']
-            elif isinstance(result, dict):
-                data = result
-            else:
-                data = get_gemini_response(prompt, json_mode=True)
+            with st.spinner("Generating pathway scope..."):
+                result = get_gemini_response(
+                    prompt, 
+                    function_declaration=DEFINE_PATHWAY_SCOPE,
+                    thinking_budget=1024
+                )
+                # Extract from function call or fall back
+                if isinstance(result, dict) and 'arguments' in result:
+                    data = result['arguments']
+                elif isinstance(result, dict):
+                    data = result
+                else:
+                    data = get_gemini_response(prompt, json_mode=True)
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+                return True
         except Exception as e:
-            # Silently fail - user will see fields remain empty
-            # If they want to debug, they can use the Refine & Regenerate section
-            pass
+            st.error(f"Failed to generate pathway scope: {e}")
+        return False
 
     # 2) Sync helpers
     def sync_p1_widgets():
@@ -3727,19 +3727,11 @@ if "Scope" in phase:
         st.session_state.data['phase1']['problem'] = st.session_state.get('p1_prob', '')
         st.session_state.data['phase1']['objectives'] = st.session_state.get('p1_obj', '')
 
-    def sync_and_draft():
-        # First sync widget values to session state
+    def sync_and_request_draft():
+        """Callback: sync values and set flag for main script to run AI draft."""
         sync_p1_widgets()
-        # Immediately trigger AI draft
-        trigger_p1_draft()
-        # After draft completes, copy results back to widget keys so they display
-        p1 = st.session_state.data['phase1']
-        st.session_state['p1_inc'] = p1.get('inclusion', '')
-        st.session_state['p1_exc'] = p1.get('exclusion', '')
-        st.session_state['p1_prob'] = p1.get('problem', '')
-        st.session_state['p1_obj'] = p1.get('objectives', '')
-        # Trigger rerun so new values display immediately
-        st.rerun()
+        # Set flag - main script will detect this and run the AI call
+        st.session_state['p1_needs_draft'] = True
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
@@ -3750,15 +3742,27 @@ if "Scope" in phase:
     st.session_state.setdefault('p1_prob',       p1.get('problem', ''))
     st.session_state.setdefault('p1_obj',        p1.get('objectives', ''))
 
-    # 4) UI: Inputs
+    # 4) CHECK FLAG AND RUN AI DRAFT (in main script, not callback - allows spinner)
+    if st.session_state.get('p1_needs_draft'):
+        st.session_state['p1_needs_draft'] = False  # Clear flag immediately
+        if trigger_p1_draft():
+            # Copy results to widget keys so they display
+            p1 = st.session_state.data['phase1']
+            st.session_state['p1_inc'] = p1.get('inclusion', '')
+            st.session_state['p1_exc'] = p1.get('exclusion', '')
+            st.session_state['p1_prob'] = p1.get('problem', '')
+            st.session_state['p1_obj'] = p1.get('objectives', '')
+            st.rerun()  # Rerun to display new values in text areas
+
+    # 5) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
     styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent generates the rest automatically.")
 
     col1, col2 = columns_top(2)
     with col1:
         st.subheader("1. Clinical Focus")
-        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_and_draft)
-        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_and_draft)
+        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_and_request_draft)
+        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_and_request_draft)
 
         st.subheader("2. Target Population")
         st.text_area("Inclusion Criteria", key="p1_inc", height=compute_textarea_height(st.session_state.get('p1_inc',''), 14), on_change=sync_p1_widgets)
