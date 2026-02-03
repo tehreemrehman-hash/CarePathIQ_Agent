@@ -3812,7 +3812,7 @@ if "Scope" in phase:
 
     # 5) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
-    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting, then generate the pathway scope. The AI agent will auto-fill inclusion/exclusion criteria, problem statement, and objectives.")
+    styled_info("<b>Tip:</b> Enter condition and setting, then click Generate Scope to auto-fill the rest.")
 
     col1, col2 = columns_top(2)
     with col1:
@@ -3825,8 +3825,17 @@ if "Scope" in phase:
             c = st.session_state.get('p1_cond_input', '').strip()
             s = st.session_state.get('p1_setting', '').strip()
             if c and s:
-                st.session_state['p1_needs_draft'] = True
-                st.rerun()
+                # Sync values first
+                st.session_state.data['phase1']['condition'] = c
+                st.session_state.data['phase1']['setting'] = s
+                # Now trigger draft
+                if trigger_p1_draft():
+                    p1 = st.session_state.data['phase1']
+                    st.session_state['p1_inc'] = p1.get('inclusion', '')
+                    st.session_state['p1_exc'] = p1.get('exclusion', '')
+                    st.session_state['p1_prob'] = p1.get('problem', '')
+                    st.session_state['p1_obj'] = p1.get('objectives', '')
+                    st.rerun()
             else:
                 st.warning("Please enter both Clinical Condition and Care Setting first.")
 
