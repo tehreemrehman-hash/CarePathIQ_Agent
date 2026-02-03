@@ -5775,9 +5775,66 @@ EXAMPLE FORMAT:
                 refine_with_file = refine_notes if refine_notes else "Use the uploaded documents to refine the pathway."
                 if file_context:
                     refine_with_file += file_context
+                
+                # Dynamic activity message
+                activity_msg = f"Regenerating with {len(file_uris)} document(s)…" if file_uris else "Applying refinements..."
                     
-                with st.spinner("Applying refinements..."):
-                    refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
+                with st.spinner(activity_msg):
+                    # If file URIs available, call API directly with file references
+                    if file_uris:
+                        cond = st.session_state.data['phase1'].get('condition') or "Pathway"
+                        setting = st.session_state.data['phase1'].get('setting') or "care setting"
+                        evidence_list = st.session_state.data['phase2'].get('evidence', [])
+                        ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
+                        
+                        prompt = f"""
+                        Act as a Clinical Decision Scientist. Refine the existing pathway based on the user's request and uploaded documents.
+
+                        Current pathway for {cond} in {setting}:
+                        {json.dumps(nodes, indent=2)}
+
+                        Available Evidence:
+                        {ev_context}
+                        {file_context}
+
+                        User's refinement request: "{refine_with_file}"
+
+                        IMPORTANT: Use information from the uploaded documents to enhance the pathway with more specific clinical details, evidence-based criteria, and actionable steps.
+
+                        OUTPUT: Complete revised JSON array of nodes with fields: type, label, evidence, (optional) notes
+                        Rules:
+                        - type: "Start" | "Decision" | "Process" | "End"
+                        - First node: type "Start", label "patient present to {setting} with {cond}"
+                        - Maintain clinical complexity and decision branches
+                        - Apply any specific protocols, criteria, or guidelines from the uploaded documents
+                        """
+                        
+                        # Build contents with file URIs
+                        parts = [{"text": prompt}]
+                        for uri in file_uris[:3]:
+                            parts.append({"file_data": {"file_uri": uri}})
+                        contents = [{"parts": parts}]
+                        
+                        result = get_gemini_response(
+                            prompt,
+                            function_declaration=GENERATE_PATHWAY_NODES,
+                            thinking_budget=2048,
+                            contents=contents
+                        )
+                        
+                        # Extract nodes from result
+                        if isinstance(result, dict) and 'arguments' in result:
+                            refined = result['arguments'].get('nodes', [])
+                        elif isinstance(result, dict) and 'nodes' in result:
+                            refined = result.get('nodes', [])
+                        elif isinstance(result, list):
+                            refined = result
+                        else:
+                            refined = None
+                    else:
+                        # No file URIs, use the existing function
+                        refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
+                    
                     if refined:
                         st.session_state.data['phase3']['nodes'] = refined
                         p4_state['viz_cache'] = {}
