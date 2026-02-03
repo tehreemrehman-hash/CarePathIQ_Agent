@@ -911,11 +911,27 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
             mime_type = 'text/markdown'
 
         # Upload to Gemini Files API
+        # New SDK expects: file=bytes/path, config with mimeType
         from io import BytesIO
-        file_obj = BytesIO(file_bytes)
-        uploaded = client.files.upload(
-            file=(uploaded_file.name, file_obj, mime_type)
-        )
+        import tempfile
+        import os
+        
+        # Write to temp file (SDK expects file path or bytes)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        
+        try:
+            uploaded = client.files.upload(
+                file=tmp_path,
+                config=types.UploadFileConfig(
+                    mime_type=mime_type,
+                    display_name=uploaded_file.name
+                )
+            )
+        finally:
+            # Clean up temp file
+            os.unlink(tmp_path)
 
         review_text = review_document(uploaded.uri, context)
         st.session_state[f"file_{phase_key}"] = f"File: {uploaded_file.name} ({uploaded.uri})"
@@ -2796,9 +2812,8 @@ def get_gemini_response(
         )
     
     # Configure function calling if declaration provided
-    tools = None
     if function_declaration:
-        tools = [types.Tool(function_declarations=[function_declaration])]
+        config_kwargs["tools"] = [types.Tool(function_declarations=[function_declaration])]
         # Force function calling mode
         config_kwargs["tool_config"] = types.ToolConfig(
             function_calling_config=types.FunctionCallingConfig(mode="AUTO")
@@ -2817,8 +2832,6 @@ def get_gemini_response(
                 "model": model_name,
                 "contents": contents,
             }
-            if tools:
-                call_kwargs["tools"] = tools
             if config:
                 call_kwargs["config"] = config
             
@@ -2848,12 +2861,7 @@ def get_gemini_response(
             continue
 
     if not response:
-        tried_info = " → ".join(skipped_models) if skipped_models else ", ".join(candidates)
-        summary = "AI rate limit or model unavailable. Try again later or pick another model."
-        details = f"Details: {last_error}" if last_error else f"Tried: {tried_info}"
-        with st.expander(summary, expanded=False):
-            st.code(details)
-        st.error(summary)
+        # Silently return None - let the calling code handle the UI feedback
         return None
 
     try:
