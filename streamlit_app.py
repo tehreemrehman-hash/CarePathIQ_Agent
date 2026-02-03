@@ -3819,8 +3819,8 @@ if "Scope" in phase:
     col1, col2 = columns_top(2)
     with col1:
         st.subheader("1. Clinical Focus")
-        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
-        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
+        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets, help="Enter the clinical condition for your pathway")
+        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_p1_widgets, help="Enter the care setting (e.g., ED, ICU, Clinic)")
         
         # Generate button - only triggers AI when clicked
         if st.button("Generate Scope", key="p1_generate_btn", type="secondary"):
