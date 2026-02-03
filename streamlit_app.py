@@ -900,24 +900,61 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
     try:
         # Read file bytes
         file_bytes = uploaded_file.read()
-
-        # Build MIME type
-        mime_type = uploaded_file.type or "application/octet-stream"
-        if uploaded_file.name.endswith('.pdf'):
-            mime_type = 'application/pdf'
-        elif uploaded_file.name.endswith('.txt'):
-            mime_type = 'text/plain'
-        elif uploaded_file.name.endswith('.md'):
-            mime_type = 'text/markdown'
+        
+        # Convert DOCX to markdown, then upload as .md file
+        if uploaded_file.name.lower().endswith('.docx'):
+            try:
+                from io import BytesIO
+                from docx import Document
+                doc = Document(BytesIO(file_bytes))
+                
+                # Convert to markdown with structure preserved
+                md_lines = []
+                for para in doc.paragraphs:
+                    text = para.text.strip()
+                    if not text:
+                        continue
+                    # Detect headings by style
+                    style_name = para.style.name.lower() if para.style else ""
+                    if 'heading 1' in style_name:
+                        md_lines.append(f"# {text}")
+                    elif 'heading 2' in style_name:
+                        md_lines.append(f"## {text}")
+                    elif 'heading 3' in style_name:
+                        md_lines.append(f"### {text}")
+                    elif 'title' in style_name:
+                        md_lines.append(f"# {text}")
+                    else:
+                        md_lines.append(text)
+                
+                md_content = "\n\n".join(md_lines)
+                file_bytes = md_content.encode('utf-8')
+                mime_type = 'text/markdown'
+                display_name = uploaded_file.name.replace('.docx', '.md').replace('.DOCX', '.md')
+            except Exception as docx_err:
+                st.error(f"Could not convert DOCX file: {docx_err}")
+                return None
+        else:
+            # Build MIME type for other supported files
+            mime_type = uploaded_file.type or "application/octet-stream"
+            if uploaded_file.name.endswith('.pdf'):
+                mime_type = 'application/pdf'
+            elif uploaded_file.name.endswith('.txt'):
+                mime_type = 'text/plain'
+            elif uploaded_file.name.endswith('.md'):
+                mime_type = 'text/markdown'
+            display_name = uploaded_file.name
 
         # Upload to Gemini Files API
         # New SDK expects: file=bytes/path, config with mimeType
-        from io import BytesIO
         import tempfile
         import os
         
+        # Determine file extension for temp file
+        ext = '.md' if uploaded_file.name.lower().endswith('.docx') else os.path.splitext(uploaded_file.name)[1]
+        
         # Write to temp file (SDK expects file path or bytes)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
             tmp.write(file_bytes)
             tmp_path = tmp.name
         
@@ -926,7 +963,7 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
                 file=tmp_path,
                 config=types.UploadFileConfig(
                     mime_type=mime_type,
-                    display_name=uploaded_file.name
+                    display_name=display_name
                 )
             )
         finally:
