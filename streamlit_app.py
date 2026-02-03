@@ -2780,7 +2780,8 @@ def get_gemini_response(
     timeout=30,
     function_declaration=None,
     enable_thinking=True,
-    thinking_budget=1024
+    thinking_budget=1024,
+    contents=None
 ):
     """
     Send a prompt (with optional image) to Gemini and get a response.
@@ -2798,6 +2799,7 @@ def get_gemini_response(
         function_declaration: Optional FunctionDeclaration for native function calling
         enable_thinking: Enable thought signature validation (required for Gemini 3+ function calling)
         thinking_budget: Token budget for internal reasoning (256-4096)
+        contents: Optional pre-built contents array (for file URIs, etc.)
     
     Returns:
         - If function_declaration provided: dict with 'function_name' and 'arguments'
@@ -2814,7 +2816,10 @@ def get_gemini_response(
 
     # Build contents array per official API structure
     # https://ai.google.dev/gemini-api/docs/api-overview#request-body
-    if image_data:
+    if contents:
+        # Use pre-built contents (e.g., with file URIs)
+        pass
+    elif image_data:
         # Multimodal: text + image
         contents = [
             {
@@ -3959,14 +3964,13 @@ Return clean JSON ONLY. No markdown, no explanation."""
                     key="p1_file_upload",
                     accept_multiple_files=True,
                     label_visibility="collapsed",
-                    help="Attach PDFs/DOCX files; the agent auto-summarizes them for context."
+                    help="Attach PDFs/DOCX files to inform pathway scope generation."
                 )
                 if p1_uploaded:
                     for uploaded_file in p1_uploaded:
                         file_result = upload_and_review_file(uploaded_file, f"p1_refine_{uploaded_file.name}", "clinical scope and charter")
                         if file_result:
-                            with st.expander(f"Review: {file_result['filename']}", expanded=False):
-                                st.markdown(file_result["review"])
+                            st.success(f"✓ {file_result['filename']} uploaded")
 
             col1, col2 = st.columns([3, 1])
             with col2:
@@ -3974,36 +3978,70 @@ Return clean JSON ONLY. No markdown, no explanation."""
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
-        if refinement_text:
-            # Collect all uploaded document reviews
-            doc_reviews = []
-            for key in st.session_state.keys():
-                if key.startswith("file_p1_refine_") and key != "file_p1_refine":
-                    doc_reviews.append(st.session_state.get(key, ''))
-            
-            if doc_reviews:
-                refinement_text += f"\n\nSupporting Documents:\n" + "\n\n".join(doc_reviews)
-            
+        
+        # Collect all uploaded file URIs for Gemini context
+        file_uris = []
+        file_texts = []
+        for key in st.session_state.keys():
+            if key.startswith("file_p1_refine_") and "_name" not in key:
+                val = st.session_state.get(key, '')
+                if val:
+                    # Check if it's a file URI reference or extracted text
+                    if "(" in val and val.endswith(")"):
+                        # Extract URI from "File: name (uri)" format
+                        uri = val.split("(")[-1].rstrip(")")
+                        if uri.startswith("https://"):
+                            file_uris.append(uri)
+                    else:
+                        # It's extracted text content
+                        file_texts.append(val)
+        
+        # Build context from files
+        has_files = bool(file_uris or file_texts)
+        
+        if refinement_text or has_files:
             current = st.session_state.data['phase1']
+            
+            # Build prompt with file context
+            file_context = ""
+            if file_texts:
+                file_context = "\n\nContent from uploaded documents:\n" + "\n\n---\n\n".join(file_texts[:3])  # Limit to 3 docs
+            
+            user_input = refinement_text if refinement_text else "Use the uploaded documents to refine the pathway scope."
+            
             prompt = f"""
-            Update the following sections based on this user feedback: "{refinement_text}"
+            Update the following sections based on this user feedback: "{user_input}"
+            {file_context}
             Current Data JSON: {json.dumps({k: current[k] for k in ['inclusion','exclusion','problem','objectives']})}
+            
+            IMPORTANT: Use information from the uploaded documents to make the inclusion criteria, exclusion criteria, problem statement, and objectives more specific and evidence-based.
+            
             Return JSON with keys inclusion, exclusion, problem, objectives (use numbered lists where applicable).
             Do not use markdown formatting (no asterisks for bold). Use plain text only.
             """
-            with ai_activity("Applying refinements and auto-generating charter…"):
+            
+            # Build contents with file URIs if available
+            contents = None
+            if file_uris:
+                parts = [{"text": prompt}]
+                for uri in file_uris[:3]:  # Limit to 3 files
+                    parts.append({"file_data": {"file_uri": uri}})
+                contents = [{"parts": parts}]
+            
+            with ai_activity("Applying refinements from documents…"):
                 # Use native function calling for reliable structured output
                 result = get_gemini_response(
                     prompt, 
                     function_declaration=DEFINE_PATHWAY_SCOPE,
-                    thinking_budget=1024
+                    thinking_budget=1024,
+                    contents=contents
                 )
                 if isinstance(result, dict) and 'arguments' in result:
                     data = result['arguments']
                 elif isinstance(result, dict):
                     data = result
                 else:
-                    data = get_gemini_response(prompt, json_mode=True)
+                    data = get_gemini_response(prompt, json_mode=True, contents=contents)
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
