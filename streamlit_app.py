@@ -3693,8 +3693,9 @@ if "Scope" in phase:
         
         Format each list as a simple newline-separated text, NOT as a JSON array. Do not use markdown formatting (no asterisks, dashes for bullets). Use plain text only.
         """
-        with ai_activity("Generating pathway scope…"):
+        try:
             # Use native function calling for reliable structured output
+            # Note: No st.status() here - callbacks can't create UI elements
             result = get_gemini_response(
                 prompt, 
                 function_declaration=DEFINE_PATHWAY_SCOPE,
@@ -3707,11 +3708,15 @@ if "Scope" in phase:
                 data = result
             else:
                 data = get_gemini_response(prompt, json_mode=True)
-        if data and isinstance(data, dict):
-            st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
-            st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
-            st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
-            st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+            if data and isinstance(data, dict):
+                st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
+                st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
+                st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
+                st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
+        except Exception as e:
+            # Silently fail - user will see fields remain empty
+            # If they want to debug, they can use the Refine & Regenerate section
+            pass
 
     # 2) Sync helpers
     def sync_p1_widgets():
@@ -3725,7 +3730,7 @@ if "Scope" in phase:
     def sync_and_draft():
         # First sync widget values to session state
         sync_p1_widgets()
-        # Immediately trigger AI draft (no rerun needed - happens during callback execution)
+        # Immediately trigger AI draft
         trigger_p1_draft()
         # After draft completes, copy results back to widget keys so they display
         p1 = st.session_state.data['phase1']
@@ -3733,6 +3738,8 @@ if "Scope" in phase:
         st.session_state['p1_exc'] = p1.get('exclusion', '')
         st.session_state['p1_prob'] = p1.get('problem', '')
         st.session_state['p1_obj'] = p1.get('objectives', '')
+        # Trigger rerun so new values display immediately
+        st.rerun()
 
     # 3) Seed widget values
     p1 = st.session_state.data['phase1']
