@@ -971,7 +971,9 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
             os.unlink(tmp_path)
 
         review_text = review_document(uploaded.uri, context)
-        st.session_state[f"file_{phase_key}"] = f"File: {uploaded_file.name} ({uploaded.uri})"
+        # Store the URI directly for easy retrieval
+        st.session_state[f"file_{phase_key}"] = uploaded.uri
+        st.session_state[f"file_{phase_key}_info"] = f"File: {uploaded_file.name} ({uploaded.uri})"
         return {
             "review": review_text,
             "file_uri": uploaded.uri,
@@ -4006,7 +4008,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
                         st.rerun()
             
             # Show already uploaded files
-            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p1_refine_") and "_name" not in k and st.session_state.get(k))
+            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p1_refine_") and "_info" not in k and st.session_state.get(k))
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
@@ -4019,18 +4021,22 @@ Return clean JSON ONLY. No markdown, no explanation."""
         # Collect all uploaded file URIs for Gemini context
         file_uris = []
         file_texts = []
-        for key in st.session_state.keys():
-            if key.startswith("file_p1_refine_") and "_name" not in key:
+        
+        # Look for stored file URIs in session state
+        for key in list(st.session_state.keys()):
+            if key.startswith("file_p1_refine_") and "_info" not in key:
                 val = st.session_state.get(key, '')
                 if val:
-                    # Check if it's a file URI reference or extracted text
-                    if "(" in val and val.endswith(")"):
-                        # Extract URI from "File: name (uri)" format
+                    # Check if it's a direct URI (new format)
+                    if val.startswith("https://generativelanguage.googleapis.com"):
+                        file_uris.append(val)
+                    # Check if it's old format "File: name (uri)"
+                    elif "File:" in val and "(" in val and val.endswith(")"):
                         uri = val.split("(")[-1].rstrip(")")
                         if uri.startswith("https://"):
                             file_uris.append(uri)
-                    else:
-                        # It's extracted text content
+                    # Check if it's extracted text content (from DOCX)
+                    elif len(val) > 100:  # Assume long text is document content
                         file_texts.append(val)
         
         # Build context from files
@@ -4065,7 +4071,9 @@ Return clean JSON ONLY. No markdown, no explanation."""
                     parts.append({"file_data": {"file_uri": uri}})
                 contents = [{"parts": parts}]
             
-            with ai_activity("Applying refinements from documents…"):
+            # Dynamic activity message
+            activity_msg = f"Regenerating with {len(file_uris)} document(s)…" if file_uris else "Applying refinements…"
+            with ai_activity(activity_msg):
                 # Auto-retry for up to 60 seconds on rate limit
                 import time as time_module
                 max_attempts = 6  # 6 attempts * 10 seconds = 60 seconds max
@@ -5249,7 +5257,7 @@ elif "Decision" in phase or "Tree" in phase:
                         st.rerun()
             
             # Show already uploaded files
-            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p3_refine_") and "_name" not in k and st.session_state.get(k))
+            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p3_refine_") and "_info" not in k and st.session_state.get(k))
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
@@ -5262,15 +5270,20 @@ elif "Decision" in phase or "Tree" in phase:
         # Collect all uploaded file URIs for Gemini context
         file_uris = []
         file_texts = []
-        for key in st.session_state.keys():
-            if key.startswith("file_p3_refine_") and "_name" not in key:
+        for key in list(st.session_state.keys()):
+            if key.startswith("file_p3_refine_") and "_info" not in key:
                 val = st.session_state.get(key, '')
                 if val:
-                    if "(" in val and val.endswith(")"):
+                    # Check if it's a direct URI (new format)
+                    if val.startswith("https://generativelanguage.googleapis.com"):
+                        file_uris.append(val)
+                    # Check if it's old format "File: name (uri)"
+                    elif "File:" in val and "(" in val and val.endswith(")"):
                         uri = val.split("(")[-1].rstrip(")")
                         if uri.startswith("https://"):
                             file_uris.append(uri)
-                    else:
+                    # Check if it's extracted text content (from DOCX)
+                    elif len(val) > 100:  # Assume long text is document content
                         file_texts.append(val)
         
         has_files = bool(file_uris or file_texts)
@@ -5721,7 +5734,7 @@ EXAMPLE FORMAT:
                         st.rerun()
             
             # Show already uploaded files
-            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p4_refine_") and "_name" not in k and st.session_state.get(k))
+            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p4_refine_") and "_info" not in k and st.session_state.get(k))
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
@@ -5736,15 +5749,20 @@ EXAMPLE FORMAT:
             # Collect all uploaded file URIs for context
             file_uris = []
             file_texts = []
-            for key in st.session_state.keys():
-                if key.startswith("file_p4_refine_") and "_name" not in key:
+            for key in list(st.session_state.keys()):
+                if key.startswith("file_p4_refine_") and "_info" not in key:
                     val = st.session_state.get(key, '')
                     if val:
-                        if "(" in val and val.endswith(")"):
+                        # Check if it's a direct URI (new format)
+                        if val.startswith("https://generativelanguage.googleapis.com"):
+                            file_uris.append(val)
+                        # Check if it's old format "File: name (uri)"
+                        elif "File:" in val and "(" in val and val.endswith(")"):
                             uri = val.split("(")[-1].rstrip(")")
                             if uri.startswith("https://"):
                                 file_uris.append(uri)
-                        else:
+                        # Check if it's extracted text content (from DOCX)
+                        elif len(val) > 100:  # Assume long text is document content
                             file_texts.append(val)
             
             has_files = bool(file_uris or file_texts)
