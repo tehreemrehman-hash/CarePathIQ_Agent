@@ -5169,14 +5169,13 @@ elif "Decision" in phase or "Tree" in phase:
                     key="p3_file_upload",
                     accept_multiple_files=True,
                     label_visibility="collapsed",
-                    help="Attach PDFs/DOCX files; the agent auto-summarizes them for context."
+                    help="Attach PDFs/DOCX files to inform pathway refinement."
                 )
                 if p3_uploaded:
                     for uploaded_file in p3_uploaded:
                         file_result = upload_and_review_file(uploaded_file, f"p3_refine_{uploaded_file.name}", "decision tree pathway")
                         if file_result:
-                            with st.expander(f"Review: {file_result['filename']}", expanded=False):
-                                st.markdown(file_result["review"])
+                            st.success(f"✓ {file_result['filename']} uploaded")
 
             col1, col2 = st.columns([3, 1])
             with col2:
@@ -5184,15 +5183,29 @@ elif "Decision" in phase or "Tree" in phase:
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
-        if refinement_request:
-            # Collect all uploaded document reviews
-            doc_reviews = []
-            for key in st.session_state.keys():
-                if key.startswith("file_p3_refine_") and key != "file_p3_refine":
-                    doc_reviews.append(st.session_state.get(key, ''))
+        
+        # Collect all uploaded file URIs for Gemini context
+        file_uris = []
+        file_texts = []
+        for key in st.session_state.keys():
+            if key.startswith("file_p3_refine_") and "_name" not in key:
+                val = st.session_state.get(key, '')
+                if val:
+                    if "(" in val and val.endswith(")"):
+                        uri = val.split("(")[-1].rstrip(")")
+                        if uri.startswith("https://"):
+                            file_uris.append(uri)
+                    else:
+                        file_texts.append(val)
+        
+        has_files = bool(file_uris or file_texts)
+        
+        if refinement_request or has_files:
+            file_context = ""
+            if file_texts:
+                file_context = "\n\nContent from uploaded documents:\n" + "\n\n---\n\n".join(file_texts[:3])
             
-            if doc_reviews:
-                refinement_request += f"\n\nSupporting Documents:\n" + "\n\n".join(doc_reviews)
+            user_input = refinement_request if refinement_request else "Use the uploaded documents to refine the pathway."
             
             if st.session_state.data['phase3']['nodes']:
                 with ai_activity("Applying refinements to decision tree..."):
@@ -5206,8 +5219,9 @@ elif "Decision" in phase or "Tree" in phase:
 
                     Available Evidence:
                     {ev_context}
+                    {file_context}
 
-                    User's refinement request: "{refinement_request}"
+                    User's refinement request: "{user_input}"
 
                     Apply the requested changes while maintaining:
                     - CGT/Ad/it principles and Medical Decision Analysis best practices
@@ -5223,11 +5237,20 @@ elif "Decision" in phase or "Tree" in phase:
                     - NO node count limit - build complete clinical flow
                     - If >20 nodes, organize into sections or sub-pathways
                     """
+                    # Build contents with file URIs if available
+                    contents = None
+                    if file_uris:
+                        parts = [{"text": prompt}]
+                        for uri in file_uris[:3]:
+                            parts.append({"file_data": {"file_uri": uri}})
+                        contents = [{"parts": parts}]
+                    
                     # Use native function calling for reliable structured output
                     result = get_gemini_response(
                         prompt, 
                         function_declaration=GENERATE_PATHWAY_NODES,
-                        thinking_budget=2048  # Complex refinement needs reasoning
+                        thinking_budget=2048,
+                        contents=contents
                     )
                     # Extract nodes from function call or fall back
                     if isinstance(result, dict) and 'arguments' in result:
@@ -5607,15 +5630,15 @@ EXAMPLE FORMAT:
                 uploaded = st.file_uploader(
                     "Drag and drop file here",
                     key="p4_upload",
-                    accept_multiple_files=False,
+                    accept_multiple_files=True,
                     label_visibility="collapsed",
-                    help="Limit 200MB per file"
+                    help="Attach PDFs/DOCX files to inform refinements."
                 )
                 if uploaded:
-                    file_result = upload_and_review_file(uploaded, "p4_refine_file", "pathway")
-                    if file_result:
-                        with st.expander("File Review", expanded=False):
-                            st.markdown(file_result["review"])
+                    for uploaded_file in uploaded:
+                        file_result = upload_and_review_file(uploaded_file, f"p4_refine_{uploaded_file.name}", "pathway")
+                        if file_result:
+                            st.success(f"✓ {file_result['filename']} uploaded")
 
             col_form_gap, col_form_btn = st.columns([3, 1])
             with col_form_btn:
@@ -5624,10 +5647,33 @@ EXAMPLE FORMAT:
         apply_refine_clicked = st.button("Apply Refinements", key="p4_apply_refine", type="primary", use_container_width=True)
 
         if regen_submitted or apply_refine_clicked:
-            refine_with_file = st.session_state.get('p4_refine_notes', '').strip()
-            if refine_with_file:
-                if st.session_state.get("file_p4_refine_file"):
-                    refine_with_file += f"\n\n**Supporting Document:**\n{st.session_state.get('file_p4_refine_file')}"
+            refine_notes = st.session_state.get('p4_refine_notes', '').strip()
+            
+            # Collect all uploaded file URIs for context
+            file_uris = []
+            file_texts = []
+            for key in st.session_state.keys():
+                if key.startswith("file_p4_refine_") and "_name" not in key:
+                    val = st.session_state.get(key, '')
+                    if val:
+                        if "(" in val and val.endswith(")"):
+                            uri = val.split("(")[-1].rstrip(")")
+                            if uri.startswith("https://"):
+                                file_uris.append(uri)
+                        else:
+                            file_texts.append(val)
+            
+            has_files = bool(file_uris or file_texts)
+            
+            if refine_notes or has_files:
+                file_context = ""
+                if file_texts:
+                    file_context = "\n\nContent from uploaded documents:\n" + "\n\n---\n\n".join(file_texts[:3])
+                
+                refine_with_file = refine_notes if refine_notes else "Use the uploaded documents to refine the pathway."
+                if file_context:
+                    refine_with_file += file_context
+                    
                 with st.spinner("Applying refinements..."):
                     refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
                     if refined:
