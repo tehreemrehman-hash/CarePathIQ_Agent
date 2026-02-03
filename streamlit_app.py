@@ -3973,36 +3973,45 @@ Return clean JSON ONLY. No markdown, no explanation."""
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update all Phase 1 content and downloads")
+        st.markdown("**Tip:** Upload supporting documents first, then click Regenerate to update Phase 1 content.")
+        
+        col_text, col_file = columns_top([2, 1])
+        with col_text:
+            st.text_area(
+                "Refinement Notes (optional)",
+                key="p1_refine_input",
+                placeholder="Clarify inclusion criteria; tighten scope; align objectives",
+                height=90,
+                help="Describe what to change, or leave blank to use uploaded documents."
+            )
+
+        with col_file:
+            st.caption("Supporting Documents")
+            p1_uploaded = st.file_uploader(
+                "Drag & drop or browse",
+                key="p1_file_upload",
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+                help="PDFs and DOCX files supported. DOCX will be converted to markdown."
+            )
+            
+            # Separate Upload button
+            if p1_uploaded:
+                if st.button("Upload Files", key="p1_upload_btn", type="secondary"):
+                    with st.spinner("Converting and uploading files..."):
+                        for uploaded_file in p1_uploaded:
+                            file_result = upload_and_review_file(uploaded_file, f"p1_refine_{uploaded_file.name}", "clinical scope and charter")
+                            if file_result:
+                                st.success(f"✓ {file_result['filename']} ready")
+                        st.rerun()
+            
+            # Show already uploaded files
+            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p1_refine_") and "_name" not in k and st.session_state.get(k))
+            if uploaded_count > 0:
+                st.caption(f"{uploaded_count} file(s) ready for regeneration")
+        
         with st.form("p1_refine_form"):
-            col_text, col_file = columns_top([2, 1])
-            with col_text:
-                st.text_area(
-                    "Refinement Notes",
-                    key="p1_refine_input",
-                    placeholder="Clarify inclusion criteria; tighten scope; align objectives",
-                    height=90,
-                    help="Describe what to change. After applying, click Generate Project Charter above again."
-                )
-
-            with col_file:
-                st.caption("Supporting Documents (optional)")
-                p1_uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p1_file_upload",
-                    accept_multiple_files=True,
-                    label_visibility="collapsed",
-                    help="Attach PDFs/DOCX files to inform pathway scope generation."
-                )
-                if p1_uploaded:
-                    for uploaded_file in p1_uploaded:
-                        file_result = upload_and_review_file(uploaded_file, f"p1_refine_{uploaded_file.name}", "clinical scope and charter")
-                        if file_result:
-                            st.success(f"✓ {file_result['filename']} uploaded")
-
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -4057,22 +4066,40 @@ Return clean JSON ONLY. No markdown, no explanation."""
                 contents = [{"parts": parts}]
             
             with ai_activity("Applying refinements from documents…"):
-                # Use native function calling for reliable structured output
-                try:
-                    result = get_gemini_response(
-                        prompt, 
-                        function_declaration=DEFINE_PATHWAY_SCOPE,
-                        thinking_budget=1024,
-                        contents=contents
-                    )
-                    if isinstance(result, dict) and 'arguments' in result:
-                        data = result['arguments']
-                    elif isinstance(result, dict):
-                        data = result
-                    else:
-                        data = get_gemini_response(prompt, json_mode=True, contents=contents)
-                except Exception as e:
-                    data = None
+                # Auto-retry for up to 60 seconds on rate limit
+                import time as time_module
+                max_attempts = 6  # 6 attempts * 10 seconds = 60 seconds max
+                data = None
+                
+                for attempt in range(max_attempts):
+                    try:
+                        result = get_gemini_response(
+                            prompt, 
+                            function_declaration=DEFINE_PATHWAY_SCOPE,
+                            thinking_budget=1024,
+                            contents=contents
+                        )
+                        if isinstance(result, dict) and 'arguments' in result:
+                            data = result['arguments']
+                            break
+                        elif isinstance(result, dict):
+                            data = result
+                            break
+                        else:
+                            # Try json_mode fallback
+                            data = get_gemini_response(prompt, json_mode=True, contents=contents)
+                            if data:
+                                break
+                    except Exception as e:
+                        pass
+                    
+                    # Check if we should retry
+                    last_err = st.session_state.get('_last_api_error', '')
+                    if '429' in last_err or 'quota' in last_err.lower() or 'RESOURCE_EXHAUSTED' in last_err:
+                        if attempt < max_attempts - 1:
+                            time_module.sleep(10)  # Wait 10 seconds before retry
+                            continue
+                    break  # Don't retry for non-rate-limit errors
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
@@ -5189,36 +5216,45 @@ elif "Decision" in phase or "Tree" in phase:
     st.divider()
     submitted = False
     with st.expander("Refine & Regenerate", expanded=False):
-        st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update all Phase 3 content and downloads")
+        st.markdown("**Tip:** Upload supporting documents first, then click Regenerate to update the pathway.")
+        
+        col_text, col_file = columns_top([2, 1])
+        with col_text:
+            st.text_area(
+                "Refinement Notes (optional)",
+                key="p3_refine_input",
+                placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
+                height=90,
+                help="Describe what to change, or leave blank to use uploaded documents."
+            )
+
+        with col_file:
+            st.caption("Supporting Documents")
+            p3_uploaded = st.file_uploader(
+                "Drag & drop or browse",
+                key="p3_file_upload",
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+                help="PDFs and DOCX files supported. DOCX will be converted to markdown."
+            )
+            
+            # Separate Upload button
+            if p3_uploaded:
+                if st.button("Upload Files", key="p3_upload_btn", type="secondary"):
+                    with st.spinner("Converting and uploading files..."):
+                        for uploaded_file in p3_uploaded:
+                            file_result = upload_and_review_file(uploaded_file, f"p3_refine_{uploaded_file.name}", "decision tree pathway")
+                            if file_result:
+                                st.success(f"✓ {file_result['filename']} ready")
+                        st.rerun()
+            
+            # Show already uploaded files
+            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p3_refine_") and "_name" not in k and st.session_state.get(k))
+            if uploaded_count > 0:
+                st.caption(f"{uploaded_count} file(s) ready for regeneration")
+        
         with st.form("p3_refine_form"):
-            col_text, col_file = columns_top([2, 1])
-            with col_text:
-                st.text_area(
-                    "Refinement Notes",
-                    key="p3_refine_input",
-                    placeholder="Add branch for renal impairment; include discharge meds for heart failure; clarify follow‑up",
-                    height=90,
-                    help="Describe what to change. After applying, the pathway will regenerate above."
-                )
-
-            with col_file:
-                st.caption("Supporting Documents (optional)")
-                p3_uploaded = st.file_uploader(
-                    "Drag & drop or browse",
-                    key="p3_file_upload",
-                    accept_multiple_files=True,
-                    label_visibility="collapsed",
-                    help="Attach PDFs/DOCX files to inform pathway refinement."
-                )
-                if p3_uploaded:
-                    for uploaded_file in p3_uploaded:
-                        file_result = upload_and_review_file(uploaded_file, f"p3_refine_{uploaded_file.name}", "decision tree pathway")
-                        if file_result:
-                            st.success(f"✓ {file_result['filename']} uploaded")
-
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -5651,37 +5687,46 @@ EXAMPLE FORMAT:
 
     # ========== 4. REFINE AND REGENERATE ==========
     with st.expander("Refine & Regenerate", expanded=False):
-        st.markdown("**Tip:** Describe any desired modifications and optionally attach supporting documents. Click \"Regenerate\" to automatically update Phase 4 content and downloads.")
+        st.markdown("**Tip:** Upload supporting documents first, then click Regenerate to update the pathway.")
         regen_submitted = False
+        
+        col_text, col_file = columns_top([2, 1])
+        with col_text:
+            refine_notes = st.text_area(
+                "Refinement Notes (optional)",
+                placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
+                key="p4_refine_notes",
+                height=90,
+                label_visibility="visible"
+            )
+
+        with col_file:
+            st.caption("Supporting Documents")
+            uploaded = st.file_uploader(
+                "Drag and drop file here",
+                key="p4_upload",
+                accept_multiple_files=True,
+                label_visibility="collapsed",
+                help="PDFs and DOCX files supported. DOCX will be converted to markdown."
+            )
+            
+            # Separate Upload button
+            if uploaded:
+                if st.button("Upload Files", key="p4_upload_btn", type="secondary"):
+                    with st.spinner("Converting and uploading files..."):
+                        for uploaded_file in uploaded:
+                            file_result = upload_and_review_file(uploaded_file, f"p4_refine_{uploaded_file.name}", "pathway")
+                            if file_result:
+                                st.success(f"✓ {file_result['filename']} ready")
+                        st.rerun()
+            
+            # Show already uploaded files
+            uploaded_count = sum(1 for k in st.session_state.keys() if k.startswith("file_p4_refine_") and "_name" not in k and st.session_state.get(k))
+            if uploaded_count > 0:
+                st.caption(f"{uploaded_count} file(s) ready for regeneration")
+        
         with st.form("p4_refine_form"):
-            col_text, col_file = columns_top([2, 1])
-            with col_text:
-                refine_notes = st.text_area(
-                    "Refinement Notes",
-                    placeholder="Consolidate redundant steps; add alerts for critical values; use patient-friendly terms",
-                    key="p4_refine_notes",
-                    height=90,
-                    label_visibility="visible"
-                )
-
-            with col_file:
-                st.caption("Supporting Documents (optional)")
-                uploaded = st.file_uploader(
-                    "Drag and drop file here",
-                    key="p4_upload",
-                    accept_multiple_files=True,
-                    label_visibility="collapsed",
-                    help="Attach PDFs/DOCX files to inform refinements."
-                )
-                if uploaded:
-                    for uploaded_file in uploaded:
-                        file_result = upload_and_review_file(uploaded_file, f"p4_refine_{uploaded_file.name}", "pathway")
-                        if file_result:
-                            st.success(f"✓ {file_result['filename']} uploaded")
-
-            col_form_gap, col_form_btn = st.columns([3, 1])
-            with col_form_btn:
-                regen_submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+            regen_submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
 
         apply_refine_clicked = st.button("Apply Refinements", key="p4_apply_refine", type="primary", use_container_width=True)
 
