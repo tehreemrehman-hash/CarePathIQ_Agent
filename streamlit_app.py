@@ -914,12 +914,11 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
         from io import BytesIO
         file_obj = BytesIO(file_bytes)
         uploaded = client.files.upload(
-            file=(uploaded_file.name, file_obj, mime_type),
-            display_name=uploaded_file.name,
+            file=(uploaded_file.name, file_obj, mime_type)
         )
 
         review_text = review_document(uploaded.uri, context)
-        st.session_state[f"file_{phase_key}"] = f"File: {uploaded.display_name} ({uploaded.uri})"
+        st.session_state[f"file_{phase_key}"] = f"File: {uploaded_file.name} ({uploaded.uri})"
         return {
             "review": review_text,
             "file_uri": uploaded.uri,
@@ -4941,8 +4940,7 @@ elif "Decision" in phase or "Tree" in phase:
                         from phase5_helpers import extract_pathway_from_pdf
                         file_obj = BytesIO(file_bytes)
                         uploaded = get_genai_client().files.upload(
-                            file=(pdf_upload.name, file_obj, 'application/pdf'),
-                            display_name=pdf_upload.name
+                            file=(pdf_upload.name, file_obj, 'application/pdf')
                         )
                         
                         # Extract with progress
