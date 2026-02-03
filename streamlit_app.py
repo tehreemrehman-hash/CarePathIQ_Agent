@@ -922,7 +922,7 @@ def upload_and_review_file(uploaded_file, phase_key: str, context: str = ""):
         return {
             "review": review_text,
             "file_uri": uploaded.uri,
-            "filename": uploaded.display_name,
+            "filename": uploaded_file.name,
         }
     except Exception as e:
         st.error(f"File upload failed: {e}")
