@@ -3805,13 +3805,23 @@ if "Scope" in phase:
 
     # 5) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
-    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting; the agent generates the rest automatically.")
+    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting, then click <b>Generate Scope</b> to auto-fill the rest.")
 
     col1, col2 = columns_top(2)
     with col1:
         st.subheader("1. Clinical Focus")
-        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_and_request_draft)
-        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_and_request_draft)
+        st.text_input("Clinical Condition", placeholder="e.g., Chest Pain", key="p1_cond_input", on_change=sync_p1_widgets)
+        st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
+        
+        # Generate button - only triggers AI when clicked
+        if st.button("🔄 Generate Scope", key="p1_generate_btn", type="primary", use_container_width=True):
+            c = st.session_state.get('p1_cond_input', '').strip()
+            s = st.session_state.get('p1_setting', '').strip()
+            if c and s:
+                st.session_state['p1_needs_draft'] = True
+                st.rerun()
+            else:
+                st.warning("Please enter both Clinical Condition and Care Setting first.")
 
         st.subheader("2. Target Population")
         st.text_area("Inclusion Criteria", key="p1_inc", height=compute_textarea_height(st.session_state.get('p1_inc',''), 14), on_change=sync_p1_widgets)
