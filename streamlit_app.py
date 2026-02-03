@@ -3805,7 +3805,7 @@ if "Scope" in phase:
 
     # 5) UI: Inputs
     st.header(f"Phase 1. {PHASES[0]}")
-    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting, then click <b>Generate Scope</b> to auto-fill the rest.")
+    styled_info("<b>Tip:</b> Enter Clinical Condition and Care Setting, then generate the pathway scope. The AI agent will auto-fill inclusion/exclusion criteria, problem statement, and objectives.")
 
     col1, col2 = columns_top(2)
     with col1:
@@ -3814,7 +3814,7 @@ if "Scope" in phase:
         st.text_input("Care Setting", placeholder="e.g., Emergency Department", key="p1_setting", on_change=sync_p1_widgets)
         
         # Generate button - only triggers AI when clicked
-        if st.button("🔄 Generate Scope", key="p1_generate_btn", type="primary", use_container_width=True):
+        if st.button("Generate Scope", key="p1_generate_btn", type="secondary"):
             c = st.session_state.get('p1_cond_input', '').strip()
             s = st.session_state.get('p1_setting', '').strip()
             if c and s:
