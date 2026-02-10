@@ -1448,13 +1448,22 @@ def create_word_docx(data):
 
         doc.add_heading('How will we know that a change is an improvement?', level=1)
         doc.add_heading('Outcome Measure(s)', level=2)
-        for m in ihi.get('outcome_measures', []): doc.add_paragraph(m, style='List Bullet')
+        outcome_measures = ihi.get('outcome_measures', [])
+        if isinstance(outcome_measures, str):
+            outcome_measures = [line.strip() for line in outcome_measures.split('\n') if line.strip()]
+        for m in outcome_measures: doc.add_paragraph(m, style='List Bullet')
         
         doc.add_heading('Process Measure(s)', level=2)
-        for m in ihi.get('process_measures', []): doc.add_paragraph(m, style='List Bullet')
+        process_measures = ihi.get('process_measures', [])
+        if isinstance(process_measures, str):
+            process_measures = [line.strip() for line in process_measures.split('\n') if line.strip()]
+        for m in process_measures: doc.add_paragraph(m, style='List Bullet')
         
         doc.add_heading('Balancing Measure(s)', level=2)
-        for m in ihi.get('balancing_measures', []): doc.add_paragraph(m, style='List Bullet')
+        balancing_measures = ihi.get('balancing_measures', [])
+        if isinstance(balancing_measures, str):
+            balancing_measures = [line.strip() for line in balancing_measures.split('\n') if line.strip()]
+        for m in balancing_measures: doc.add_paragraph(m, style='List Bullet')
 
         doc.add_heading('What changes can we make?', level=1)
         doc.add_heading('Initial Activities', level=2)
@@ -1544,9 +1553,9 @@ Return JSON with keys:
 - rationale (string)
 - expected_outcomes (string)
 - aim_statement (string)
-- outcome_measures (string)
-- process_measures (string)
-- balancing_measures (string)
+- outcome_measures (array of strings)
+- process_measures (array of strings)
+- balancing_measures (array of strings)
 - initial_activities (string)
 - change_ideas (array of strings)
 - stakeholders (string)

@@ -158,16 +158,19 @@ CREATE_IHI_CHARTER = types.FunctionDeclaration(
                 "description": "SMART aim statement: Specific, Measurable, Achievable, Relevant, Time-bound"
             },
             "outcome_measures": {
-                "type": "string",
-                "description": "Primary and secondary outcome measures"
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Primary and secondary outcome measures (list of strings)"
             },
             "process_measures": {
-                "type": "string",
-                "description": "Process measures to track implementation"
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Process measures to track implementation (list of strings)"
             },
             "balancing_measures": {
-                "type": "string",
-                "description": "Measures to detect unintended consequences"
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Measures to detect unintended consequences (list of strings)"
             },
             "initial_activities": {
                 "type": "string",
