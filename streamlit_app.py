@@ -5050,6 +5050,10 @@ elif "Decision" in phase or "Tree" in phase:
                         e["source"] = "enriched_from_phase3"
                 st.session_state.data['phase2']['evidence'].extend(new_evidence_list)
                 enriched_count = len(new_evidence_list)
+                # Clear Phase 2 widget cache so table refreshes with new data
+                for wkey in ['ev_editor', 'grade_filter_multiselect', 'p2_show_new_only']:
+                    if wkey in st.session_state:
+                        del st.session_state[wkey]
         # Update tracking to prevent re-enrichment of same PMIDs
         st.session_state['p3_last_enriched_pmids'] = new_pmids_in_phase3.copy()
     
