@@ -541,9 +541,26 @@ def extract_function_call_result(response):
             continue
         for part in candidate.content.parts:
             if hasattr(part, 'function_call') and part.function_call:
+                # Robustly convert args to a plain Python dict
+                raw_args = part.function_call.args
+                if raw_args is None:
+                    args = {}
+                elif isinstance(raw_args, dict):
+                    args = dict(raw_args)
+                else:
+                    # Handle protobuf Struct / proto-plus MapComposite types
+                    try:
+                        import json as _json
+                        # proto-plus to_json → parse back to native dict
+                        args = _json.loads(type(raw_args).to_json(raw_args))
+                    except Exception:
+                        try:
+                            args = dict(raw_args)
+                        except Exception:
+                            args = {}
                 return {
                     "function_name": part.function_call.name,
-                    "arguments": dict(part.function_call.args) if part.function_call.args else {}
+                    "arguments": args
                 }
     
     return None

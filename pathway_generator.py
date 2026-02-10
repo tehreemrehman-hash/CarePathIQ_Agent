@@ -441,14 +441,26 @@ class PathwayGenerator:
         
         lines = ["graph TD"]
         
+        # Collect note references
+        notes_list = []
+        notes_node_map = {}
+        note_counter = 1
+        for i, node in enumerate(nodes):
+            notes_text = node.get('notes', '') or node.get('detail', '')
+            if notes_text and str(notes_text).strip():
+                notes_list.append((note_counter, str(notes_text).strip()))
+                notes_node_map[i] = note_counter
+                note_counter += 1
+        
         if include_styling:
             lines.extend([
                 "",
                 "    %% Styling",
-                "    classDef startEnd fill:#d4edda,stroke:#28a745,color:black",
-                "    classDef decision fill:#f8d7da,stroke:#dc3545,color:black",
-                "    classDef process fill:#fff3cd,stroke:#ffc107,color:black",
-                "    classDef critical fill:#f5c6cb,stroke:#721c24,color:black",
+                "    classDef startEnd fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724,font-weight:bold",
+                "    classDef decision fill:#f8d7da,stroke:#dc3545,stroke-width:2px,color:#721c24,font-weight:bold",
+                "    classDef process fill:#fff3cd,stroke:#ffc107,stroke-width:1px,color:#856404",
+                "    classDef reeval fill:#ffe0b2,stroke:#e65100,stroke-width:2px,color:#bf360c",
+                "    classDef noteBox fill:#bbdefb,stroke:#1565c0,stroke-width:1px,color:#0d47a1,font-size:11px",
                 ""
             ])
         
@@ -457,11 +469,16 @@ class PathwayGenerator:
         decision_nodes = []
         process_nodes = []
         end_nodes = []
+        reeval_nodes = []
         
         for i, node in enumerate(nodes):
             node_id = f"N{i}"
             node_type = node.get("type", "Process")
             label = self._escape_mermaid_label(node.get("label", f"Step {i}"))
+            
+            # Add note reference to label
+            if i in notes_node_map:
+                label = f"{label} &#91;Note {notes_node_map[i]}&#93;"
             
             # Determine shape based on type
             if node_type == "Start":
@@ -473,6 +490,9 @@ class PathwayGenerator:
             elif node_type == "Decision":
                 lines.append(f'    {node_id}{{"{label}"}}')
                 decision_nodes.append(node_id)
+            elif node_type == "Reevaluation":
+                lines.append(f'    {node_id}[/"{label}"\\]')
+                reeval_nodes.append(node_id)
             else:  # Process
                 lines.append(f'    {node_id}["{label}"]')
                 process_nodes.append(node_id)
@@ -487,9 +507,9 @@ class PathwayGenerator:
             if node_type == "Decision" and node.get("branches"):
                 for branch in node.get("branches", []):
                     target = branch.get("target")
-                    label = branch.get("label", "")
-                    if isinstance(target, int) and 0 <= target < len(nodes):
-                        dst = f"N{target}"
+                    label = self._escape_mermaid_label(branch.get("label", ""), max_length=35)
+                    if isinstance(target, (int, float)) and 0 <= int(target) < len(nodes):
+                        dst = f"N{int(target)}"
                         if label:
                             lines.append(f'    {src} -->|"{label}"| {dst}')
                         else:
@@ -499,13 +519,27 @@ class PathwayGenerator:
             else:
                 # Check for explicit target
                 target = node.get("target")
-                if target is not None and isinstance(target, int) and 0 <= target < len(nodes):
-                    dst = f"N{target}"
+                if target is not None and isinstance(target, (int, float)) and 0 <= int(target) < len(nodes):
+                    dst = f"N{int(target)}"
                     lines.append(f'    {src} --> {dst}')
                 elif i + 1 < len(nodes):
                     # Default: connect to next node
                     dst = f"N{i + 1}"
                     lines.append(f'    {src} --> {dst}')
+        
+        # Add notes legend as a separate subgraph
+        if notes_list:
+            lines.append("")
+            lines.append("    subgraph Notes Legend")
+            lines.append("    direction TB")
+            for note_num, note_text in notes_list:
+                escaped_note = self._escape_mermaid_label(note_text, max_length=80)
+                note_id = f"NOTE{note_num}"
+                lines.append(f'    {note_id}["{note_num}. {escaped_note}"]')
+            lines.append("    end")
+            # Style note nodes
+            note_ids = [f"NOTE{n}" for n, _ in notes_list]
+            lines.append(f"    class {','.join(note_ids)} noteBox")
         
         # Apply styling classes
         if include_styling:
@@ -516,15 +550,24 @@ class PathwayGenerator:
                 lines.append(f"    class {','.join(decision_nodes)} decision")
             if process_nodes:
                 lines.append(f"    class {','.join(process_nodes)} process")
+            if reeval_nodes:
+                lines.append(f"    class {','.join(reeval_nodes)} reeval")
         
         return "\n".join(lines)
     
     def _escape_mermaid_label(self, text: str, max_length: int = 60) -> str:
-        """Escape and truncate label for Mermaid compatibility"""
+        """Escape and truncate label for Mermaid compatibility.
+        
+        Mermaid is sensitive to: quotes, parentheses, brackets, angle brackets,
+        curly braces, pipe characters, and hash symbols in labels.
+        """
         if not text:
             return "Step"
-        # Replace problematic characters
+        # Replace problematic characters for Mermaid
         text = str(text).replace('"', "'").replace('\n', ' ').replace('\\n', ' ')
+        # Characters that break Mermaid syntax when inside quoted labels
+        text = text.replace('#', '&#35;')
+        text = text.replace('&', '&#38;')
         # Collapse whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         # Truncate if too long

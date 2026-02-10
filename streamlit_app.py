@@ -1764,12 +1764,27 @@ VALIDATION CHECKLIST BEFORE RETURNING:
         thinking_budget=2048  # Complex heuristics application
     )
     # Extract from function call or fall back
+    response = None
     if isinstance(result, dict) and 'arguments' in result:
         response = result['arguments']
     elif isinstance(result, dict) and 'updated_nodes' in result:
         response = result
-    else:
-        response = get_gemini_response(prompt, json_mode=True)
+    elif isinstance(result, str) and result.strip():
+        # Model returned text instead of function call — try to parse JSON
+        try:
+            cleaned = result.replace('```json', '').replace('```', '').strip()
+            match = re.search(r'(\{[\s\S]*\})', cleaned)
+            if match:
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, dict) and 'updated_nodes' in parsed:
+                    response = parsed
+        except (json.JSONDecodeError, Exception):
+            pass
+    # If still no result, fallback to json_mode (separate API call)
+    if not response or not isinstance(response, dict) or 'updated_nodes' not in response:
+        fallback = get_gemini_response(prompt, json_mode=True)
+        if isinstance(fallback, dict) and 'updated_nodes' in fallback:
+            response = fallback
     
     if response and isinstance(response, dict):
         updated_nodes = response.get("updated_nodes")
@@ -2356,25 +2371,155 @@ def validate_decision_science_pathway(nodes_list):
         ]) / 6
     }
 
+def render_mermaid_inline(mermaid_code, height=600, key="mermaid_chart"):
+    """
+    Render a Mermaid diagram inline in Streamlit using Mermaid.js CDN.
+    Uses st.components.v1.html for zero-dependency client-side rendering.
+    
+    Args:
+        mermaid_code: Valid Mermaid diagram source code
+        height: Pixel height of the rendered diagram container
+        key: Unique key for the Streamlit component
+    """
+    import streamlit.components.v1 as components
+    
+    # Escape backticks and backslashes for safe JS embedding
+    safe_code = mermaid_code.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+        <style>
+            body {{
+                margin: 0;
+                padding: 8px;
+                background: white;
+                display: flex;
+                justify-content: center;
+                overflow: auto;
+            }}
+            #mermaid-container {{
+                width: 100%;
+                text-align: center;
+            }}
+            .mermaid {{
+                display: inline-block;
+                text-align: left;
+            }}
+            .mermaid svg {{
+                max-width: 100%;
+                height: auto;
+            }}
+            /* Custom node styling for clinical pathways */
+            .node rect, .node polygon, .node circle, .node ellipse {{
+                rx: 5px;
+                ry: 5px;
+            }}
+            .edgeLabel {{
+                font-size: 12px !important;
+                background: white !important;
+                padding: 2px 4px !important;
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="mermaid-container">
+            <div class="mermaid">
+{mermaid_code}
+            </div>
+        </div>
+        <script>
+            mermaid.initialize({{
+                startOnLoad: true,
+                theme: 'base',
+                themeVariables: {{
+                    primaryColor: '#fff3cd',
+                    primaryBorderColor: '#ffc107',
+                    primaryTextColor: '#333',
+                    lineColor: '#5D4037',
+                    secondaryColor: '#f8d7da',
+                    tertiaryColor: '#d4edda',
+                    fontSize: '14px',
+                    fontFamily: 'Segoe UI, Helvetica, Arial, sans-serif'
+                }},
+                flowchart: {{
+                    curve: 'basis',
+                    padding: 20,
+                    nodeSpacing: 50,
+                    rankSpacing: 60,
+                    htmlLabels: true,
+                    useMaxWidth: true
+                }},
+                securityLevel: 'loose'
+            }});
+        </script>
+    </body>
+    </html>
+    """
+    components.html(html, height=height, scrolling=True)
+
 def generate_mermaid_code(nodes, orientation="TD"):
     """
     Generate Mermaid flowchart code from pathway nodes.
-    Uses pathway_generator module if available, otherwise falls back to DOT.
+    Uses pathway_generator module if available, otherwise builds inline.
     
     Args:
         nodes: List of pathway node dictionaries
         orientation: "TD" (top-down) or "LR" (left-right)
     
     Returns:
-        Mermaid diagram source code (or DOT code as fallback)
+        Mermaid diagram source code string
     """
     if PATHWAY_GENERATOR_AVAILABLE:
         try:
             return create_mermaid_from_nodes(nodes, include_styling=True)
         except Exception as e:
             debug_log(f"Mermaid generation error: {e}")
-            return dot_from_nodes(nodes, orientation)
-    return dot_from_nodes(nodes, orientation)
+    
+    # Inline fallback — produce valid Mermaid without pathway_generator
+    if not nodes:
+        return "graph TD\n    NoNodes[No pathway nodes defined]"
+    
+    valid_nodes = harden_nodes(nodes)
+    lines = [f"graph {orientation}"]
+    
+    for i, n in enumerate(valid_nodes):
+        nid = f"N{i}"
+        label = str(n.get('label', f'Step {i}')).replace('"', "'").replace('\n', ' ')
+        ntype = n.get('type', 'Process')
+        if ntype in ('Start', 'End'):
+            lines.append(f'    {nid}(["{label}"])')
+        elif ntype == 'Decision':
+            lines.append(f'    {nid}{{"{label}"}}')
+        else:
+            lines.append(f'    {nid}["{label}"]')
+    
+    lines.append("")
+    for i, n in enumerate(valid_nodes):
+        src = f"N{i}"
+        ntype = n.get('type', 'Process')
+        if ntype == 'Decision' and n.get('branches'):
+            for b in n.get('branches', []):
+                t = b.get('target')
+                lbl = str(b.get('label', '')).replace('"', "'")
+                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
+                    dst = f"N{int(t)}"
+                    if lbl:
+                        lines.append(f'    {src} -->|"{lbl}"| {dst}')
+                    else:
+                        lines.append(f'    {src} --> {dst}')
+        elif ntype == 'End':
+            pass
+        else:
+            target = n.get('target')
+            if target is not None and isinstance(target, (int, float)) and 0 <= int(target) < len(valid_nodes):
+                lines.append(f'    {src} --> N{int(target)}')
+            elif i + 1 < len(valid_nodes):
+                lines.append(f'    {src} --> N{i + 1}')
+    
+    return "\n".join(lines)
 
 # --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
 def _escape_label(text: str) -> str:
@@ -5333,14 +5478,28 @@ EXAMPLE FORMAT:
                 function_declaration=ANALYZE_HEURISTICS,
                 thinking_budget=1024
             )
-            # Extract heuristics from function call or fall back
+            # Extract heuristics - handle all possible return formats
+            res = None
             if isinstance(result, dict) and 'arguments' in result:
                 res = result['arguments']
             elif isinstance(result, dict) and 'H1' in result:
                 res = result
-            else:
-                # Fallback to json_mode
-                res = get_gemini_response(prompt, json_mode=True)
+            elif isinstance(result, str) and result.strip():
+                # Model returned text instead of function call — try to parse JSON
+                try:
+                    cleaned = result.replace('```json', '').replace('```', '').strip()
+                    match = re.search(r'\{[\s\S]*\}', cleaned)
+                    if match:
+                        parsed = json.loads(match.group(0))
+                        if isinstance(parsed, dict) and 'H1' in parsed:
+                            res = parsed
+                except (json.JSONDecodeError, Exception):
+                    pass
+            # If still no result, fallback to json_mode (separate API call)
+            if not res or not isinstance(res, dict) or 'H1' not in res:
+                fallback = get_gemini_response(prompt, json_mode=True)
+                if isinstance(fallback, dict) and 'H1' in fallback:
+                    res = fallback
             if res and isinstance(res, dict) and len(res) >= 10:
                 p4_state['heuristics_data'] = res
                 p4_state['auto_heuristics_done'] = True
@@ -5366,37 +5525,25 @@ EXAMPLE FORMAT:
     cache = p4_state.setdefault('viz_cache', {})
     sig = hashlib.md5(json.dumps(nodes_for_viz, sort_keys=True).encode('utf-8')).hexdigest()
 
-    # FULLSCREEN-ONLY VISUALIZATION + RIGHT-SIDE HEURISTICS LAYOUT
-    # Build or retrieve SVG for visualization (no inline preview)
+    # Generate Mermaid code (primary visualization)
+    mermaid_code = cache.get(sig, {}).get("mermaid")
+    if mermaid_code is None or p4_state.get('applied_status'):
+        mermaid_code = generate_mermaid_code(nodes_for_viz, "TD")
+        cache_entry = cache.get(sig, {})
+        cache_entry["mermaid"] = mermaid_code
+        cache[sig] = cache_entry
+
+    # Also generate SVG for download if graphviz is available
     svg_bytes = cache.get(sig, {}).get("svg")
-    
-    # Always regenerate SVG fresh to ensure downloads work after heuristics are applied
-    # The cache can sometimes get stale after rerun
     if svg_bytes is None or p4_state.get('applied_status'):
         g = build_graphviz_from_nodes(nodes_for_viz, "TD")
         if g:
             new_svg = render_graphviz_bytes(g, "svg")
             if new_svg:
-                cache[sig] = {"svg": new_svg}
+                cache[sig]["svg"] = new_svg
                 svg_bytes = new_svg
-                debug_log(f"SVG regenerated: {len(new_svg)} bytes")
-            else:
-                debug_log("render_graphviz_bytes returned None - graphviz may not be rendering")
-        else:
-            debug_log(f"build_graphviz_from_nodes returned None. graphviz module: {graphviz}")
+
     p4_state['viz_cache'] = {sig: cache.get(sig, {})}
-
-    import base64
-    svg_b64 = base64.b64encode(svg_bytes or b"").decode('utf-8') if svg_bytes else ""
-    
-    # Also decode SVG to string for direct embedding
-    svg_str = svg_bytes.decode('utf-8') if svg_bytes else ""
-
-    # Always prepare DOT source as a client-side fallback via Viz.js
-    dot_src = dot_from_nodes(nodes_for_viz, "TD")
-
-    # DEBUG: Log SVG generation status
-    debug_log(f"SVG generation - graphviz: {graphviz is not None}, svg_bytes: {svg_bytes is not None}, svg_b64 len: {len(svg_b64)}, svg_str len: {len(svg_str)}")
 
     # SINGLE COLUMN LAYOUT for better UX flow
     # Order: Pathway Visualization → Nielsen Heuristics → Edit Pathway Data → Refine & Regenerate
@@ -5404,11 +5551,47 @@ EXAMPLE FORMAT:
     # ========== 1. PATHWAY VISUALIZATION ==========
     st.subheader("Pathway Visualization")
     
-    if svg_bytes:
-        st.download_button("📊 Download SVG", svg_bytes, file_name="pathway.svg", mime="image/svg+xml", help="High-quality vector graphic for presentations and email", use_container_width=False)
+    if mermaid_code:
+        # Calculate dynamic height based on node count
+        node_count = len(nodes_for_viz)
+        chart_height = max(400, min(1200, node_count * 80 + 200))
+        render_mermaid_inline(mermaid_code, height=chart_height, key=f"p4_mermaid_{sig[:8]}")
+        
+        # Download options
+        dl_col1, dl_col2, dl_col3 = st.columns(3)
+        with dl_col1:
+            st.download_button(
+                "📄 Download Mermaid Code",
+                mermaid_code,
+                file_name="pathway.mmd",
+                mime="text/plain",
+                help="Paste into mermaid.live, GitHub, Notion, or any Mermaid-compatible tool",
+                use_container_width=True
+            )
+        with dl_col2:
+            if svg_bytes:
+                st.download_button(
+                    "📊 Download SVG",
+                    svg_bytes,
+                    file_name="pathway.svg",
+                    mime="image/svg+xml",
+                    help="High-quality vector graphic for presentations and email",
+                    use_container_width=True
+                )
+        with dl_col3:
+            # Mermaid.live link
+            import base64 as _b64
+            mermaid_live_state = json.dumps({"code": mermaid_code, "mermaid": {"theme": "default"}})
+            mermaid_b64 = _b64.urlsafe_b64encode(mermaid_live_state.encode()).decode()
+            st.link_button(
+                "🔗 Open in Mermaid Live",
+                f"https://mermaid.live/edit#base64:{mermaid_b64}",
+                help="Edit and export in the Mermaid Live Editor",
+                use_container_width=True
+            )
         st.caption("💡 Re-download after applying heuristics to get the updated pathway.")
     else:
-        st.warning("SVG unavailable. Install Graphviz on the server and retry.")
+        st.warning("Could not generate visualization. Check pathway nodes in Phase 3.")
 
     st.divider()
 
@@ -5563,7 +5746,7 @@ EXAMPLE FORMAT:
         regen_disabled = not manual_changed and not st.session_state.data['phase3'].get('nodes')
         if st.button("Regenerate Visualization & Downloads", key="p4_manual_regen", disabled=regen_disabled):
             p4_state['viz_cache'] = {}
-            st.success("Visualization regenerated with latest edits. Open fullscreen or download updated SVG.")
+            st.success("Visualization regenerated with latest edits.")
             st.rerun()
 
     st.divider()
@@ -5789,6 +5972,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "text/html",
                 key="p5_dl_expert"
             )
+            styled_info("Tip: Download and share this HTML file with your expert panelists. They can open it in any browser, complete the feedback form, and click Download CSV at the bottom to export their responses. Collect the CSV files from each panelist to compile results.")
 
     # ========== TOP RIGHT: BETA TESTING GUIDE ==========
     with col2:
@@ -5827,6 +6011,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "text/html",
                 key="p5_dl_beta"
             )
+            styled_info("Tip: Download and share this HTML file with your beta testers. They can open it in any browser, complete the feedback form, and click Download CSV at the bottom to export their responses. Collect the CSV files from each beta tester to compile results.")
     
     st.divider()
     
@@ -5879,6 +6064,7 @@ elif "Operationalize" in phase or "Deploy" in phase:
                 "text/html",
                 key="p5_dl_edu"
             )
+            styled_info("Tip: Download and share this HTML file with your target audience for this education module. They can open it in any browser, submit multiple choice questions for grading, and download a certificate of completion if score 100%.")
 
     # ========== BOTTOM RIGHT: EXECUTIVE SUMMARY ==========
     with col4:

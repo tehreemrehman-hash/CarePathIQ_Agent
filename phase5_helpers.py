@@ -1295,9 +1295,16 @@ def generate_education_module_html(
 {nodes_context}
 
 Return JSON with:
-- "learning_objectives": 4 short objectives
-- "teaching_points": 5 paragraphs covering assessment, risk stratification, diagnostics, treatment, disposition
-- "quiz_questions": 5 items, each with "question", "options" (A-D), "correct" (letter), "explanation"
+- "learning_objectives": array of 4 short objective strings
+- "teaching_points": array of 5 paragraph strings covering assessment, risk stratification, diagnostics, treatment, disposition
+- "quiz_questions": array of 5 objects, each with:
+  - "question": the question text
+  - "options": array of 4 strings, each starting with "A. ", "B. ", "C. ", "D. " followed by the full answer text
+  - "correct": single letter ("A", "B", "C", or "D")
+  - "explanation": 1-2 sentence explanation of why the correct answer is right
+
+Example quiz_questions item:
+{{"question": "What is the first step?", "options": ["A. Triage assessment", "B. Discharge", "C. Surgery", "D. Imaging"], "correct": "A", "explanation": "Triage assessment is always the first step to identify acuity."}}
 
 JSON only:"""
 
@@ -1579,6 +1586,30 @@ JSON only:"""
                 <form id="quizForm">
 """
     
+    # Normalize quiz options to list of full-text strings
+    for q in questions:
+        raw_opts = q.get('options', [])
+        if isinstance(raw_opts, dict):
+            # Convert dict {"A": "text", "B": "text"} to list ["A. text", "B. text"]
+            normalized = []
+            for letter in ['A', 'B', 'C', 'D']:
+                if letter in raw_opts:
+                    opt_text = str(raw_opts[letter])
+                    if not opt_text.startswith(letter):
+                        opt_text = f"{letter}. {opt_text}"
+                    normalized.append(opt_text)
+            q['options'] = normalized
+        elif isinstance(raw_opts, list):
+            # Ensure each option has the letter prefix
+            normalized = []
+            for i, opt in enumerate(raw_opts):
+                opt_text = str(opt)
+                letter = chr(65 + i)
+                if not opt_text.startswith(letter):
+                    opt_text = f"{letter}. {opt_text}"
+                normalized.append(opt_text)
+            q['options'] = normalized
+
     # Add quiz questions
     for idx, q in enumerate(questions):
         correct_letter = q.get('correct', 'A')
@@ -1601,7 +1632,7 @@ JSON only:"""
     
     html += f"""
                 <div class="button-row">
-                    <button class="btn-submit" onclick="submitQuiz()">Submit Answers</button>
+                    <button type="button" class="btn-submit" onclick="submitQuiz()">Submit Answers</button>
                 </div>
                 
                 <div class="results" id="results">
@@ -1644,13 +1675,16 @@ JSON only:"""
                 userResponses['q' + idx] = userAnswer;
                 
                 const feedbackEl = document.getElementById('feedback' + idx);
-                if (userAnswer === q.correct) {{
+                if (!userAnswer) {{
+                    feedbackEl.className = 'feedback show incorrect';
+                    feedbackEl.innerHTML = '<strong>✗ No answer selected.</strong> Correct answer: ' + q.correct + '. ' + q.explanation;
+                }} else if (userAnswer === q.correct) {{
                     correct++;
                     feedbackEl.className = 'feedback show correct';
                     feedbackEl.innerHTML = '<strong>✓ Correct!</strong> ' + q.explanation;
                 }} else {{
                     feedbackEl.className = 'feedback show incorrect';
-                    feedbackEl.innerHTML = '<strong>✗ Incorrect.</strong> Correct answer: ' + q.correct + '. ' + q.explanation;
+                    feedbackEl.innerHTML = '<strong>✗ Incorrect.</strong> The correct answer is ' + q.correct + '. ' + q.explanation;
                 }}
             }});
             
