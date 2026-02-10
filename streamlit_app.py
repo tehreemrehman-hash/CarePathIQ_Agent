@@ -4020,8 +4020,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
-        with st.form("p1_refine_form"):
-            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+        submitted = st.button("🔄 Regenerate Phase 1", type="primary", use_container_width=True, key="p1_regen_btn")
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -4079,9 +4078,11 @@ Return clean JSON ONLY. No markdown, no explanation."""
                     parts.append({"file_data": {"file_uri": uri}})
                 contents = [{"parts": parts}]
             
-            # Dynamic activity message
-            activity_msg = f"Regenerating with {len(file_uris)} document(s)…" if file_uris else "Applying refinements…"
-            with ai_activity(activity_msg):
+            # Prominent status indicator
+            doc_count = len(file_uris)
+            status_msg = f"Regenerating Phase 1 with {doc_count} document(s)…" if doc_count else "Regenerating Phase 1…"
+            with st.status(status_msg, expanded=True) as status:
+                status.write("Sending request to AI agent…")
                 # Auto-retry for up to 60 seconds on rate limit
                 import time as time_module
                 max_attempts = 6  # 6 attempts * 10 seconds = 60 seconds max
@@ -4113,9 +4114,14 @@ Return clean JSON ONLY. No markdown, no explanation."""
                     last_err = st.session_state.get('_last_api_error', '')
                     if '429' in last_err or 'quota' in last_err.lower() or 'RESOURCE_EXHAUSTED' in last_err:
                         if attempt < max_attempts - 1:
+                            status.write(f"Rate limited — retrying in 10s (attempt {attempt + 2}/{max_attempts})…")
                             time_module.sleep(10)  # Wait 10 seconds before retry
                             continue
                     break  # Don't retry for non-rate-limit errors
+                
+                if data and isinstance(data, dict):
+                    status.write("Applying updates…")
+                    status.update(label="Regeneration complete!", state="complete", expanded=False)
             if data and isinstance(data, dict):
                 st.session_state.data['phase1']['inclusion'] = format_as_numbered_list(data.get('inclusion', ''))
                 st.session_state.data['phase1']['exclusion'] = format_as_numbered_list(data.get('exclusion', ''))
@@ -4125,13 +4131,15 @@ Return clean JSON ONLY. No markdown, no explanation."""
                 for key in ['p1_inc', 'p1_exc', 'p1_prob', 'p1_obj']:
                     if key in st.session_state:
                         del st.session_state[key]
-                st.success("Refinements applied!")
+                st.success("✅ Phase 1 regenerated successfully!")
                 st.rerun()
             else:
                 last_err = st.session_state.get('_last_api_error', '')
                 if '429' in last_err or 'quota' in last_err.lower() or 'RESOURCE_EXHAUSTED' in last_err:
+                    status.update(label="Rate limit reached", state="error", expanded=False)
                     st.warning("API quota exceeded. Please wait a minute and try again.")
                 else:
+                    status.update(label="Regeneration failed", state="error", expanded=False)
                     st.warning("Could not apply refinements. Please try again.")
     render_bottom_navigation()
     st.stop()
@@ -5117,8 +5125,7 @@ elif "Decision" in phase or "Tree" in phase:
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
-        with st.form("p3_refine_form"):
-            submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+        submitted = st.button("🔄 Regenerate Pathway", type="primary", use_container_width=True, key="p3_regen_btn")
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -5152,7 +5159,10 @@ elif "Decision" in phase or "Tree" in phase:
             user_input = refinement_request if refinement_request else "Use the uploaded documents to refine the pathway."
             
             if st.session_state.data['phase3']['nodes']:
-                with ai_activity("Applying refinements to decision tree..."):
+                doc_count = len(file_uris)
+                status_msg = f"Regenerating pathway with {doc_count} document(s)…" if doc_count else "Regenerating pathway…"
+                with st.status(status_msg, expanded=True) as status:
+                    status.write("Building prompt and sending to AI agent…")
                     current_nodes = st.session_state.data['phase3']['nodes']
                     ev_context = "\n".join([f"- PMID {e['id']}: {e['title']} | Abstract: {e.get('abstract', 'N/A')[:200]}" for e in evidence_list[:20]])
                     prompt = f"""
@@ -5189,6 +5199,7 @@ elif "Decision" in phase or "Tree" in phase:
                             parts.append({"file_data": {"file_uri": uri}})
                         contents = [{"parts": parts}]
                     
+                    status.write("Waiting for AI response…")
                     # Use native function calling for reliable structured output
                     result = get_gemini_response(
                         prompt, 
@@ -5207,14 +5218,17 @@ elif "Decision" in phase or "Tree" in phase:
                         # Fallback to json_mode
                         nodes = get_gemini_response(prompt, json_mode=True)
                     if isinstance(nodes, list) and len(nodes) > 0:
+                        status.write("Applying updates…")
                         # Clean up common AI generation issues
                         nodes = normalize_or_logic(nodes)
                         nodes = fix_decision_flow_issues(nodes)
                         st.session_state.data['phase3']['nodes'] = nodes
                         # Clear Phase 4 visualization cache so regenerated views/downloads reflect updates
                         st.session_state.data.setdefault('phase4', {}).pop('viz_cache', None)
-                        st.success("Refinements applied and pathway regenerated!")
+                        status.update(label="Pathway regenerated!", state="complete", expanded=False)
+                        st.success("✅ Pathway regenerated successfully!")
                     else:
+                        status.update(label="Regeneration failed", state="error", expanded=False)
                         st.error("Failed to regenerate pathway. Please try again.")
                     st.rerun()
     
@@ -5594,12 +5608,9 @@ EXAMPLE FORMAT:
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
-        with st.form("p4_refine_form"):
-            regen_submitted = st.form_submit_button("Regenerate", type="secondary", use_container_width=True)
+        regen_submitted = st.button("🔄 Regenerate Pathway", type="primary", use_container_width=True, key="p4_regen_btn")
 
-        apply_refine_clicked = st.button("Apply Refinements", key="p4_apply_refine", type="primary", use_container_width=True)
-
-        if regen_submitted or apply_refine_clicked:
+        if regen_submitted:
             refine_notes = st.session_state.get('p4_refine_notes', '').strip()
             
             # Collect all uploaded file URIs for context
@@ -5632,10 +5643,11 @@ EXAMPLE FORMAT:
                 if file_context:
                     refine_with_file += file_context
                 
-                # Dynamic activity message
-                activity_msg = f"Regenerating with {len(file_uris)} document(s)…" if file_uris else "Applying refinements..."
+                doc_count = len(file_uris)
+                status_msg = f"Regenerating pathway with {doc_count} document(s)…" if doc_count else "Regenerating pathway…"
                     
-                with st.spinner(activity_msg):
+                with st.status(status_msg, expanded=True) as status:
+                    status.write("Sending request to AI agent…")
                     # If file URIs available, call API directly with file references
                     if file_uris:
                         cond = st.session_state.data['phase1'].get('condition') or "Pathway"
@@ -5671,6 +5683,7 @@ EXAMPLE FORMAT:
                             parts.append({"file_data": {"file_uri": uri}})
                         contents = [{"parts": parts}]
                         
+                        status.write("Waiting for AI response…")
                         result = get_gemini_response(
                             prompt,
                             function_declaration=GENERATE_PATHWAY_NODES,
@@ -5689,14 +5702,18 @@ EXAMPLE FORMAT:
                             refined = None
                     else:
                         # No file URIs, use the existing function
+                        status.write("Waiting for AI response…")
                         refined = regenerate_nodes_with_refinement(nodes, refine_with_file, h_data) if 'regenerate_nodes_with_refinement' in globals() else None
                     
                     if refined:
+                        status.write("Applying updates…")
                         st.session_state.data['phase3']['nodes'] = refined
                         p4_state['viz_cache'] = {}
-                        st.success("Refinements applied. Regenerated nodes below.")
+                        status.update(label="Pathway regenerated!", state="complete", expanded=False)
+                        st.success("✅ Pathway regenerated successfully!")
                         st.rerun()
                     else:
+                        status.update(label="Regeneration failed", state="error", expanded=False)
                         st.warning("Could not apply refinements. Please try different notes or regenerate.")
 
     render_bottom_navigation()
