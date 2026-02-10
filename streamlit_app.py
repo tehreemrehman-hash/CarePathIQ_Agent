@@ -1637,8 +1637,10 @@ def auto_grade_evidence_list(evidence_list: list):
         # Extract grades from function call or fall back
         if isinstance(result, dict) and 'arguments' in result:
             grades = result['arguments'].get('grades', {})
-        elif isinstance(result, dict) and 'grades' not in result:
-            grades = result  # Already in expected format
+        elif isinstance(result, dict) and 'grades' in result:
+            grades = result['grades']
+        elif isinstance(result, dict):
+            grades = result  # Already in expected {pmid: {grade, rationale}} format
         else:
             # Fallback to json_mode
             grades = get_gemini_response(prompt, json_mode=True)
@@ -4230,7 +4232,9 @@ elif "Evidence" in phase or "Appraise" in phase:
                 )
                 if isinstance(result, dict) and 'arguments' in result:
                     grades = result['arguments'].get('grades', {})
-                elif isinstance(result, dict) and 'grades' not in result:
+                elif isinstance(result, dict) and 'grades' in result:
+                    grades = result['grades']
+                elif isinstance(result, dict):
                     grades = result
                 else:
                     grades = get_gemini_response(prompt, json_mode=True)
@@ -4241,6 +4245,10 @@ elif "Evidence" in phase or "Appraise" in phase:
                             grade_data = grades[pmid_str]
                             e['grade'] = grade_data.get('grade', 'Un-graded') if isinstance(grade_data, dict) else 'Un-graded'
                             e['rationale'] = grade_data.get('rationale', 'Not provided.') if isinstance(grade_data, dict) else 'Not provided.'
+                # Ensure defaults if AI grading missed any
+                for e in st.session_state.data['phase2']['evidence']:
+                    e.setdefault('grade', 'Un-graded')
+                    e.setdefault('rationale', 'Not yet evaluated.')
         st.session_state['p2_last_autorun_query'] = st.session_state.data['phase2']['mesh_query']
 
     # Summary banner for newly enriched evidence from Phase 3
@@ -4397,7 +4405,9 @@ Output: ("diabetes"[MeSH Terms]) AND ("clinical pathway"[tiab] OR Practice Guide
                             )
                             if isinstance(result, dict) and 'arguments' in result:
                                 grades = result['arguments'].get('grades', {})
-                            elif isinstance(result, dict) and 'grades' not in result:
+                            elif isinstance(result, dict) and 'grades' in result:
+                                grades = result['grades']
+                            elif isinstance(result, dict):
                                 grades = result
                             else:
                                 grades = get_gemini_response(prompt, json_mode=True)
