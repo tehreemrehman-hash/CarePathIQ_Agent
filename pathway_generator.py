@@ -499,33 +499,16 @@ class PathwayGenerator:
         
         lines.append("")
         
-        # Generate edges
-        for i, node in enumerate(nodes):
-            src = f"N{i}"
-            node_type = node.get("type", "Process")
-            
-            if node_type == "Decision" and node.get("branches"):
-                for branch in node.get("branches", []):
-                    target = branch.get("target")
-                    label = self._escape_mermaid_label(branch.get("label", ""), max_length=35)
-                    if isinstance(target, (int, float)) and 0 <= int(target) < len(nodes):
-                        dst = f"N{int(target)}"
-                        if label:
-                            lines.append(f'    {src} -->|"{label}"| {dst}')
-                        else:
-                            lines.append(f'    {src} --> {dst}')
-            elif node_type == "End":
-                pass  # End nodes have no outgoing edges
+        # Generate edges using branch-aware logic
+        computed_edges = self._compute_edges(nodes)
+        for src_idx, dst_idx, lbl in computed_edges:
+            src = f"N{src_idx}"
+            dst = f"N{dst_idx}"
+            if lbl:
+                safe_lbl = self._escape_mermaid_label(lbl, max_length=35)
+                lines.append(f'    {src} -->|"{safe_lbl}"| {dst}')
             else:
-                # Check for explicit target
-                target = node.get("target")
-                if target is not None and isinstance(target, (int, float)) and 0 <= int(target) < len(nodes):
-                    dst = f"N{int(target)}"
-                    lines.append(f'    {src} --> {dst}')
-                elif i + 1 < len(nodes):
-                    # Default: connect to next node
-                    dst = f"N{i + 1}"
-                    lines.append(f'    {src} --> {dst}')
+                lines.append(f'    {src} --> {dst}')
         
         # Add notes legend as a separate subgraph
         if notes_list:
@@ -575,6 +558,85 @@ class PathwayGenerator:
             text = text[:max_length-3] + "..."
         return text
     
+    def _compute_edges(self, nodes: List[Dict[str, Any]]):
+        """
+        Compute edges with branch-aware logic so that nodes inside a
+        Decision branch region do NOT spuriously connect across branches.
+
+        Logic:
+        - Decision nodes: explicit branch targets with labels
+        - End nodes: terminal, no outgoing edges
+        - Nodes with explicit 'target': use that target
+        - Nodes inside a branch region: sequential within that region,
+          last node connects to reconvergence point
+        - Other nodes: sequential to next node
+
+        Returns list of (src_idx, dst_idx, label_str) tuples.
+        """
+        if not nodes:
+            return []
+
+        n = len(nodes)
+        edges = []
+
+        # Step 1: Build decision-branch structure
+        decision_targets = {}
+        for i, node in enumerate(nodes):
+            if node.get('type') == 'Decision' and node.get('branches'):
+                fwd = []
+                for b in node.get('branches', []):
+                    t = b.get('target')
+                    if isinstance(t, (int, float)) and 0 <= int(t) < n:
+                        fwd.append(int(t))
+                if fwd:
+                    decision_targets[i] = sorted(fwd)
+
+        # Step 2: Compute branch regions
+        branch_region_of = {}
+        for dec_idx, sorted_tgts in decision_targets.items():
+            fwd_tgts = sorted([t for t in sorted_tgts if t > dec_idx])
+            if len(fwd_tgts) < 2:
+                continue
+            reconverge = max(fwd_tgts) + 1
+            for b_idx, tgt in enumerate(fwd_tgts):
+                if b_idx + 1 < len(fwd_tgts):
+                    region_end = fwd_tgts[b_idx + 1] - 1
+                else:
+                    region_end = reconverge - 1
+                for node_idx in range(tgt, min(region_end + 1, n)):
+                    if node_idx not in branch_region_of:
+                        branch_region_of[node_idx] = (region_end, reconverge)
+
+        # Step 3: Generate edges
+        for i, node in enumerate(nodes):
+            ntype = node.get('type', 'Process')
+
+            if ntype == 'Decision' and node.get('branches'):
+                for b in node.get('branches', []):
+                    t = b.get('target')
+                    lbl = b.get('label', '')
+                    if isinstance(t, (int, float)) and 0 <= int(t) < n:
+                        edges.append((i, int(t), lbl))
+            elif ntype == 'End':
+                pass
+            else:
+                explicit = node.get('target')
+                if explicit is not None and isinstance(explicit, (int, float)):
+                    target_idx = int(explicit)
+                    if 0 <= target_idx < n:
+                        edges.append((i, target_idx, ''))
+                elif i in branch_region_of:
+                    region_end, reconverge = branch_region_of[i]
+                    if i == region_end:
+                        if reconverge < n:
+                            edges.append((i, reconverge, ''))
+                    elif i + 1 < n:
+                        edges.append((i, i + 1, ''))
+                elif i + 1 < n:
+                    edges.append((i, i + 1, ''))
+
+        return edges
+
     def generate_graphviz_dot(self, pathway: ClinicalPathway, orientation: str = "TD") -> str:
         """
         Generate Graphviz DOT source from pathway.
@@ -678,31 +740,16 @@ class PathwayGenerator:
         
         lines.append("")
         
-        # Edges
-        for i, node in enumerate(nodes):
-            src = f"N{i}"
-            node_type = node.get("type", "Process")
-            
-            if node_type == "Decision" and node.get("branches"):
-                for branch in node.get("branches", []):
-                    target = branch.get("target")
-                    label = self._escape_dot_label(branch.get("label", ""))
-                    if isinstance(target, int) and 0 <= target < len(nodes):
-                        dst = f"N{target}"
-                        if label:
-                            lines.append(f'  {src} -> {dst} [label="{label}"];')
-                        else:
-                            lines.append(f'  {src} -> {dst};')
-            elif node_type == "End":
-                pass  # End nodes have no outgoing edges
+        # Edges — use branch-aware logic to avoid cross-branch connections
+        computed_edges = self._compute_edges(nodes)
+        for src_idx, dst_idx, lbl in computed_edges:
+            src = f"N{src_idx}"
+            dst = f"N{dst_idx}"
+            if lbl:
+                safe_lbl = self._escape_dot_label(lbl)
+                lines.append(f'  {src} -> {dst} [label="{safe_lbl}"];')
             else:
-                target = node.get("target")
-                if target is not None and isinstance(target, int) and 0 <= target < len(nodes):
-                    dst = f"N{target}"
-                    lines.append(f'  {src} -> {dst};')
-                elif i + 1 < len(nodes):
-                    dst = f"N{i + 1}"
-                    lines.append(f'  {src} -> {dst};')
+                lines.append(f'  {src} -> {dst};')
         
         lines.append("}")
         return "\n".join(lines)

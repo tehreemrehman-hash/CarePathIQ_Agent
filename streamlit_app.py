@@ -2371,95 +2371,6 @@ def validate_decision_science_pathway(nodes_list):
         ]) / 6
     }
 
-def render_mermaid_inline(mermaid_code, height=600, key="mermaid_chart"):
-    """
-    Render a Mermaid diagram inline in Streamlit using Mermaid.js CDN.
-    Uses st.components.v1.html for zero-dependency client-side rendering.
-    
-    Args:
-        mermaid_code: Valid Mermaid diagram source code
-        height: Pixel height of the rendered diagram container
-        key: Unique key for the Streamlit component
-    """
-    import streamlit.components.v1 as components
-    
-    # Escape backticks and backslashes for safe JS embedding
-    safe_code = mermaid_code.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-        <style>
-            body {{
-                margin: 0;
-                padding: 8px;
-                background: white;
-                display: flex;
-                justify-content: center;
-                overflow: auto;
-            }}
-            #mermaid-container {{
-                width: 100%;
-                text-align: center;
-            }}
-            .mermaid {{
-                display: inline-block;
-                text-align: left;
-            }}
-            .mermaid svg {{
-                max-width: 100%;
-                height: auto;
-            }}
-            /* Custom node styling for clinical pathways */
-            .node rect, .node polygon, .node circle, .node ellipse {{
-                rx: 5px;
-                ry: 5px;
-            }}
-            .edgeLabel {{
-                font-size: 12px !important;
-                background: white !important;
-                padding: 2px 4px !important;
-            }}
-        </style>
-    </head>
-    <body>
-        <div id="mermaid-container">
-            <div class="mermaid">
-{mermaid_code}
-            </div>
-        </div>
-        <script>
-            mermaid.initialize({{
-                startOnLoad: true,
-                theme: 'base',
-                themeVariables: {{
-                    primaryColor: '#fff3cd',
-                    primaryBorderColor: '#ffc107',
-                    primaryTextColor: '#333',
-                    lineColor: '#5D4037',
-                    secondaryColor: '#f8d7da',
-                    tertiaryColor: '#d4edda',
-                    fontSize: '14px',
-                    fontFamily: 'Segoe UI, Helvetica, Arial, sans-serif'
-                }},
-                flowchart: {{
-                    curve: 'basis',
-                    padding: 20,
-                    nodeSpacing: 50,
-                    rankSpacing: 60,
-                    htmlLabels: true,
-                    useMaxWidth: true
-                }},
-                securityLevel: 'loose'
-            }});
-        </script>
-    </body>
-    </html>
-    """
-    components.html(html, height=height, scrolling=True)
-
 def generate_mermaid_code(nodes, orientation="TD"):
     """
     Generate Mermaid flowchart code from pathway nodes.
@@ -2497,31 +2408,116 @@ def generate_mermaid_code(nodes, orientation="TD"):
             lines.append(f'    {nid}["{label}"]')
     
     lines.append("")
-    for i, n in enumerate(valid_nodes):
-        src = f"N{i}"
-        ntype = n.get('type', 'Process')
-        if ntype == 'Decision' and n.get('branches'):
-            for b in n.get('branches', []):
-                t = b.get('target')
-                lbl = str(b.get('label', '')).replace('"', "'")
-                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
-                    dst = f"N{int(t)}"
-                    if lbl:
-                        lines.append(f'    {src} -->|"{lbl}"| {dst}')
-                    else:
-                        lines.append(f'    {src} --> {dst}')
-        elif ntype == 'End':
-            pass
+    # Use branch-aware edge computation (same logic as Graphviz)
+    computed_edges = _compute_edges(valid_nodes)
+    for src_idx, dst_idx, lbl in computed_edges:
+        src = f"N{src_idx}"
+        dst = f"N{dst_idx}"
+        safe_lbl = str(lbl).replace('"', "'") if lbl else ''
+        if safe_lbl:
+            lines.append(f'    {src} -->|"{safe_lbl}"| {dst}')
         else:
-            target = n.get('target')
-            if target is not None and isinstance(target, (int, float)) and 0 <= int(target) < len(valid_nodes):
-                lines.append(f'    {src} --> N{int(target)}')
-            elif i + 1 < len(valid_nodes):
-                lines.append(f'    {src} --> N{i + 1}')
+            lines.append(f'    {src} --> {dst}')
     
     return "\n".join(lines)
 
 # --- GRAPH EXPORT HELPERS (Graphviz/DOT) ---
+
+def _compute_edges(nodes):
+    """
+    Compute edges for a pathway graph, properly handling Decision branches
+    and sequential flow without creating spurious cross-branch edges.
+
+    Key logic:
+    - Decision nodes: use explicit branch targets with labels
+    - End nodes: no outgoing edges (terminal)
+    - Process/Start with explicit 'target': use that target
+    - Process/Start inside a branch region: flow sequentially within the
+      branch, and the LAST node in each branch connects to the
+      reconvergence point (first node after all branch targets)
+    - Process/Start not in any branch region: sequential to next node
+
+    Returns: list of (src_idx, dst_idx, label_str) tuples
+    """
+    if not nodes:
+        return []
+
+    n = len(nodes)
+    edges = []
+
+    # --- Step 1: Build decision-branch structure ---
+    # decision_idx -> sorted list of forward target indices
+    decision_targets = {}
+    for i, node in enumerate(nodes):
+        if node.get('type') == 'Decision' and node.get('branches'):
+            fwd = []
+            for b in node.get('branches', []):
+                t = b.get('target')
+                if isinstance(t, (int, float)) and 0 <= int(t) < n:
+                    fwd.append(int(t))
+            if fwd:
+                decision_targets[i] = sorted(fwd)
+
+    # --- Step 2: Compute branch regions ---
+    # For each decision with >=2 forward targets, define contiguous regions:
+    #   branch_k region = [target_k, target_{k+1} - 1]
+    #   last branch region = [target_last, reconverge - 1]
+    #   reconverge = max(targets) + 1
+    # branch_region_of[node_idx] = (region_end, reconverge)
+    branch_region_of = {}
+
+    for dec_idx, sorted_tgts in decision_targets.items():
+        # Only handle forward targets past the decision node
+        fwd_tgts = sorted([t for t in sorted_tgts if t > dec_idx])
+        if len(fwd_tgts) < 2:
+            continue
+
+        reconverge = max(fwd_tgts) + 1
+        for b_idx, tgt in enumerate(fwd_tgts):
+            if b_idx + 1 < len(fwd_tgts):
+                region_end = fwd_tgts[b_idx + 1] - 1
+            else:
+                region_end = reconverge - 1
+
+            for node_idx in range(tgt, min(region_end + 1, n)):
+                # Don't overwrite inner decision regions
+                if node_idx not in branch_region_of:
+                    branch_region_of[node_idx] = (region_end, reconverge)
+
+    # --- Step 3: Generate edges ---
+    for i, node in enumerate(nodes):
+        ntype = node.get('type', 'Process')
+
+        if ntype == 'Decision' and node.get('branches'):
+            for b in node.get('branches', []):
+                t = b.get('target')
+                lbl = b.get('label', '')
+                if isinstance(t, (int, float)) and 0 <= int(t) < n:
+                    edges.append((i, int(t), lbl))
+
+        elif ntype == 'End':
+            pass  # Terminal
+
+        else:
+            explicit = node.get('target')
+            if explicit is not None and isinstance(explicit, (int, float)):
+                target_idx = int(explicit)
+                if 0 <= target_idx < n:
+                    edges.append((i, target_idx, ''))
+            elif i in branch_region_of:
+                region_end, reconverge = branch_region_of[i]
+                if i == region_end:
+                    # Last node in this branch -> connect to reconvergence
+                    if reconverge < n:
+                        edges.append((i, reconverge, ''))
+                elif i + 1 < n:
+                    edges.append((i, i + 1, ''))  # Sequential within branch
+            elif i + 1 < n:
+                edges.append((i, i + 1, ''))  # Normal sequential
+
+    return edges
+
+
 def _escape_label(text: str) -> str:
     if text is None:
         return ""
@@ -2684,47 +2680,17 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
     
     lines.append("")
     
-    # EDGES - Critical for proper branching visualization
-    for i, n in enumerate(valid_nodes):
-        src = node_id_map.get(i)
-        if not src:
-            continue
-        
-        ntype = n.get('type', 'Process')
-        
-        if ntype == 'Decision' and 'branches' in n:
-            # Decision nodes: use explicit branch targets with labels
-            for b in n.get('branches', []):
-                t = b.get('target')
-                lbl = _escape_label(b.get('label', ''))
-                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
-                    dst = node_id_map.get(int(t))
-                    if dst:
-                        if lbl:
-                            lines.append(f'  {src} -> {dst} [label="{lbl}"];')
-                        else:
-                            lines.append(f'  {src} -> {dst};')
-        elif ntype == 'End':
-            # End nodes are terminal - no outgoing edges
-            pass
-        else:
-            # Process/Start nodes: check for explicit target first, then sequential
-            explicit_target = n.get('target')
-            if explicit_target is not None and isinstance(explicit_target, (int, float)):
-                target_idx = int(explicit_target)
-                if 0 <= target_idx < len(valid_nodes):
-                    dst = node_id_map.get(target_idx)
-                    if dst:
-                        lines.append(f'  {src} -> {dst};')
-            elif i + 1 < len(valid_nodes):
-                # Default: connect to next node (sequential flow)
-                next_node = valid_nodes[i + 1]
-                # Skip if next node is an End (we're at a branch point) and this isn't explicitly targeted
-                # This prevents linear connections that bypass decision logic
-                if next_node.get('type') != 'End' or len(valid_nodes) <= i + 2:
-                    dst = node_id_map.get(i + 1)
-                    if dst:
-                        lines.append(f'  {src} -> {dst};')
+    # EDGES - Use branch-aware edge computation for correct decision trees
+    computed_edges = _compute_edges(valid_nodes)
+    for src_idx, dst_idx, lbl in computed_edges:
+        src = node_id_map.get(src_idx)
+        dst = node_id_map.get(dst_idx)
+        if src and dst:
+            escaped_lbl = _escape_label(lbl) if lbl else ''
+            if escaped_lbl:
+                lines.append(f'  {src} -> {dst} [label="{escaped_lbl}"];')
+            else:
+                lines.append(f'  {src} -> {dst};')
     
     lines.append("}")
     return "\n".join(lines)
@@ -2860,41 +2826,17 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
             s.attr(rank='max')
             s.node('NotesLegend')
     
-    # EDGES - Critical for proper branching
-    for i, n in enumerate(valid_nodes):
-        src = node_id_map.get(i)
-        if not src:
-            continue
-        
-        ntype = n.get('type', 'Process')
-        
-        if ntype == 'Decision' and 'branches' in n:
-            for b in n.get('branches', []):
-                t = b.get('target')
-                lbl = _escape_label(b.get('label', ''))
-                if isinstance(t, (int, float)) and 0 <= int(t) < len(valid_nodes):
-                    dst = node_id_map.get(int(t))
-                    if dst:
-                        if lbl:
-                            g.edge(src, dst, label=lbl)
-                        else:
-                            g.edge(src, dst)
-        elif ntype == 'End':
-            pass  # Terminal - no outgoing edges
-        else:
-            explicit_target = n.get('target')
-            if explicit_target is not None and isinstance(explicit_target, (int, float)):
-                target_idx = int(explicit_target)
-                if 0 <= target_idx < len(valid_nodes):
-                    dst = node_id_map.get(target_idx)
-                    if dst:
-                        g.edge(src, dst)
-            elif i + 1 < len(valid_nodes):
-                next_node = valid_nodes[i + 1]
-                if next_node.get('type') != 'End' or len(valid_nodes) <= i + 2:
-                    dst = node_id_map.get(i + 1)
-                    if dst:
-                        g.edge(src, dst)
+    # EDGES - Use branch-aware edge computation for correct decision trees
+    computed_edges = _compute_edges(valid_nodes)
+    for src_idx, dst_idx, lbl in computed_edges:
+        src = node_id_map.get(src_idx)
+        dst = node_id_map.get(dst_idx)
+        if src and dst:
+            escaped_lbl = _escape_label(lbl) if lbl else ''
+            if escaped_lbl:
+                g.edge(src, dst, label=escaped_lbl)
+            else:
+                g.edge(src, dst)
     
     return g
 
@@ -5525,12 +5467,12 @@ EXAMPLE FORMAT:
     cache = p4_state.setdefault('viz_cache', {})
     sig = hashlib.md5(json.dumps(nodes_for_viz, sort_keys=True).encode('utf-8')).hexdigest()
 
-    # Generate Mermaid code (primary visualization)
-    mermaid_code = cache.get(sig, {}).get("mermaid")
-    if mermaid_code is None or p4_state.get('applied_status'):
-        mermaid_code = generate_mermaid_code(nodes_for_viz, "TD")
+    # Generate DOT source for primary visualization (Graphviz renders natively in Streamlit)
+    dot_code = cache.get(sig, {}).get("dot")
+    if dot_code is None or p4_state.get('applied_status'):
+        dot_code = dot_from_nodes(nodes_for_viz, "TD")
         cache_entry = cache.get(sig, {})
-        cache_entry["mermaid"] = mermaid_code
+        cache_entry["dot"] = dot_code
         cache[sig] = cache_entry
 
     # Also generate SVG for download if graphviz is available
@@ -5543,6 +5485,14 @@ EXAMPLE FORMAT:
                 cache[sig]["svg"] = new_svg
                 svg_bytes = new_svg
 
+    # Generate Mermaid code for download/export only (not rendered inline)
+    mermaid_code = cache.get(sig, {}).get("mermaid")
+    if mermaid_code is None or p4_state.get('applied_status'):
+        mermaid_code = generate_mermaid_code(nodes_for_viz, "TD")
+        cache_entry = cache.get(sig, {})
+        cache_entry["mermaid"] = mermaid_code
+        cache[sig] = cache_entry
+
     p4_state['viz_cache'] = {sig: cache.get(sig, {})}
 
     # SINGLE COLUMN LAYOUT for better UX flow
@@ -5551,23 +5501,22 @@ EXAMPLE FORMAT:
     # ========== 1. PATHWAY VISUALIZATION ==========
     st.subheader("Pathway Visualization")
     
-    if mermaid_code:
-        # Calculate dynamic height based on node count
-        node_count = len(nodes_for_viz)
-        chart_height = max(400, min(1200, node_count * 80 + 200))
-        render_mermaid_inline(mermaid_code, height=chart_height, key=f"p4_mermaid_{sig[:8]}")
+    if dot_code:
+        # Render Graphviz natively — scales properly in Streamlit
+        st.graphviz_chart(dot_code, use_container_width=True)
         
         # Download options
         dl_col1, dl_col2, dl_col3 = st.columns(3)
         with dl_col1:
-            st.download_button(
-                "📄 Download Mermaid Code",
-                mermaid_code,
-                file_name="pathway.mmd",
-                mime="text/plain",
-                help="Paste into mermaid.live, GitHub, Notion, or any Mermaid-compatible tool",
-                use_container_width=True
-            )
+            if mermaid_code:
+                st.download_button(
+                    "📄 Download Mermaid Code",
+                    mermaid_code,
+                    file_name="pathway.mmd",
+                    mime="text/plain",
+                    help="Paste into mermaid.live, GitHub, Notion, or any Mermaid-compatible tool",
+                    use_container_width=True
+                )
         with dl_col2:
             if svg_bytes:
                 st.download_button(
@@ -5579,16 +5528,17 @@ EXAMPLE FORMAT:
                     use_container_width=True
                 )
         with dl_col3:
-            # Mermaid.live link
-            import base64 as _b64
-            mermaid_live_state = json.dumps({"code": mermaid_code, "mermaid": {"theme": "default"}})
-            mermaid_b64 = _b64.urlsafe_b64encode(mermaid_live_state.encode()).decode()
-            st.link_button(
-                "🔗 Open in Mermaid Live",
-                f"https://mermaid.live/edit#base64:{mermaid_b64}",
-                help="Edit and export in the Mermaid Live Editor",
-                use_container_width=True
-            )
+            if mermaid_code:
+                # Mermaid.live link
+                import base64 as _b64
+                mermaid_live_state = json.dumps({"code": mermaid_code, "mermaid": {"theme": "default"}})
+                mermaid_b64 = _b64.urlsafe_b64encode(mermaid_live_state.encode()).decode()
+                st.link_button(
+                    "🔗 Open in Mermaid Live",
+                    f"https://mermaid.live/edit#base64:{mermaid_b64}",
+                    help="Edit and export in the Mermaid Live Editor",
+                    use_container_width=True
+                )
         st.caption("💡 Re-download after applying heuristics to get the updated pathway.")
     else:
         st.warning("Could not generate visualization. Check pathway nodes in Phase 3.")
