@@ -1020,7 +1020,7 @@ Keep the summary brief (3-5 sentences per section)."""
         ]
         
         response = client.models.generate_content(
-            model="gemini-flash-latest",
+            model="gemini-2.0-flash",
             contents=contents,
             config=get_generation_config(enable_thinking=True, thinking_budget=512)
         )
@@ -2852,25 +2852,22 @@ def render_graphviz_bytes(graph, fmt="svg"):
 def get_smart_model_cascade(requires_vision=False, requires_json=False):
     """Return prioritized list of models for Auto mode based on task requirements.
     
-    Model names use -latest aliases for automatic updates:
-    - gemini-flash-latest: Primary model (maps to gemini-3-flash-preview after Jan 30, 2026)
-    - gemini-pro-latest: Fallback (maps to gemini-3-pro-preview after Jan 30, 2026)
-    
-    See: https://ai.google.dev/gemini-api/docs/thought-signatures
-    Thought signature validation required for Gemini 3+ models with function calling.
+    Uses stable model aliases that resolve to latest versions.
+    See: https://ai.google.dev/gemini-api/docs/models
     
     Strategy: Try models from most to least sophisticated. Auto mode cascades through
     available models until quota is found. User-selected models fall back to alternatives.
     """
+    # Standard stable aliases that always resolve to latest GA versions
+    FLASH = "gemini-2.0-flash"
+    PRO = "gemini-1.5-pro"
+    FLASH_LITE = "gemini-2.0-flash-lite"
+    
     if model_choice == "Auto":
-        # Cascade using -latest aliases for automatic model updates
-        return [
-            "gemini-flash-latest",         # Primary: auto-updates to latest flash
-            "gemini-pro-latest",           # Fallback: auto-updates to latest pro
-        ]
+        return [FLASH, PRO, FLASH_LITE]
     else:
         # Use user-selected model with intelligent fallback
-        return [model_choice, "gemini-flash-latest", "gemini-pro-latest"]
+        return [model_choice, FLASH, PRO]
 
 def get_gemini_response(
     prompt, 
@@ -2992,20 +2989,45 @@ def get_gemini_response(
             error_str = str(e)
             last_error = error_str
 
+            # If thinking config caused the error, retry this model without it
+            if enable_thinking and ('thinking' in error_str.lower() or 'thinkingConfig' in error_str or 'INVALID_ARGUMENT' in error_str):
+                try:
+                    retry_kwargs = {}
+                    if function_declaration:
+                        retry_kwargs["tools"] = [types.Tool(function_declarations=[function_declaration])]
+                        retry_kwargs["tool_config"] = types.ToolConfig(
+                            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+                        )
+                    retry_config = types.GenerateContentConfig(**retry_kwargs) if retry_kwargs else None
+                    retry_call = {"model": model_name, "contents": contents}
+                    if retry_config:
+                        retry_call["config"] = retry_config
+                    response = client.models.generate_content(**retry_call)
+                    if function_declaration and response and response.candidates:
+                        result = extract_function_call_result(response)
+                        if result:
+                            return result
+                    if response and hasattr(response, 'text'):
+                        break
+                except Exception:
+                    pass  # Fall through to next model
+
             # Check if error is quota exhaustion (429 RESOURCE_EXHAUSTED)
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                 skipped_models.append(f"{model_name} (quota)")
             else:
-                skipped_models.append(f"{model_name} (unavailable)")
+                skipped_models.append(f"{model_name} ({error_str[:60]})")
 
             # Continue to next candidate
             time.sleep(0.3)
             continue
 
     if not response:
-        # Store the last error for debugging but don't show red banner
+        # Store the last error for debugging
         if last_error:
             st.session_state['_last_api_error'] = last_error
+        if skipped_models:
+            st.session_state['_skipped_models'] = skipped_models
         return None
 
     try:
@@ -3066,14 +3088,22 @@ def validate_ai_connection() -> bool:
     if not client:
         return False
     try:
-        # Use proper content structure per official API with thinking config
         resp = client.models.generate_content(
-            model="gemini-flash-latest",
+            model="gemini-2.0-flash",
             contents=[{"parts": [{"text": "ping"}]}],
             config=get_generation_config(enable_thinking=True, thinking_budget=256)
         )
         return bool(resp and hasattr(resp, 'text') and resp.text)
     except Exception as e:
+        # Retry without thinking config in case model doesn't support it
+        try:
+            resp = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[{"parts": [{"text": "ping"}]}]
+            )
+            return bool(resp and hasattr(resp, 'text') and resp.text)
+        except Exception:
+            pass
         # Store concise summary instead of verbose raw error
         err = str(e)
         if "RESOURCE_EXHAUSTED" in err or "429" in err or "quota" in err:
@@ -3392,8 +3422,8 @@ def get_local_faq_answer(user_question: str) -> str:
     if "api" in q or "key" in q or "gemini" in q or "model" in q:
         return (
             "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
-            "Uses gemini-flash-latest and gemini-pro-latest aliases for automatic model updates. "
-            "Thought signature validation enabled for Gemini 3+ models. Enter your API key in the sidebar."
+            "Uses gemini-2.0-flash and gemini-1.5-pro models with automatic cascade fallback. "
+            "Enter your API key in the sidebar."
         )
     if "files" in q or "structure" in q or "code" in q:
         return (
@@ -3533,7 +3563,7 @@ with st.sidebar:
     if gemini_api_key:
         available_models = get_available_models(gemini_api_key)
     
-    model_options = ["Auto"] + (available_models if available_models else ["gemini-flash-latest", "gemini-pro-latest"])
+    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.0-flash", "gemini-1.5-pro"])
     model_choice = st.selectbox("Model", model_options, index=0)
     
     st.divider()
@@ -3875,12 +3905,19 @@ if "Scope" in phase:
             else:
                 # API returned no data — surface the reason
                 last_err = st.session_state.get('_last_api_error', '')
+                skipped = st.session_state.get('_skipped_models', [])
                 if last_err and ('429' in last_err or 'RESOURCE_EXHAUSTED' in last_err):
                     st.error("API quota exceeded. Please wait a minute and try again, or check your Gemini API key billing.")
                 elif not get_genai_client():
                     st.error("No AI connection. Please enter a valid Gemini API key in the sidebar.")
                 else:
-                    st.error("AI did not return usable data. Please try again.")
+                    detail = ""
+                    if skipped:
+                        detail = f" Models tried: {', '.join(skipped)}."
+                    if last_err:
+                        # Show truncated error for debugging
+                        detail += f" Last error: {last_err[:150]}"
+                    st.error(f"AI did not return usable data. Please try again.{detail}")
                 return False
         except Exception as e:
             st.error(f"Failed to generate pathway scope: {e}")
