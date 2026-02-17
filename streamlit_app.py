@@ -3872,6 +3872,16 @@ if "Scope" in phase:
                 st.session_state.data['phase1']['problem'] = str(data.get('problem', ''))
                 st.session_state.data['phase1']['objectives'] = format_as_numbered_list(data.get('objectives', ''))
                 return True
+            else:
+                # API returned no data — surface the reason
+                last_err = st.session_state.get('_last_api_error', '')
+                if last_err and ('429' in last_err or 'RESOURCE_EXHAUSTED' in last_err):
+                    st.error("API quota exceeded. Please wait a minute and try again, or check your Gemini API key billing.")
+                elif not get_genai_client():
+                    st.error("No AI connection. Please enter a valid Gemini API key in the sidebar.")
+                else:
+                    st.error("AI did not return usable data. Please try again.")
+                return False
         except Exception as e:
             st.error(f"Failed to generate pathway scope: {e}")
         return False
@@ -3924,7 +3934,9 @@ if "Scope" in phase:
         if st.button("Generate Scope", key="p1_generate_btn", type="secondary"):
             c = st.session_state.get('p1_cond_input', '').strip()
             s = st.session_state.get('p1_setting', '').strip()
-            if c and s:
+            if not get_genai_client():
+                st.error("Please enter a valid Gemini API key in the sidebar first.")
+            elif c and s:
                 # Sync values first
                 st.session_state.data['phase1']['condition'] = c
                 st.session_state.data['phase1']['setting'] = s
@@ -3935,6 +3947,7 @@ if "Scope" in phase:
                         if key in st.session_state:
                             del st.session_state[key]
                     st.rerun()
+                # else: trigger_p1_draft already showed error
             else:
                 st.warning("Please enter both Clinical Condition and Care Setting first.")
 
