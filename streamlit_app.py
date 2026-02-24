@@ -803,7 +803,7 @@ def render_bottom_navigation():
         if current_idx > 0:
             prev_phase = PHASES[current_idx - 1]
             with col_prev:
-                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", type="secondary", use_container_width=True):
+                if st.button(f"← {prev_phase}", key=f"bottom_prev_{current_idx}", type="secondary", width='stretch'):
                     st.session_state.current_phase_label = prev_phase
                     st.rerun()
         else:
@@ -820,7 +820,7 @@ def render_bottom_navigation():
         if current_idx < len(PHASES) - 1:
             next_phase = PHASES[current_idx + 1]
             with col_next:
-                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", type="primary", use_container_width=True):
+                if st.button(f"{next_phase} →", key=f"bottom_next_{current_idx}", type="primary", width='stretch'):
                     st.session_state.current_phase_label = next_phase
                     st.rerun()
         # Always render brand/licensing footer before any phase stop()
@@ -2578,7 +2578,7 @@ def dot_from_nodes(nodes, orientation="TD") -> str:
     lines = [
         "digraph G {",
         f"  rankdir={rankdir};",
-        "  splines=ortho;",  # Orthogonal edges for cleaner routing
+        "  splines=polyline;",  # Polyline edges (ortho doesn't support edge labels)
         "  nodesep=0.8;",   # Horizontal spacing between nodes
         "  ranksep=1.0;",   # Vertical spacing between ranks
         "  node [fontname=Helvetica, fontsize=11];",
@@ -2727,7 +2727,7 @@ def build_graphviz_from_nodes(nodes, orientation="TD"):
     
     g = graphviz.Digraph(format='svg')
     g.attr(rankdir=rankdir)
-    g.attr(splines='ortho')      # Orthogonal edges for cleaner routing
+    g.attr(splines='polyline')    # Polyline edges (ortho doesn't support edge labels)
     g.attr(nodesep='0.8')        # Horizontal spacing
     g.attr(ranksep='1.0')        # Vertical spacing
     g.attr('node', fontname='Helvetica', fontsize='11')
@@ -3827,7 +3827,7 @@ for i, p in enumerate(PHASES):
     button_label = f"{phase_num}. {short_label}"
     
     with nav_cols[col_idx]:
-        if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, use_container_width=True):
+        if st.button(button_label, key=f"nav_{p.replace(' ', '_').replace('&', 'and')}", type=button_type, width='stretch'):
             st.session_state.current_phase_label = p
             st.rerun()
     
@@ -4136,7 +4136,7 @@ Return clean JSON ONLY. No markdown, no explanation."""
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
-        submitted = st.button("🔄 Regenerate Phase 1", type="primary", use_container_width=True, key="p1_regen_btn")
+        submitted = st.button("🔄 Regenerate Phase 1", type="primary", width='stretch', key="p1_regen_btn")
 
     if submitted:
         refinement_text = st.session_state.get('p1_refine_input', '').strip()
@@ -5241,7 +5241,7 @@ elif "Decision" in phase or "Tree" in phase:
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
-        submitted = st.button("🔄 Regenerate Pathway", type="primary", use_container_width=True, key="p3_regen_btn")
+        submitted = st.button("🔄 Regenerate Pathway", type="primary", width='stretch', key="p3_regen_btn")
 
     if submitted:
         refinement_request = st.session_state.get('p3_refine_input', '').strip()
@@ -5532,7 +5532,7 @@ EXAMPLE FORMAT:
     
     if dot_code:
         # Render Graphviz natively — scales properly in Streamlit
-        st.graphviz_chart(dot_code, use_container_width=True)
+        st.graphviz_chart(dot_code, width='stretch')
         
         # Download options
         dl_col1, dl_col2, dl_col3 = st.columns(3)
@@ -5544,7 +5544,7 @@ EXAMPLE FORMAT:
                     file_name="pathway.mmd",
                     mime="text/plain",
                     help="Paste into mermaid.live, GitHub, Notion, or any Mermaid-compatible tool",
-                    use_container_width=True
+                    width='stretch'
                 )
         with dl_col2:
             if svg_bytes:
@@ -5554,7 +5554,7 @@ EXAMPLE FORMAT:
                     file_name="pathway.svg",
                     mime="image/svg+xml",
                     help="High-quality vector graphic for presentations and email",
-                    use_container_width=True
+                    width='stretch'
                 )
         with dl_col3:
             if mermaid_code:
@@ -5566,7 +5566,7 @@ EXAMPLE FORMAT:
                     "🔗 Open in Mermaid Live",
                     f"https://mermaid.live/edit#base64:{mermaid_b64}",
                     help="Edit and export in the Mermaid Live Editor",
-                    use_container_width=True
+                    width='stretch'
                 )
         st.caption("💡 Re-download after applying heuristics to get the updated pathway.")
     else:
@@ -5618,9 +5618,31 @@ EXAMPLE FORMAT:
         has_heuristics = bool(h_data)
         if has_heuristics:
             if p4_state.get('applied_status') and p4_state.get('applied_summary_detail'):
-                st.success("✅ Applied")
-                with st.expander("View Changes Made", expanded=True):
-                    st.markdown("**Changes Made:**")
+                st.success("✅ Heuristics Applied")
+                applied_list = p4_state.get('applied_heuristics', [])
+                all_keys = sorted(h_data.keys(), key=lambda k: int(k[1:]) if k[1:].isdigit() else k)
+                skipped_list = [k for k in all_keys if k not in applied_list]
+
+                with st.expander("View Applied vs. Skipped Heuristics", expanded=True):
+                    col_a, col_s = st.columns(2)
+                    with col_a:
+                        st.markdown("**✅ Applied:**")
+                        if applied_list:
+                            for hk in applied_list:
+                                label = HEURISTIC_DEFS.get(hk, hk).split(' (')[0].split(':')[0]
+                                st.markdown(f"- **{hk}** — {label}")
+                        else:
+                            st.caption("No heuristics were applied.")
+                    with col_s:
+                        st.markdown("**⏭️ Skipped (not applicable to pathway nodes):**")
+                        if skipped_list:
+                            for hk in skipped_list:
+                                label = HEURISTIC_DEFS.get(hk, hk).split(' (')[0].split(':')[0]
+                                st.markdown(f"- **{hk}** — {label}")
+                        else:
+                            st.caption("All heuristics were applied.")
+                    st.divider()
+                    st.markdown("**Summary of Changes:**")
                     st.markdown(p4_state['applied_summary_detail'])
             
             col_apply, col_undo = st.columns([1, 1])
@@ -5770,7 +5792,7 @@ EXAMPLE FORMAT:
             if uploaded_count > 0:
                 st.caption(f"{uploaded_count} file(s) ready for regeneration")
         
-        regen_submitted = st.button("🔄 Regenerate Pathway", type="primary", use_container_width=True, key="p4_regen_btn")
+        regen_submitted = st.button("🔄 Regenerate Pathway", type="primary", width='stretch', key="p4_regen_btn")
 
         if regen_submitted:
             refine_notes = st.session_state.get('p4_refine_notes', '').strip()
