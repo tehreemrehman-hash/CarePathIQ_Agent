@@ -1020,7 +1020,7 @@ Keep the summary brief (3-5 sentences per section)."""
         ]
         
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=contents,
             config=get_generation_config(enable_thinking=True, thinking_budget=512)
         )
@@ -2858,16 +2858,17 @@ def get_smart_model_cascade(requires_vision=False, requires_json=False):
     Strategy: Try models from most to least sophisticated. Auto mode cascades through
     available models until quota is found. User-selected models fall back to alternatives.
     """
-    # Standard stable aliases that always resolve to latest GA versions
-    FLASH = "gemini-2.0-flash"
-    PRO = "gemini-1.5-pro"
+    # Use current models with best free-tier quotas
+    # gemini-2.5-flash supports thinking natively and has generous free limits
+    FLASH = "gemini-2.5-flash"
     FLASH_LITE = "gemini-2.0-flash-lite"
+    PRO = "gemini-2.5-pro"
     
     if model_choice == "Auto":
-        return [FLASH, PRO, FLASH_LITE]
+        return [FLASH, FLASH_LITE, PRO]
     else:
         # Use user-selected model with intelligent fallback
-        return [model_choice, FLASH, PRO]
+        return [model_choice, FLASH, FLASH_LITE]
 
 def get_gemini_response(
     prompt, 
@@ -2941,24 +2942,16 @@ def get_gemini_response(
             }
         ]
 
-    # Build generation config with thinking and optional function calling
-    config_kwargs = {}
+    # Models that support thinking/reasoning natively (2.5+ models)
+    THINKING_MODELS = {"gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash"}
     
-    # Configure thinking for thought signature validation (Gemini 3+ requirement)
-    if enable_thinking:
-        config_kwargs["thinking_config"] = types.ThinkingConfig(
-            thinking_budget=thinking_budget
-        )
-    
-    # Configure function calling if declaration provided
+    # Configure function calling if declaration provided (model-independent)
+    fc_kwargs = {}
     if function_declaration:
-        config_kwargs["tools"] = [types.Tool(function_declarations=[function_declaration])]
-        # Force function calling mode
-        config_kwargs["tool_config"] = types.ToolConfig(
+        fc_kwargs["tools"] = [types.Tool(function_declarations=[function_declaration])]
+        fc_kwargs["tool_config"] = types.ToolConfig(
             function_calling_config=types.FunctionCallingConfig(mode="AUTO")
         )
-    
-    config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
     response = None
     last_error = None
@@ -2966,6 +2959,15 @@ def get_gemini_response(
     
     for model_name in candidates:
         try:
+            # Build per-model config: only add thinking for models that support it
+            config_kwargs = dict(fc_kwargs)  # Start with function calling config
+            model_base = model_name.split("-preview")[0].split("-exp")[0]  # Normalize name
+            if enable_thinking and any(t in model_base for t in THINKING_MODELS):
+                config_kwargs["thinking_config"] = types.ThinkingConfig(
+                    thinking_budget=thinking_budget
+                )
+            config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+            
             # Build API call arguments
             call_kwargs = {
                 "model": model_name,
@@ -2988,29 +2990,6 @@ def get_gemini_response(
         except Exception as e:
             error_str = str(e)
             last_error = error_str
-
-            # If thinking config caused the error, retry this model without it
-            if enable_thinking and ('thinking' in error_str.lower() or 'thinkingConfig' in error_str or 'INVALID_ARGUMENT' in error_str):
-                try:
-                    retry_kwargs = {}
-                    if function_declaration:
-                        retry_kwargs["tools"] = [types.Tool(function_declarations=[function_declaration])]
-                        retry_kwargs["tool_config"] = types.ToolConfig(
-                            function_calling_config=types.FunctionCallingConfig(mode="AUTO")
-                        )
-                    retry_config = types.GenerateContentConfig(**retry_kwargs) if retry_kwargs else None
-                    retry_call = {"model": model_name, "contents": contents}
-                    if retry_config:
-                        retry_call["config"] = retry_config
-                    response = client.models.generate_content(**retry_call)
-                    if function_declaration and response and response.candidates:
-                        result = extract_function_call_result(response)
-                        if result:
-                            return result
-                    if response and hasattr(response, 'text'):
-                        break
-                except Exception:
-                    pass  # Fall through to next model
 
             # Check if error is quota exhaustion (429 RESOURCE_EXHAUSTED)
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
@@ -3089,16 +3068,16 @@ def validate_ai_connection() -> bool:
         return False
     try:
         resp = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=[{"parts": [{"text": "ping"}]}],
-            config=get_generation_config(enable_thinking=True, thinking_budget=256)
+            config=get_generation_config(enable_thinking=False)
         )
         return bool(resp and hasattr(resp, 'text') and resp.text)
     except Exception as e:
-        # Retry without thinking config in case model doesn't support it
+        # Retry with fallback model
         try:
             resp = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.0-flash-lite",
                 contents=[{"parts": [{"text": "ping"}]}]
             )
             return bool(resp and hasattr(resp, 'text') and resp.text)
@@ -3422,7 +3401,7 @@ def get_local_faq_answer(user_question: str) -> str:
     if "api" in q or "key" in q or "gemini" in q or "model" in q:
         return (
             "CarePathIQ uses Google Gemini API (get free key at https://aistudio.google.com/app/apikey). "
-            "Uses gemini-2.0-flash and gemini-1.5-pro models with automatic cascade fallback. "
+            "Uses gemini-2.5-flash and gemini-2.5-pro models with automatic cascade fallback. "
             "Enter your API key in the sidebar."
         )
     if "files" in q or "structure" in q or "code" in q:
@@ -3563,7 +3542,7 @@ with st.sidebar:
     if gemini_api_key:
         available_models = get_available_models(gemini_api_key)
     
-    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.0-flash", "gemini-1.5-pro"])
+    model_options = ["Auto"] + (available_models if available_models else ["gemini-2.5-flash", "gemini-2.5-pro"])
     model_choice = st.selectbox("Model", model_options, index=0)
     
     st.divider()

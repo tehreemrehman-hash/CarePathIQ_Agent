@@ -15,14 +15,15 @@ from google.genai import types
 # MODEL CONFIGURATION
 # =============================================================================
 
-# Primary model aliases - use -latest for automatic updates
-PRIMARY_MODEL = "gemini-flash-latest"
-FALLBACK_MODEL = "gemini-pro-latest"
+# Primary model aliases - use current models with best free-tier quotas
+PRIMARY_MODEL = "gemini-2.5-flash"
+FALLBACK_MODEL = "gemini-2.0-flash-lite"
 
 # Model cascade for automatic fallback on quota exhaustion
 MODEL_CASCADE = [
-    "gemini-flash-latest",
-    "gemini-pro-latest",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-pro",
 ]
 
 # Thinking configuration for thought signature validation

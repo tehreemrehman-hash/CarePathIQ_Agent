@@ -836,7 +836,7 @@ Make scenarios specific to {condition} in {care_setting or 'the care setting'}. 
                     )
                 
                 response = genai_client.models.generate_content(
-                    model="gemini-flash-latest",
+                    model="gemini-2.5-flash",
                     contents=[{"text": prompt}],
                     **config_kwargs
                 )
@@ -1157,7 +1157,7 @@ document.addEventListener('DOMContentLoaded', initializeHeuristics);
     return html
 
 
-def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-flash-latest", max_retries: int = 3):
+def _call_genai_with_retry(genai_client, prompt: str, model: str = "gemini-2.5-flash", max_retries: int = 3):
     """
     Call Gemini API with exponential backoff retry for rate limits.
     
@@ -1209,7 +1209,7 @@ def _simple_genai_call(genai_client, prompt: str):
     """Simple single-shot API call without retries for faster response."""
     try:
         response = genai_client.models.generate_content(
-            model="gemini-flash-latest",
+            model="gemini-2.5-flash",
             contents=prompt
         )
         return response.text
@@ -2267,7 +2267,7 @@ Return ONLY valid JSON, no other text."""
                 )
             
             response = genai_client.models.generate_content(
-                model="gemini-flash-latest",
+                model="gemini-2.5-flash",
                 contents=inference_prompt,
                 **config_kwargs
             )
