@@ -549,8 +549,13 @@ class PathwayGenerator:
         # Replace problematic characters for Mermaid
         text = str(text).replace('"', "'").replace('\n', ' ').replace('\\n', ' ')
         # Characters that break Mermaid syntax when inside quoted labels
+        # IMPORTANT: & must be escaped FIRST to &amp; so subsequent &#xx; entities stay intact
+        text = text.replace('&', '&amp;')
         text = text.replace('#', '&#35;')
-        text = text.replace('&', '&#38;')
+        text = text.replace('<', '&lt;')
+        text = text.replace('>', '&gt;')
+        # Pipe chars break edge-label syntax -->|"..."|  
+        text = text.replace('|', '&#124;')
         # Collapse whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         # Truncate if too long
@@ -630,6 +635,13 @@ class PathwayGenerator:
                     if i == region_end:
                         if reconverge < n:
                             edges.append((i, reconverge, ''))
+                        else:
+                            # Reconvergence beyond array — connect to nearest End node or next
+                            end_indices = [j for j in range(i + 1, n) if nodes[j].get('type') == 'End']
+                            if end_indices:
+                                edges.append((i, end_indices[0], ''))
+                            elif i + 1 < n:
+                                edges.append((i, i + 1, ''))
                     elif i + 1 < n:
                         edges.append((i, i + 1, ''))
                 elif i + 1 < n:

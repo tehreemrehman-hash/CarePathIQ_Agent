@@ -2371,6 +2371,29 @@ def validate_decision_science_pathway(nodes_list):
         ]) / 6
     }
 
+def _escape_mermaid_text(text, max_length=60):
+    """Escape text for Mermaid compatibility.
+    
+    Mermaid is sensitive to quotes, parentheses, brackets, angle brackets,
+    curly braces, pipe characters, and hash symbols inside labels.
+    """
+    if not text:
+        return "Step"
+    text = str(text).replace('"', "'").replace('\n', ' ').replace('\\n', ' ')
+    # Characters that break Mermaid syntax inside quoted labels
+    # IMPORTANT: & must be escaped FIRST to &amp; so subsequent &#xx; entities stay intact
+    text = text.replace('&', '&amp;')
+    text = text.replace('#', '&#35;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    # Pipe chars break edge-label syntax -->|"..."|  
+    text = text.replace('|', '&#124;')
+    # Collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    if len(text) > max_length:
+        text = text[:max_length - 3] + "..."
+    return text
+
 def generate_mermaid_code(nodes, orientation="TD"):
     """
     Generate Mermaid flowchart code from pathway nodes.
@@ -2398,7 +2421,7 @@ def generate_mermaid_code(nodes, orientation="TD"):
     
     for i, n in enumerate(valid_nodes):
         nid = f"N{i}"
-        label = str(n.get('label', f'Step {i}')).replace('"', "'").replace('\n', ' ')
+        label = _escape_mermaid_text(n.get('label', f'Step {i}'), max_length=120)
         ntype = n.get('type', 'Process')
         if ntype in ('Start', 'End'):
             lines.append(f'    {nid}(["{label}"])')
@@ -2413,7 +2436,7 @@ def generate_mermaid_code(nodes, orientation="TD"):
     for src_idx, dst_idx, lbl in computed_edges:
         src = f"N{src_idx}"
         dst = f"N{dst_idx}"
-        safe_lbl = str(lbl).replace('"', "'") if lbl else ''
+        safe_lbl = _escape_mermaid_text(lbl, max_length=35) if lbl else ''
         if safe_lbl:
             lines.append(f'    {src} -->|"{safe_lbl}"| {dst}')
         else:
@@ -2510,6 +2533,13 @@ def _compute_edges(nodes):
                     # Last node in this branch -> connect to reconvergence
                     if reconverge < n:
                         edges.append((i, reconverge, ''))
+                    else:
+                        # Reconvergence beyond array — connect to nearest End node or next node
+                        end_indices = [j for j in range(i + 1, n) if nodes[j].get('type') == 'End']
+                        if end_indices:
+                            edges.append((i, end_indices[0], ''))
+                        elif i + 1 < n:
+                            edges.append((i, i + 1, ''))
                 elif i + 1 < n:
                     edges.append((i, i + 1, ''))  # Sequential within branch
             elif i + 1 < n:
@@ -5355,7 +5385,7 @@ elif "Decision" in phase or "Tree" in phase:
 # --- PHASE 4 ---
 elif "Interface" in phase or "UI" in phase:
     st.header(f"Phase 4. {PHASES[3]}")
-    styled_info("<b>Tip:</b> AI agent evaluates all Nielsen heuristics and applies those that meaningfully improve your pathway. Click 'Apply All Heuristics' to batch-apply intelligent recommendations. Review results below.")
+    styled_info("<b>Tip:</b> AI agent evaluates all Nielsen heuristics and applies those that meaningfully improve your pathway. Click 'Apply' to batch-apply intelligent recommendations. Review results below.")
     
     nodes = st.session_state.data['phase3']['nodes']
     p4_state = st.session_state.data.setdefault('phase4', {})
